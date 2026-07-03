@@ -8,6 +8,7 @@
 <!-- Firebase（compat版：会計ソフトと同じ書き方） -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
 <style>
   :root {
@@ -79,6 +80,41 @@
   }
   .big-btn .emoji { font-size: 30px; }
   .big-btn:active { background: #eef4fa; }
+  .chat-badge {
+    position: absolute; top: 10px; right: 14px;
+    background: #e0453c; color: #fff; font-size: 12px; font-weight: 700;
+    min-width: 20px; height: 20px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; padding: 0 5px;
+  }
+
+  /* --- チャット --- */
+  .chat-scroll { height: 55vh; overflow-y: auto; padding: 6px 2px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-bubble-row { display: flex; }
+  .chat-bubble-row.mine { justify-content: flex-end; }
+  .chat-bubble {
+    max-width: 78%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.5;
+    background: #fff; border: 1.5px solid var(--border);
+  }
+  .chat-bubble-row.mine .chat-bubble { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .chat-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .chat-bubble-row.mine .chat-meta { text-align: right; }
+  .chat-bubble img { max-width: 100%; border-radius: 10px; margin-top: 6px; display: block; }
+  .chat-compose { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+  .chat-compose textarea { flex: 1; min-height: 46px; max-height: 120px; resize: none; }
+  .chat-photo-btn {
+    width: 46px; height: 46px; border-radius: 10px; border: 1.5px solid var(--border);
+    background: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .chat-send-btn { flex-shrink: 0; padding: 12px 18px; }
+  .preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .preset-btn {
+    font-size: 13px; padding: 7px 12px; border-radius: 999px; border: 1.5px solid var(--border);
+    background: #f4f6f8; color: var(--text); cursor: pointer;
+  }
+  .chat-thread-item { padding: 12px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); margin-bottom: 8px; }
+  .chat-thread-item.active { background: #eef4fa; border-color: var(--primary); }
+  .chat-photo-preview { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .chat-photo-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
 
   label { display: block; font-size: 14px; color: var(--muted); margin: 12px 0 6px; }
   input, select, textarea {
@@ -209,10 +245,12 @@ const firebaseConfig = {
 };
 
 let db = null;
+let storage = null;
 let firebaseReady = false;
 try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  storage = firebase.storage();
   firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
 } catch (e) {
   console.error("Firebase初期化エラー", e);
@@ -249,14 +287,19 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03 発注機能v2";
+const APP_VERSION = "更新: 2026-07-03 チャット機能";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
   screen: "login",
   adminTab: "order",
   leaveRequests: [],
-  employees: []
+  employees: [],
+  orders: [],
+  messages: [],
+  chatEmployeeId: null,
+  pendingPhoto: null,
+  broadcastTarget: "all"
 };
 
 const appEl = document.getElementById("app");
@@ -309,6 +352,7 @@ async function handleStaffLogin() {
     render();
     subscribeStaffLeaveRequests();
     subscribeStaffOrders();
+    subscribeStaffMessages();
   } catch (e) {
     alert("接続エラーが発生しました: " + e.message);
   }
@@ -322,7 +366,7 @@ function handleAdminLogin() {
   state.currentUser = { role: "admin", name: "本社担当" };
   state.screen = "adminHome";
   render();
-  if (firebaseReady) subscribeAllLeaveRequests();
+  if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); }
 }
 
 function logout() {
@@ -348,7 +392,10 @@ function renderStaff() {
         <div class="big-grid">
           <button class="big-btn" onclick="state.screen='leaveForm'; render();"><span class="emoji">🗓️</span>休み申請</button>
           <button class="big-btn" onclick="state.screen='orderForm'; render();"><span class="emoji">📦</span>備品をたのむ</button>
-          <button class="big-btn" onclick="alert('チャットは準備中です')"><span class="emoji">💬</span>本社とお話し</button>
+          <button class="big-btn" style="position:relative;" onclick="openStaffChat()">
+            <span class="emoji">💬</span>本社とお話し
+            ${staffUnreadCount() > 0 ? `<span class="chat-badge">${staffUnreadCount()}</span>` : ""}
+          </button>
           <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
         </div>
 
@@ -363,10 +410,16 @@ function renderStaff() {
       ` : ""}
 
       ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
-      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : renderLeaveHistory())}
+      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : (state.screen === "chat" ? "" : renderLeaveHistory()))}
       ${state.screen === "orderForm" ? renderOrderForm() : ""}
+      ${state.screen === "chat" ? renderStaffChat() : ""}
     </main>
   `;
+
+  if (state.screen === "chat") {
+    const box = document.getElementById("chatScroll");
+    if (box) box.scrollTop = box.scrollHeight;
+  }
 }
 
 /* 品目マスタ（初期リスト） */
@@ -529,6 +582,175 @@ function subscribeStaffOrders() {
     });
 }
 
+/* =========================================================
+   チャット機能
+   ========================================================= */
+const PRESET_PHRASES_STAFF = ["承知しました", "ありがとうございます", "確認します", "よろしくお願いします"];
+const PRESET_PHRASES_OFFICE = ["承知しました", "確認します", "少々お待ちください", "対応しました", "ありがとうございます"];
+
+function subscribeStaffMessages() {
+  if (!firebaseReady) return;
+  db.collection("messages")
+    .where("employeeId", "==", state.currentUser.id)
+    .onSnapshot(snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+        return ta - tb;
+      });
+      state.messages = rows;
+      render();
+    }, err => console.error("messages購読エラー", err));
+}
+
+function staffUnreadCount() {
+  if (!state.messages) return 0;
+  return state.messages.filter(m => m.senderRole === "office" && !m.readByStaff).length;
+}
+
+function openStaffChat() {
+  state.screen = "chat";
+  render();
+  markStaffMessagesRead();
+}
+
+async function markStaffMessagesRead() {
+  if (!firebaseReady || !state.messages) return;
+  const unread = state.messages.filter(m => m.senderRole === "office" && !m.readByStaff);
+  for (const m of unread) {
+    try { await db.collection("messages").doc(m.id).update({ readByStaff: true }); } catch (e) { /* ignore */ }
+  }
+}
+
+function renderStaffChat() {
+  const msgs = state.messages || [];
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:8px;">
+        <p class="staff-title" style="font-size:17px; margin:0;">本社とお話し</p>
+        <button class="link" onclick="state.screen='staffHome'; render();">とじる</button>
+      </div>
+
+      <div class="chat-scroll" id="chatScroll">
+        ${msgs.length ? msgs.map(m => renderChatBubble(m, m.senderRole === "staff")).join("") : `<p class="muted">まだメッセージはありません</p>`}
+      </div>
+
+      <div class="preset-row">
+        ${PRESET_PHRASES_STAFF.map(p => `<button type="button" class="preset-btn" onclick="insertPreset('${p}')">${p}</button>`).join("")}
+      </div>
+
+      ${state.pendingPhoto ? `
+        <div class="chat-photo-preview">
+          <img src="${state.pendingPhoto.previewUrl}" />
+          <span>写真を1枚 添付中</span>
+          <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
+        </div>
+      ` : ""}
+
+      <div class="chat-compose">
+        <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
+        <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()">📷</button>
+        <textarea id="chatTextInput" placeholder="メッセージを入力"></textarea>
+        <button class="primary chat-send-btn" onclick="sendStaffMessage()">送信</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderChatBubble(m, mine) {
+  const time = m.createdAt && m.createdAt.seconds
+    ? new Date(m.createdAt.seconds * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  return `
+    <div class="chat-bubble-row ${mine ? "mine" : ""}">
+      <div>
+        <div class="chat-bubble">
+          ${m.text ? `<div>${escapeHtml(m.text)}</div>` : ""}
+          ${m.photoURL ? `<img src="${m.photoURL}" onclick="window.open('${m.photoURL}','_blank')" />` : ""}
+        </div>
+        <div class="chat-meta">${mine ? "" : (m.senderName || "本社") + "　"}${time}</div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function insertPreset(text) {
+  const el = document.getElementById("chatTextInput");
+  if (el) { el.value = el.value ? el.value + " " + text : text; el.focus(); }
+}
+
+function handlePhotoSelect(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { alert("写真のサイズが大きすぎます（5MBまで）"); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.pendingPhoto = { file, previewUrl: reader.result };
+    render();
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearPendingPhoto() {
+  state.pendingPhoto = null;
+  render();
+}
+
+async function uploadPendingPhoto() {
+  if (!state.pendingPhoto || !firebaseReady) return null;
+  const path = `chat-photos/${Date.now()}_${state.pendingPhoto.file.name}`;
+  const ref = storage.ref().child(path);
+  await ref.put(state.pendingPhoto.file);
+  return await ref.getDownloadURL();
+}
+
+async function sendStaffMessage() {
+  const text = document.getElementById("chatTextInput").value.trim();
+  if (!text && !state.pendingPhoto) return alert("メッセージか写真を入力してください");
+
+  let photoURL = null;
+  if (state.pendingPhoto) {
+    if (!firebaseReady) {
+      photoURL = state.pendingPhoto.previewUrl;
+    } else {
+      try { photoURL = await uploadPendingPhoto(); }
+      catch (e) { return alert("写真の送信に失敗しました: " + e.message); }
+    }
+  }
+
+  const data = {
+    employeeId: state.currentUser.id,
+    employeeName: state.currentUser.name,
+    area: state.currentUser.area || "",
+    senderRole: "staff",
+    senderName: state.currentUser.name,
+    text, photoURL,
+    readByStaff: true,
+    readByOffice: false,
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.messages = state.messages || [];
+    state.messages.push({ ...data, id: "demo-" + Date.now() });
+    state.pendingPhoto = null;
+    document.getElementById("chatTextInput").value = "";
+    return render();
+  }
+  try {
+    await db.collection("messages").add(data);
+    state.pendingPhoto = null;
+    render();
+  } catch (e) {
+    alert("送信エラー: " + e.message);
+  }
+}
+
 
 function renderLeaveForm() {
   const today = new Date();
@@ -644,14 +866,14 @@ function renderAdmin() {
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 承認待ち</div></div>
         <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
-        <div class="stat-card"><div class="num">0</div><div class="label">未読メッセージ</div></div>
+        <div class="stat-card"><div class="num">${adminUnreadCount()}</div><div class="label">未読メッセージ</div></div>
         <div class="stat-card"><div class="num">${state.employees.length || "-"}</div><div class="label">登録従業員数</div></div>
       </div>
 
       <div class="tabbar">
         <button class="${state.adminTab === "order" ? "active" : ""}" onclick="state.adminTab='order'; render();">発注リスト</button>
         <button class="${state.adminTab === "leave" ? "active" : ""}" onclick="state.adminTab='leave'; render();">休暇管理</button>
-        <button onclick="alert('チャットは準備中です')">チャット</button>
+        <button class="${state.adminTab === "chat" ? "active" : ""}" onclick="state.adminTab='chat'; render();">チャット${adminUnreadCount() > 0 ? ` (${adminUnreadCount()})` : ""}</button>
         <button class="${state.adminTab === "emp" ? "active" : ""}" onclick="state.adminTab='emp'; state.editingEmpId=null; render();">従業員管理</button>
         <button onclick="alert('封筒印刷は準備中です')">封筒印刷</button>
         <button class="${state.adminTab === "contract" ? "active" : ""}" onclick="state.adminTab='contract'; render();">契約書発行</button>
@@ -661,10 +883,16 @@ function renderAdmin() {
 
       ${state.adminTab === "order" ? renderAdminOrderTab() : ""}
       ${state.adminTab === "leave" ? renderAdminLeaveTab(pending) : ""}
+      ${state.adminTab === "chat" ? renderAdminChatTab() : ""}
       ${state.adminTab === "emp" ? renderAdminEmployeeTab() : ""}
       ${state.adminTab === "contract" ? renderAdminContractTab() : ""}
     </main>
   `;
+
+  if (state.adminTab === "chat") {
+    const box = document.getElementById("chatScroll");
+    if (box) box.scrollTop = box.scrollHeight;
+  }
 }
 
 /* ---------- 本社側：発注リスト ---------- */
@@ -1126,6 +1354,234 @@ function subscribeAllLeaveRequests() {
     state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   });
+}
+
+function subscribeAllMessages() {
+  db.collection("messages").onSnapshot(snap => {
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    rows.sort((a, b) => {
+      const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+      const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+      return ta - tb;
+    });
+    state.messages = rows;
+    render();
+  }, err => console.error("messages(admin)購読エラー", err));
+}
+
+function adminUnreadCount() {
+  if (!state.messages) return 0;
+  return state.messages.filter(m => m.senderRole === "staff" && !m.readByOffice).length;
+}
+
+function renderAdminChatTab() {
+  const employees = state.employees || [];
+  const msgs = state.messages || [];
+  const selectedId = state.chatEmployeeId || (employees[0] && employees[0].id);
+  const thread = msgs.filter(m => m.employeeId === selectedId && !m.broadcastId);
+  const broadcasts = groupBroadcasts(msgs);
+  const areas = [...new Set(employees.map(e => e.area).filter(Boolean))];
+
+  const unreadFor = (empId) => msgs.filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByOffice).length;
+
+  return `
+    <div class="card" style="display:grid; grid-template-columns:220px 1fr; gap:16px;">
+      <div>
+        <p class="muted" style="margin:0 0 8px;">従業員一覧</p>
+        ${employees.map(e => `
+          <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
+            <div class="row-between" style="margin:0;">
+              <span>${e.name || "(名前未登録)"}</span>
+              ${unreadFor(e.id) > 0 ? `<span class="chat-badge" style="position:static;">${unreadFor(e.id)}</span>` : ""}
+            </div>
+            <div class="muted" style="font-size:12px;">${e.area || ""}</div>
+          </div>
+        `).join("") || `<p class="muted">従業員データがまだありません</p>`}
+      </div>
+
+      <div>
+        ${selectedId ? `
+          <p class="staff-title" style="font-size:16px; margin:0 0 8px;">${(employees.find(e => e.id === selectedId) || {}).name || ""} さんとのやりとり</p>
+          <div class="chat-scroll" id="chatScroll" style="height:40vh;">
+            ${thread.length ? thread.map(m => renderChatBubble(m, m.senderRole === "office")).join("") : `<p class="muted">まだメッセージはありません</p>`}
+          </div>
+          <div class="preset-row">
+            ${PRESET_PHRASES_OFFICE.map(p => `<button type="button" class="preset-btn" onclick="insertPreset('${p}')">${p}</button>`).join("")}
+          </div>
+          ${state.pendingPhoto ? `
+            <div class="chat-photo-preview">
+              <img src="${state.pendingPhoto.previewUrl}" />
+              <span>写真を1枚 添付中</span>
+              <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
+            </div>
+          ` : ""}
+          <div class="chat-compose">
+            <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
+            <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()">📷</button>
+            <textarea id="chatTextInput" placeholder="メッセージを入力"></textarea>
+            <button class="primary chat-send-btn" onclick="sendAdminMessage('${selectedId}')">送信</button>
+          </div>
+        ` : `<p class="muted">左の一覧から従業員を選んでください</p>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">お知らせを送る（全員／エリア宛て）</p>
+      <div style="display:grid; grid-template-columns:1fr 2fr auto; gap:10px; align-items:end;">
+        <div>
+          <label>宛先</label>
+          <select id="broadcastTarget">
+            <option value="all">全員</option>
+            ${areas.map(a => `<option value="area:${a}">${a}のみ</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label>お知らせ内容</label>
+          <input id="broadcastText" type="text" placeholder="例：明日は台風のため休業します" />
+        </div>
+        <button class="primary" style="height:46px;" onclick="sendBroadcast()">送信</button>
+      </div>
+
+      ${broadcasts.length ? `
+        <div style="margin-top:16px;">
+          <p class="muted" style="margin:0 0 8px;">送信したお知らせ</p>
+          ${broadcasts.map(b => `
+            <div class="row-between" style="margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:8px;">
+              <div>
+                <div>${escapeHtml(b.text)}</div>
+                <span class="muted" style="font-size:12px;">${b.targetLabel}</span>
+              </div>
+              <span class="muted" style="font-size:13px;">既読 ${b.readCount}/${b.total}</span>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function groupBroadcasts(msgs) {
+  const map = {};
+  msgs.filter(m => m.broadcastId).forEach(m => {
+    if (!map[m.broadcastId]) map[m.broadcastId] = { text: m.text, targetLabel: m.targetLabel || "全員", items: [] };
+    map[m.broadcastId].items.push(m);
+  });
+  return Object.values(map).map(b => ({
+    text: b.text,
+    targetLabel: b.targetLabel,
+    total: b.items.length,
+    readCount: b.items.filter(i => i.readByStaff).length
+  }));
+}
+
+function openAdminThread(empId) {
+  state.chatEmployeeId = empId;
+  render();
+  markOfficeMessagesRead(empId);
+}
+
+async function markOfficeMessagesRead(empId) {
+  if (!firebaseReady) return;
+  const unread = (state.messages || []).filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByOffice);
+  for (const m of unread) {
+    try { await db.collection("messages").doc(m.id).update({ readByOffice: true }); } catch (e) { /* ignore */ }
+  }
+}
+
+async function sendAdminMessage(empId) {
+  const text = document.getElementById("chatTextInput").value.trim();
+  if (!text && !state.pendingPhoto) return alert("メッセージか写真を入力してください");
+  const emp = state.employees.find(e => e.id === empId) || {};
+
+  let photoURL = null;
+  if (state.pendingPhoto) {
+    if (!firebaseReady) {
+      photoURL = state.pendingPhoto.previewUrl;
+    } else {
+      try { photoURL = await uploadPendingPhoto(); }
+      catch (e) { return alert("写真の送信に失敗しました: " + e.message); }
+    }
+  }
+
+  const data = {
+    employeeId: empId,
+    employeeName: emp.name || "",
+    area: emp.area || "",
+    senderRole: "office",
+    senderName: state.currentUser.name || "本社",
+    text, photoURL,
+    readByStaff: false,
+    readByOffice: true,
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.messages = state.messages || [];
+    state.messages.push({ ...data, id: "demo-" + Date.now() });
+    state.pendingPhoto = null;
+    document.getElementById("chatTextInput").value = "";
+    return render();
+  }
+  try {
+    await db.collection("messages").add(data);
+    state.pendingPhoto = null;
+    render();
+  } catch (e) {
+    alert("送信エラー: " + e.message);
+  }
+}
+
+async function sendBroadcast() {
+  const text = document.getElementById("broadcastText").value.trim();
+  const target = document.getElementById("broadcastTarget").value;
+  if (!text) return alert("お知らせ内容を入れてください");
+
+  let targets = state.employees || [];
+  let targetLabel = "全員";
+  if (target.startsWith("area:")) {
+    const area = target.slice(5);
+    targets = targets.filter(e => e.area === area);
+    targetLabel = area + "のみ";
+  }
+  if (!targets.length) return alert("宛先の従業員が見つかりません");
+
+  const broadcastId = "b" + Date.now();
+  const senderName = state.currentUser.name || "本社";
+
+  if (!firebaseReady) {
+    state.messages = state.messages || [];
+    targets.forEach(emp => {
+      state.messages.push({
+        id: "demo-" + Date.now() + "-" + emp.id,
+        employeeId: emp.id, employeeName: emp.name, area: emp.area || "",
+        senderRole: "office", senderName, text, photoURL: null,
+        broadcastId, targetLabel,
+        readByStaff: false, readByOffice: true,
+        createdAt: new Date().toISOString()
+      });
+    });
+    document.getElementById("broadcastText").value = "";
+    return render();
+  }
+
+  try {
+    const batch = db.batch();
+    targets.forEach(emp => {
+      const ref = db.collection("messages").doc();
+      batch.set(ref, {
+        employeeId: emp.id, employeeName: emp.name || "", area: emp.area || "",
+        senderRole: "office", senderName, text, photoURL: null,
+        broadcastId, targetLabel,
+        readByStaff: false, readByOffice: true,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    document.getElementById("broadcastText").value = "";
+    render();
+  } catch (e) {
+    alert("送信エラー: " + e.message);
+  }
 }
 
 render();

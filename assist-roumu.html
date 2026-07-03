@@ -8,6 +8,7 @@
 <!-- Firebase（compat版：会計ソフトと同じ書き方） -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <style>
   :root {
@@ -277,10 +278,16 @@ const firebaseConfig = {
 
 let db = null;
 let firebaseReady = false;
+let authReady = false;
 try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
   firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
+  if (firebaseReady) {
+    // 画面や操作は一切変えず、裏側でアプリ自身を認証させる（Firestoreルール強化のため）
+    firebase.auth().signInAnonymously().catch(e => console.error("匿名認証エラー", e));
+    firebase.auth().onAuthStateChanged(user => { authReady = !!user; });
+  }
 } catch (e) {
   console.error("Firebase初期化エラー", e);
 }
@@ -316,7 +323,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(14)";
+const APP_VERSION = "更新: 2026-07-03(15)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -363,6 +370,19 @@ function renderLogin() {
   `;
 }
 
+function waitForAuth(timeoutMs) {
+  return new Promise(resolve => {
+    if (authReady) return resolve();
+    const started = Date.now();
+    const iv = setInterval(() => {
+      if (authReady || Date.now() - started > timeoutMs) {
+        clearInterval(iv);
+        resolve();
+      }
+    }, 100);
+  });
+}
+
 async function handleStaffLogin() {
   const loginId = document.getElementById("loginId").value.trim();
   if (!loginId) return alert("ログインIDを入力してください");
@@ -373,6 +393,8 @@ async function handleStaffLogin() {
     state.screen = "staffHome";
     return render();
   }
+
+  await waitForAuth(3000);
 
   try {
     const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
@@ -393,11 +415,12 @@ async function handleStaffLogin() {
   }
 }
 
-function handleAdminLogin() {
+async function handleAdminLogin() {
   const pass = document.getElementById("adminPass").value;
   // MVP: 共通パスワード方式（会計ソフトと同じ考え方）。運用開始後に変更してください。
   const ADMIN_PASSWORD = "roumu2026";
   if (pass !== ADMIN_PASSWORD) return alert("パスワードが違います");
+  if (firebaseReady) await waitForAuth(3000);
   state.currentUser = { role: "admin", name: "本社担当" };
   state.screen = "adminHome";
   render();

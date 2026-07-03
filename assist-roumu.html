@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(4)";
+const APP_VERSION = "更新: 2026-07-03(6)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -343,31 +343,33 @@ function renderLogin() {
         <h1>アシスト労務</h1>
         <p class="sub">株式会社ホームメンテナンス</p>
         ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
-        <label>電話番号</label>
-        <input id="loginPhone" type="tel" placeholder="09012345678" />
+        <label>ログインID（8桁の数字）</label>
+        <input id="loginId" type="tel" inputmode="numeric" placeholder="12345678" maxlength="8" />
         <button class="primary" onclick="handleStaffLogin()">ログインはこちら</button>
-        <div style="height:8px"></div>
-        <label>本社パスワード</label>
-        <input id="adminPass" type="password" placeholder="本社共通パスワード" />
-        <button class="secondary" onclick="handleAdminLogin()">管理者はこちら</button>
+
+        <div style="margin-top:32px; padding-top:14px; border-top:1px solid var(--border);">
+          <label style="font-size:12px;">管理者パスワード</label>
+          <input id="adminPass" type="password" placeholder="管理者パスワード" style="font-size:13px; padding:8px;" />
+          <button class="secondary" style="font-size:13px; padding:8px; margin-top:6px;" onclick="handleAdminLogin()">管理者はこちら</button>
+        </div>
       </div>
     </div>
   `;
 }
 
 async function handleStaffLogin() {
-  const phone = document.getElementById("loginPhone").value.trim();
-  if (!phone) return alert("電話番号を入力してください");
+  const loginId = document.getElementById("loginId").value.trim();
+  if (!loginId) return alert("ログインIDを入力してください");
 
   if (!firebaseReady) {
     // Firebase未設定時のダミーユーザー（動作確認用）
-    state.currentUser = { id: "demo1", name: "松崎 貞子", phone, role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
+    state.currentUser = { id: "demo1", name: "松崎 貞子", loginId, role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
     state.screen = "staffHome";
     return render();
   }
 
   try {
-    const snap = await db.collection("employees").where("phone", "==", phone).limit(1).get();
+    const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
     if (snap.empty) return alert("登録が見つかりません。本社にお問い合わせください。");
     const doc = snap.docs[0];
     state.currentUser = { id: doc.id, role: "staff", ...doc.data() };
@@ -1111,7 +1113,7 @@ function renderAdminLeaveTab(pending) {
 
 /* ---------- 従業員管理（本社共有・全項目編集可） ---------- */
 const EMP_FIELDS = [
-  ["name", "氏名"], ["furigana", "フリガナ"], ["phone", "電話番号"],
+  ["loginId", "ログインID（8桁）"], ["employeeCode", "管理番号"], ["name", "氏名"], ["furigana", "フリガナ"], ["phone", "電話番号"],
   ["gender", "性別"], ["birthDate", "生年月日"],
   ["address", "現住所"], ["area", "エリア"], ["workplace", "就業場所（現場）"],
   ["hireDate", "入社日（雇用開始日）"], ["contractEnd", "雇用終了日（期間の定めがある場合）"],
@@ -1185,28 +1187,132 @@ function renderAdminEmployeeTab() {
   }
 
   const searchVal = document.getElementById("empSearch") ? document.getElementById("empSearch").value : "";
-  const list = state.employees.filter(e => !searchVal || (e.name || "").includes(searchVal));
+  let list = state.employees.filter(e => !searchVal || (e.name || "").includes(searchVal));
+  const showImport = !!state.showBulkImport;
+  const sortByCode = !!state.empSortByCode;
+
+  if (sortByCode) {
+    list = list.slice().sort((a, b) => (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true }));
+  }
 
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:14px;">
         <p class="staff-title" style="font-size:16px; margin:0;">従業員一覧</p>
+        <div>
+          <button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>
+          <button style="font-size:13px; padding:8px 14px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>
+        </div>
+      </div>
+
+      ${showImport ? `
+        <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; background:#f9fafb;">
+          <p class="muted" style="margin:0 0 10px;">名簿から変換したJSONファイルを選ぶと、内容を確認してから一括登録できます。ログインIDが同じ人がいる場合は上書き（更新）扱いになります。</p>
+          <input type="file" accept=".json" id="bulkImportFile" onchange="handleBulkImportFile(event)" />
+          <div id="bulkImportPreview"></div>
+        </div>
+      ` : ""}
+
+      <div class="row-between" style="margin-bottom:14px;">
+        <span></span>
         <input id="empSearch" type="text" placeholder="氏名で検索" style="width:180px;" oninput="render()" />
       </div>
       <table>
-        <thead><tr><th>氏名</th><th>エリア</th><th>シフト</th></tr></thead>
+        <thead><tr>
+          <th style="cursor:pointer;" onclick="state.empSortByCode=!state.empSortByCode; render();">管理番号 ${sortByCode ? "▲" : "▽"}</th>
+          <th>氏名</th><th>エリア</th><th>シフト</th>
+        </tr></thead>
         <tbody>
           ${list.map(e => `
             <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
+              <td>${e.employeeCode || ""}</td>
               <td>${e.name || "(名前未登録)"}</td>
               <td>${e.area || ""}</td>
               <td>${e.shiftDays || ""}</td>
             </tr>
-          `).join("") || `<tr><td colspan="3" class="muted">従業員データがまだありません</td></tr>`}
+          `).join("") || `<tr><td colspan="4" class="muted">従業員データがまだありません</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+}
+
+function generateLoginId() {
+  const existing = new Set((state.employees || []).map(e => e.loginId).filter(Boolean));
+  let id;
+  do {
+    id = String(Math.floor(10000000 + Math.random() * 90000000));
+  } while (existing.has(id));
+  return id;
+}
+
+async function addNewEmployee() {
+  const data = { name: "新しい従業員", loginId: generateLoginId() };
+  if (!firebaseReady) {
+    const id = "demo-" + Date.now();
+    state.employees.unshift({ id, ...data });
+    state.editingEmpId = id;
+    return render();
+  }
+  try {
+    const ref = await db.collection("employees").add(data);
+    state.editingEmpId = ref.id;
+    render();
+  } catch (e) {
+    alert("追加エラー: " + e.message);
+  }
+}
+
+function handleBulkImportFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let records;
+    try {
+      records = JSON.parse(reader.result);
+      if (!Array.isArray(records)) throw new Error("配列形式ではありません");
+    } catch (e) {
+      document.getElementById("bulkImportPreview").innerHTML = `<p style="color:var(--danger);">ファイルの読み込みに失敗しました: ${e.message}</p>`;
+      return;
+    }
+    state.bulkImportRecords = records;
+    const noPhone = records.filter(r => !r.phone).length;
+    document.getElementById("bulkImportPreview").innerHTML = `
+      <p style="margin-top:10px;">${records.length}件のデータを読み込みました。${noPhone > 0 ? `（うち電話番号なし: ${noPhone}件）` : ""}</p>
+      <button class="primary" onclick="runBulkImport()">この内容で登録する</button>
+    `;
+  };
+  reader.readAsText(file);
+}
+
+async function runBulkImport() {
+  const records = state.bulkImportRecords || [];
+  if (!records.length) return;
+  document.getElementById("bulkImportPreview").innerHTML = `<p>登録中です…しばらくお待ちください</p>`;
+
+  if (!firebaseReady) {
+    records.forEach(r => state.employees.push({ id: "demo-" + Math.random(), ...r }));
+    state.showBulkImport = false;
+    state.bulkImportRecords = null;
+    alert("（お試し表示のため実際の保存はされません）");
+    return render();
+  }
+
+  try {
+    const batch = db.batch();
+    records.forEach(r => {
+      const ref = r.loginId ? db.collection("employees").doc(r.loginId) : db.collection("employees").doc();
+      batch.set(ref, r, { merge: true });
+    });
+    await batch.commit();
+    state.showBulkImport = false;
+    state.bulkImportRecords = null;
+    alert(`${records.length}件、登録できました！`);
+    render();
+  } catch (e) {
+    alert("登録エラー: " + e.message);
+  }
 }
 
 async function saveEmployee(id) {

@@ -339,7 +339,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(21)";
+const APP_VERSION = "更新: 2026-07-03(22)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1942,57 +1942,71 @@ function renderAdminChatTab() {
   };
   const sortedEmployees = employees.slice().sort((a, b) => lastActivityFor(b.id) - lastActivityFor(a.id));
 
-  const selectedId = state.chatEmployeeId || (sortedEmployees[0] && sortedEmployees[0].id);
+  // スマホ幅では「一覧」か「会話」のどちらか片方だけを表示する（両方常に表示すると、一覧を全部スクロールしないと会話に辿り着けなくなるため）
+  const isNarrow = window.innerWidth <= 700;
+  const hasOpenedThread = !!state.chatEmployeeId;
+  const selectedId = state.chatEmployeeId || (!isNarrow && sortedEmployees[0] && sortedEmployees[0].id);
   const thread = msgs.filter(m => m.employeeId === selectedId && !m.broadcastId);
   const broadcasts = groupBroadcasts(msgs);
   const areas = [...new Set(allEmployees.map(e => e.area).filter(Boolean))];
 
   const unreadFor = (empId) => msgs.filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByOffice).length;
 
+  const listPanel = `
+    <div>
+      <div class="row-between" style="margin-bottom:8px;">
+        <p class="muted" style="margin:0;">${showResigned ? "退職者一覧" : "従業員一覧（更新順）"}</p>
+      </div>
+      <button style="width:100%; font-size:12px; padding:7px; margin-bottom:10px;" onclick="state.chatShowResigned=!state.chatShowResigned; state.chatEmployeeId=null; render();">
+        ${showResigned ? "在籍者に戻る" : `退職者とのやりとりを見る（${resignedCount}）`}
+      </button>
+      ${sortedEmployees.map(e => `
+        <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
+          <div class="row-between" style="margin:0;">
+            <span>${e.name || "(名前未登録)"}</span>
+            ${unreadFor(e.id) > 0 ? `<span class="chat-badge" style="position:static;">${unreadFor(e.id)}</span>` : ""}
+          </div>
+          <div class="muted" style="font-size:12px;">${e.area || ""}</div>
+        </div>
+      `).join("") || `<p class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`}
+    </div>
+  `;
+
+  const threadPanel = `
+    <div>
+      ${isNarrow ? `<button class="link" style="margin-bottom:8px;" onclick="state.chatEmployeeId=null; render();">← 従業員一覧にもどる</button>` : ""}
+      ${selectedId ? `
+        <p class="staff-title" style="font-size:16px; margin:0 0 8px;">${(allEmployees.find(e => e.id === selectedId) || {}).name || ""} さんとのやりとり${showResigned ? "（退職済み）" : ""}</p>
+        <div class="chat-scroll" id="chatScroll" style="height:40vh;">
+          ${thread.length ? thread.map(m => renderChatBubble(m, m.senderRole === "office")).join("") : `<p class="muted">まだメッセージはありません</p>`}
+        </div>
+        <div class="preset-row">
+          ${PRESET_PHRASES_OFFICE.map(p => `<button type="button" class="preset-btn" onclick="insertPreset('${p}')">${p}</button>`).join("")}
+        </div>
+        ${state.pendingPhoto ? `
+          <div class="chat-photo-preview">
+            <img src="${state.pendingPhoto.base64}" />
+            <span>写真を1枚 添付中</span>
+            <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
+          </div>
+        ` : ""}
+        <div class="chat-compose">
+          <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
+          <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()">📷</button>
+          <textarea id="chatTextInput" placeholder="メッセージを入力"></textarea>
+          <button class="primary chat-send-btn" onclick="sendAdminMessage('${selectedId}')">送信</button>
+        </div>
+      ` : `<p class="muted">左の一覧から従業員を選んでください</p>`}
+    </div>
+  `;
+
+  const chatGridInner = isNarrow
+    ? (hasOpenedThread ? threadPanel : listPanel)
+    : `${listPanel}${threadPanel}`;
+
   return `
     <div class="card admin-chat-grid" style="display:grid; grid-template-columns:220px 1fr; gap:16px;">
-      <div>
-        <div class="row-between" style="margin-bottom:8px;">
-          <p class="muted" style="margin:0;">${showResigned ? "退職者一覧" : "従業員一覧（更新順）"}</p>
-        </div>
-        <button style="width:100%; font-size:12px; padding:7px; margin-bottom:10px;" onclick="state.chatShowResigned=!state.chatShowResigned; state.chatEmployeeId=null; render();">
-          ${showResigned ? "在籍者に戻る" : `退職者とのやりとりを見る（${resignedCount}）`}
-        </button>
-        ${sortedEmployees.map(e => `
-          <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
-            <div class="row-between" style="margin:0;">
-              <span>${e.name || "(名前未登録)"}</span>
-              ${unreadFor(e.id) > 0 ? `<span class="chat-badge" style="position:static;">${unreadFor(e.id)}</span>` : ""}
-            </div>
-            <div class="muted" style="font-size:12px;">${e.area || ""}</div>
-          </div>
-        `).join("") || `<p class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`}
-      </div>
-
-      <div>
-        ${selectedId ? `
-          <p class="staff-title" style="font-size:16px; margin:0 0 8px;">${(allEmployees.find(e => e.id === selectedId) || {}).name || ""} さんとのやりとり${showResigned ? "（退職済み）" : ""}</p>
-          <div class="chat-scroll" id="chatScroll" style="height:40vh;">
-            ${thread.length ? thread.map(m => renderChatBubble(m, m.senderRole === "office")).join("") : `<p class="muted">まだメッセージはありません</p>`}
-          </div>
-          <div class="preset-row">
-            ${PRESET_PHRASES_OFFICE.map(p => `<button type="button" class="preset-btn" onclick="insertPreset('${p}')">${p}</button>`).join("")}
-          </div>
-          ${state.pendingPhoto ? `
-            <div class="chat-photo-preview">
-              <img src="${state.pendingPhoto.base64}" />
-              <span>写真を1枚 添付中</span>
-              <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
-            </div>
-          ` : ""}
-          <div class="chat-compose">
-            <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
-            <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()">📷</button>
-            <textarea id="chatTextInput" placeholder="メッセージを入力"></textarea>
-            <button class="primary chat-send-btn" onclick="sendAdminMessage('${selectedId}')">送信</button>
-          </div>
-        ` : `<p class="muted">左の一覧から従業員を選んでください</p>`}
-      </div>
+      ${chatGridInner}
     </div>
 
     <div class="card">

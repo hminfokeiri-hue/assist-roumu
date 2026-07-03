@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(7)";
+const APP_VERSION = "更新: 2026-07-03(8)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1164,6 +1164,17 @@ function renderEmpAttendanceHistory(emp) {
   `;
 }
 
+function handleEmpSearchInput(el) {
+  const pos = el.selectionStart;
+  state.empSearchVal = el.value;
+  render();
+  const newEl = document.getElementById("empSearch");
+  if (newEl) {
+    newEl.focus();
+    newEl.setSelectionRange(pos, pos);
+  }
+}
+
 function renderAdminEmployeeTab() {
   const editing = state.employees.find(e => e.id === state.editingEmpId);
 
@@ -1241,7 +1252,7 @@ function renderAdminEmployeeTab() {
       ` : ""}
 
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:14px;">
-        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="state.empSearchVal=this.value; render();" />
+        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="handleEmpSearchInput(this)" />
         <select onchange="state.empAreaFilter=this.value; render();">
           <option value="">エリア：すべて</option>
           ${areas.map(a => `<option value="${a}" ${a === areaFilter ? "selected" : ""}>${a}</option>`).join("")}

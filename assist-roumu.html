@@ -356,6 +356,8 @@ function renderStaff() {
             <div><p class="muted" style="margin:0;">申請中・承認済み</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
         </div>
+
+        ${(state.orders && state.orders.length) ? `<div class="card">${renderOrderHistory(true)}</div>` : ""}
       ` : ""}
 
       ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
@@ -423,13 +425,13 @@ function changeQty(d) {
   document.getElementById("orderQty").textContent = state.orderQty;
 }
 
-function renderOrderHistory() {
+function renderOrderHistory(onHome) {
   if (!state.orders || !state.orders.length) return "";
   const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ" };
   const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved" };
   return `
-    <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
-      <p class="muted" style="margin:0 0 8px;">たのんだもの</p>
+    <div style="${onHome ? "" : "margin-top:18px; border-top:1px solid var(--border); padding-top:12px;"}">
+      <p class="${onHome ? "staff-title" : "muted"}" style="${onHome ? "font-size:16px;" : ""} margin:0 0 8px;">たのんだもの</p>
       ${state.orders.map(o => `
         <div class="row-between" style="margin-bottom:8px;">
           <div>${o.item}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${o.place || ""}</span></div>
@@ -466,12 +468,17 @@ async function submitOrder() {
     state.orders = state.orders || [];
     state.orders.unshift({ ...data, id: "demo-" + Date.now() });
     state.orderItem = null; state.orderQty = 1;
-    return render();
+    state.screen = "staffHome";
+    render();
+    alert("たのみました！本社にとどきました。");
+    return;
   }
   try {
     await db.collection("orders").add(data);
     state.orderItem = null; state.orderQty = 1;
+    state.screen = "staffHome";
     render();
+    alert("たのみました！本社にとどきました。");
   } catch (e) {
     alert("送信エラー: " + e.message);
   }

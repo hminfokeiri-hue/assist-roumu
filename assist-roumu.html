@@ -166,6 +166,18 @@
     font-weight: 700;
   }
   button.link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 8px 0; }
+  .btn-back-big {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    background: #fff;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+  }
 
   .status-pill {
     display: inline-block;
@@ -298,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03";
+const APP_VERSION = "更新: 2026-07-03(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -479,7 +491,7 @@ function renderOrderForm() {
       </div>
 
       <button class="primary" onclick="submitOrder()">これで たのむ</button>
-      <button class="link" onclick="state.screen='staffHome'; state.orderItem=null; state.orderQty=1; render();">やめる</button>
+      <button class="btn-back-big" onclick="state.screen='staffHome'; state.orderItem=null; state.orderQty=1; render();">やめる</button>
 
       ${renderOrderHistory()}
     </div>
@@ -801,6 +813,7 @@ function renderLeaveForm() {
         <option value="有給休暇">有給休暇</option>
         <option value="欠勤（無給）">欠勤（無給）</option>
         <option value="遅刻・早退">遅刻・早退</option>
+        <option value="忌引き">忌引き</option>
       </select>
       <label>理由（にんい）</label>
       <input id="leaveReason" type="text" placeholder="通院のため" />
@@ -1103,6 +1116,34 @@ function remainingLeaveFor(emp) {
   return remaining >= 0 ? remaining : 0;
 }
 
+function renderEmpAttendanceHistory(emp) {
+  const records = (state.leaveRequests || [])
+    .filter(r => r.employeeId === emp.id)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const statusLabel = { pending: "確認中", approved: "承認されました", rejected: "却下されました" };
+
+  return `
+    <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+      <p class="staff-title" style="font-size:15px; margin:0 0 10px;">過去の勤怠（休み・有給・忌引き・早退）</p>
+      <table>
+        <thead><tr><th>日付</th><th>区分</th><th>理由</th><th>状態</th></tr></thead>
+        <tbody>
+          ${records.map(r => `
+            <tr>
+              <td>${r.date}</td>
+              <td>${r.type}</td>
+              <td>${r.reason || ""}</td>
+              <td><span class="status-pill status-${r.status}">${statusLabel[r.status] || r.status}</span></td>
+            </tr>
+          `).join("") || `<tr><td colspan="4" class="muted">記録はまだありません</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderAdminEmployeeTab() {
   const editing = state.employees.find(e => e.id === state.editingEmpId);
 
@@ -1110,7 +1151,10 @@ function renderAdminEmployeeTab() {
     return `
       <div class="card">
         <button class="link" style="margin-bottom:6px;" onclick="state.editingEmpId=null; render();">← 従業員一覧にもどる</button>
-        <p class="staff-title" style="font-size:15px;">${editing.name || ""} さんの情報</p>
+        <div class="row-between" style="margin-bottom:4px;">
+          <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
+          <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
+        </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
           ${EMP_FIELDS.map(([key, label]) => `
             <div>
@@ -1120,6 +1164,8 @@ function renderAdminEmployeeTab() {
           `).join("")}
         </div>
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
+
+        ${renderEmpAttendanceHistory(editing)}
       </div>
     `;
   }
@@ -1134,16 +1180,15 @@ function renderAdminEmployeeTab() {
         <input id="empSearch" type="text" placeholder="氏名で検索" style="width:180px;" oninput="render()" />
       </div>
       <table>
-        <thead><tr><th>氏名</th><th>エリア</th><th>シフト</th><th>有給残</th></tr></thead>
+        <thead><tr><th>氏名</th><th>エリア</th><th>シフト</th></tr></thead>
         <tbody>
           ${list.map(e => `
             <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
               <td>${e.name || "(名前未登録)"}</td>
               <td>${e.area || ""}</td>
               <td>${e.shiftDays || ""}</td>
-              <td>${remainingLeaveFor(e)}日</td>
             </tr>
-          `).join("") || `<tr><td colspan="4" class="muted">従業員データがまだありません</td></tr>`}
+          `).join("") || `<tr><td colspan="3" class="muted">従業員データがまだありません</td></tr>`}
         </tbody>
       </table>
     </div>

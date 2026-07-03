@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(3)";
+const APP_VERSION = "更新: 2026-07-03(4)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -345,11 +345,11 @@ function renderLogin() {
         ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
         <label>電話番号</label>
         <input id="loginPhone" type="tel" placeholder="09012345678" />
-        <button class="primary" onclick="handleStaffLogin()">パートさんはこちら</button>
+        <button class="primary" onclick="handleStaffLogin()">ログインはこちら</button>
         <div style="height:8px"></div>
         <label>本社パスワード</label>
         <input id="adminPass" type="password" placeholder="本社共通パスワード" />
-        <button class="secondary" onclick="handleAdminLogin()">本社スタッフはこちら</button>
+        <button class="secondary" onclick="handleAdminLogin()">管理者はこちら</button>
       </div>
     </div>
   `;
@@ -785,40 +785,50 @@ async function sendStaffMessage() {
 }
 
 
-function renderLeaveForm() {
-  const today = new Date();
-  const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
-  const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
-  const toStr = d => d.toISOString().slice(0, 10);
-  const weekdayJp = ["日", "月", "火", "水", "木", "金", "土"];
+const LEAVE_TYPES = ["欠勤（無給）", "遅刻・早退", "忌引き", "有給休暇"];
 
-  const options = [];
-  const cur = new Date(minDate);
-  while (cur <= maxDate) {
-    const iso = toStr(cur);
-    const label = `${cur.getMonth() + 1}月${cur.getDate()}日（${weekdayJp[cur.getDay()]}）`;
-    options.push(`<option value="${iso}">${label}</option>`);
-    cur.setDate(cur.getDate() + 1);
+function renderLeaveForm() {
+  const type = state.leaveFormType || LEAVE_TYPES[0];
+  const isPaid = type === "有給休暇";
+
+  let dateFieldHtml;
+  if (isPaid) {
+    const today = new Date();
+    const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
+    const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
+    const toStr = d => d.toISOString().slice(0, 10);
+    const weekdayJp = ["日", "月", "火", "水", "木", "金", "土"];
+    const options = [];
+    const cur = new Date(minDate);
+    while (cur <= maxDate) {
+      const iso = toStr(cur);
+      const label = `${cur.getMonth() + 1}月${cur.getDate()}日（${weekdayJp[cur.getDay()]}）`;
+      options.push(`<option value="${iso}">${label}</option>`);
+      cur.setDate(cur.getDate() + 1);
+    }
+    dateFieldHtml = `
+      <label>希望日（有給休暇は2週間後〜1か月後の間で選べます）</label>
+      <select id="leaveDate">${options.join("")}</select>
+    `;
+  } else {
+    dateFieldHtml = `
+      <label>日付</label>
+      <input id="leaveDate" type="date" value="${state.leaveFormDate || ""}" onchange="state.leaveFormDate=this.value;" />
+    `;
   }
 
   return `
     <div class="card">
       <p class="staff-title" style="font-size:17px;">休み・有給の申請</p>
-      <label>希望日（2週間後〜1か月後の間で選べます）</label>
-      <select id="leaveDate">
-        ${options.join("")}
-      </select>
       <label>区分</label>
-      <select id="leaveType">
-        <option value="有給休暇">有給休暇</option>
-        <option value="欠勤（無給）">欠勤（無給）</option>
-        <option value="遅刻・早退">遅刻・早退</option>
-        <option value="忌引き">忌引き</option>
+      <select id="leaveType" onchange="state.leaveFormType=this.value; render();">
+        ${LEAVE_TYPES.map(t => `<option value="${t}" ${t === type ? "selected" : ""}>${t}</option>`).join("")}
       </select>
+      ${dateFieldHtml}
       <label>理由（にんい）</label>
-      <input id="leaveReason" type="text" placeholder="通院のため" />
+      <input id="leaveReason" type="text" placeholder="通院のため" value="${(state.leaveFormReason || "").replace(/"/g, '&quot;')}" oninput="state.leaveFormReason=this.value;" />
       <button class="primary" onclick="submitLeaveRequest()">申請する</button>
-      <button class="link" onclick="state.screen='staffHome'; render();">やめる</button>
+      <button class="btn-back-big" onclick="state.screen='staffHome'; state.leaveFormType=null; state.leaveFormReason=''; state.leaveFormDate=''; render();">やめる</button>
     </div>
   `;
 }
@@ -847,14 +857,16 @@ async function submitLeaveRequest() {
   const date = document.getElementById("leaveDate").value;
   const type = document.getElementById("leaveType").value;
   const reason = document.getElementById("leaveReason").value;
-  if (!date) return alert("希望日を選んでください");
+  if (!date) return alert("日付を選んでください");
 
-  const today = new Date();
-  const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
-  const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
-  const picked = new Date(date);
-  if (picked < minDate || picked > maxDate) {
-    return alert("申請は2週間後から1か月後までの日付でお願いします");
+  if (type === "有給休暇") {
+    const today = new Date();
+    const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
+    const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
+    const picked = new Date(date);
+    if (picked < minDate || picked > maxDate) {
+      return alert("有給休暇の申請は2週間後から1か月後までの日付でお願いします");
+    }
   }
 
   const data = {
@@ -869,12 +881,14 @@ async function submitLeaveRequest() {
   if (!firebaseReady) {
     state.leaveRequests.unshift({ ...data, id: "demo-" + Date.now() });
     state.screen = "staffHome";
+    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = "";
     return render();
   }
 
   try {
     await db.collection("leaveRequests").add(data);
     state.screen = "staffHome";
+    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = "";
     render();
   } catch (e) {
     alert("送信エラー: " + e.message);

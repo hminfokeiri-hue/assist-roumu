@@ -8,7 +8,6 @@
 <!-- Firebase（compat版：会計ソフトと同じ書き方） -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
 <style>
   :root {
@@ -245,12 +244,10 @@ const firebaseConfig = {
 };
 
 let db = null;
-let storage = null;
 let firebaseReady = false;
 try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
-  storage = firebase.storage();
   firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
 } catch (e) {
   console.error("Firebase初期化エラー", e);
@@ -287,7 +284,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03 チャット機能";
+const APP_VERSION = "更新: 2026-07-03 チャット機能(写真は圧縮保存)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -642,7 +639,7 @@ function renderStaffChat() {
 
       ${state.pendingPhoto ? `
         <div class="chat-photo-preview">
-          <img src="${state.pendingPhoto.previewUrl}" />
+          <img src="${state.pendingPhoto.base64}" />
           <span>写真を1枚 添付中</span>
           <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
         </div>
@@ -684,16 +681,42 @@ function insertPreset(text) {
   if (el) { el.value = el.value ? el.value + " " + text : text; el.focus(); }
 }
 
-function handlePhotoSelect(evt) {
+function compressImageToBase64(file, maxWidth, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxWidth) { h = Math.round(h * (maxWidth / w)); w = maxWidth; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("ファイルの読み込みに失敗しました"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePhotoSelect(evt) {
   const file = evt.target.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { alert("写真のサイズが大きすぎます（5MBまで）"); return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    state.pendingPhoto = { file, previewUrl: reader.result };
+  if (file.size > 15 * 1024 * 1024) { alert("写真のサイズが大きすぎます"); return; }
+  try {
+    const base64 = await compressImageToBase64(file, 700, 0.55);
+    if (base64.length > 900000) {
+      alert("写真を圧縮しましたが、まだ少し大きいようです。別の写真でお試しください。");
+      return;
+    }
+    state.pendingPhoto = { base64 };
     render();
-  };
-  reader.readAsDataURL(file);
+  } catch (e) {
+    alert("写真の読み込みに失敗しました: " + e.message);
+  }
 }
 
 function clearPendingPhoto() {
@@ -701,27 +724,11 @@ function clearPendingPhoto() {
   render();
 }
 
-async function uploadPendingPhoto() {
-  if (!state.pendingPhoto || !firebaseReady) return null;
-  const path = `chat-photos/${Date.now()}_${state.pendingPhoto.file.name}`;
-  const ref = storage.ref().child(path);
-  await ref.put(state.pendingPhoto.file);
-  return await ref.getDownloadURL();
-}
-
 async function sendStaffMessage() {
   const text = document.getElementById("chatTextInput").value.trim();
   if (!text && !state.pendingPhoto) return alert("メッセージか写真を入力してください");
 
-  let photoURL = null;
-  if (state.pendingPhoto) {
-    if (!firebaseReady) {
-      photoURL = state.pendingPhoto.previewUrl;
-    } else {
-      try { photoURL = await uploadPendingPhoto(); }
-      catch (e) { return alert("写真の送信に失敗しました: " + e.message); }
-    }
-  }
+  const photoURL = state.pendingPhoto ? state.pendingPhoto.base64 : null;
 
   const data = {
     employeeId: state.currentUser.id,
@@ -1410,7 +1417,7 @@ function renderAdminChatTab() {
           </div>
           ${state.pendingPhoto ? `
             <div class="chat-photo-preview">
-              <img src="${state.pendingPhoto.previewUrl}" />
+              <img src="${state.pendingPhoto.base64}" />
               <span>写真を1枚 添付中</span>
               <button type="button" class="link" onclick="clearPendingPhoto()">やめる</button>
             </div>
@@ -1493,15 +1500,7 @@ async function sendAdminMessage(empId) {
   if (!text && !state.pendingPhoto) return alert("メッセージか写真を入力してください");
   const emp = state.employees.find(e => e.id === empId) || {};
 
-  let photoURL = null;
-  if (state.pendingPhoto) {
-    if (!firebaseReady) {
-      photoURL = state.pendingPhoto.previewUrl;
-    } else {
-      try { photoURL = await uploadPendingPhoto(); }
-      catch (e) { return alert("写真の送信に失敗しました: " + e.message); }
-    }
-  }
+  const photoURL = state.pendingPhoto ? state.pendingPhoto.base64 : null;
 
   const data = {
     employeeId: empId,

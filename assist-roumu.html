@@ -11,8 +11,8 @@
 
 <style>
   :root {
-    --blue: #004682;
-    --blue-dark: #003366;
+    --blue: #1f7a45;
+    --blue-dark: #145c33;
     --bg: #f4f6f8;
     --card: #ffffff;
     --border: #dde3ea;
@@ -99,12 +99,26 @@
   .chat-bubble-row.mine .chat-meta { text-align: right; }
   .chat-bubble img { max-width: 100%; border-radius: 10px; margin-top: 6px; display: block; }
   .chat-compose { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
-  .chat-compose textarea { flex: 1; min-height: 46px; max-height: 120px; resize: none; }
+  .chat-compose textarea {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 46px;
+    max-height: 120px;
+    resize: none;
+    margin-top: 0;
+  }
   .chat-photo-btn {
     width: 46px; height: 46px; border-radius: 10px; border: 1.5px solid var(--border);
     background: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .chat-send-btn { flex-shrink: 0; padding: 12px 18px; }
+  .chat-compose .chat-send-btn {
+    flex: 0 0 auto;
+    width: auto;
+    margin-top: 0;
+    padding: 12px 22px;
+    white-space: nowrap;
+  }
   .preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .preset-btn {
     font-size: 13px; padding: 7px 12px; border-radius: 999px; border: 1.5px solid var(--border);
@@ -284,7 +298,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03 チャット機能(写真は圧縮保存)";
+const APP_VERSION = "更新: 2026-07-03";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -764,12 +778,24 @@ function renderLeaveForm() {
   const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
   const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
   const toStr = d => d.toISOString().slice(0, 10);
+  const weekdayJp = ["日", "月", "火", "水", "木", "金", "土"];
+
+  const options = [];
+  const cur = new Date(minDate);
+  while (cur <= maxDate) {
+    const iso = toStr(cur);
+    const label = `${cur.getMonth() + 1}月${cur.getDate()}日（${weekdayJp[cur.getDay()]}）`;
+    options.push(`<option value="${iso}">${label}</option>`);
+    cur.setDate(cur.getDate() + 1);
+  }
 
   return `
     <div class="card">
       <p class="staff-title" style="font-size:17px;">休み・有給の申請</p>
       <label>希望日（2週間後〜1か月後の間で選べます）</label>
-      <input id="leaveDate" type="date" min="${toStr(minDate)}" max="${toStr(maxDate)}" />
+      <select id="leaveDate">
+        ${options.join("")}
+      </select>
       <label>区分</label>
       <select id="leaveType">
         <option value="有給休暇">有給休暇</option>
@@ -1062,7 +1088,7 @@ const EMP_FIELDS = [
   ["gender", "性別"], ["birthDate", "生年月日"],
   ["address", "現住所"], ["area", "エリア"], ["workplace", "就業場所（現場）"],
   ["hireDate", "入社日（雇用開始日）"], ["contractEnd", "雇用終了日（期間の定めがある場合）"],
-  ["weeklyDays", "週の勤務日数"], ["workHours", "就業時間"], ["holiday", "休日"],
+  ["weeklyDays", "週の勤務日数"], ["shiftDays", "シフト（勤務曜日）例：月・水・金"], ["workHours", "就業時間"], ["holiday", "休日"],
   ["jobType", "業務の種類"], ["baseWage", "基本給"],
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
@@ -1070,39 +1096,56 @@ const EMP_FIELDS = [
   ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
 ];
 
+function remainingLeaveFor(emp) {
+  const balance = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
+  const used = (state.leaveRequests || []).filter(r => r.employeeId === emp.id && r.status !== "rejected").length;
+  const remaining = balance - used;
+  return remaining >= 0 ? remaining : 0;
+}
+
 function renderAdminEmployeeTab() {
   const editing = state.employees.find(e => e.id === state.editingEmpId);
+
+  if (editing) {
+    return `
+      <div class="card">
+        <button class="link" style="margin-bottom:6px;" onclick="state.editingEmpId=null; render();">← 従業員一覧にもどる</button>
+        <p class="staff-title" style="font-size:15px;">${editing.name || ""} さんの情報</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+          ${EMP_FIELDS.map(([key, label]) => `
+            <div>
+              <label style="margin:6px 0 4px;">${label}</label>
+              <input id="emp_${key}" type="text" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+            </div>
+          `).join("")}
+        </div>
+        <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
+      </div>
+    `;
+  }
+
+  const searchVal = document.getElementById("empSearch") ? document.getElementById("empSearch").value : "";
+  const list = state.employees.filter(e => !searchVal || (e.name || "").includes(searchVal));
+
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:14px;">
         <p class="staff-title" style="font-size:16px; margin:0;">従業員一覧</p>
         <input id="empSearch" type="text" placeholder="氏名で検索" style="width:180px;" oninput="render()" />
       </div>
-      <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:18px;">
-        ${state.employees
-          .filter(e => !document.getElementById("empSearch") || (e.name || "").includes(document.getElementById("empSearch").value))
-          .map(e => `
-            <div class="row-between" style="border:1px solid var(--border); border-radius:8px; padding:8px 12px; cursor:pointer; ${e.id === state.editingEmpId ? 'background:#eef4fa;' : ''}" onclick="state.editingEmpId='${e.id}'; render();">
-              <span>${e.name || "(名前未登録)"}（${e.area || ""}）</span>
-              <span class="muted">${e.hireDate || ""}</span>
-            </div>
-          `).join("") || `<p class="muted">従業員データがまだありません</p>`}
-      </div>
-
-      ${editing ? `
-        <div style="border-top:1px solid var(--border); padding-top:16px;">
-          <p class="staff-title" style="font-size:15px;">${editing.name || ""} さんの情報</p>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
-            ${EMP_FIELDS.map(([key, label]) => `
-              <div>
-                <label style="margin:6px 0 4px;">${label}</label>
-                <input id="emp_${key}" type="text" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
-              </div>
-            `).join("")}
-          </div>
-          <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
-        </div>
-      ` : `<p class="muted">一覧から従業員を選ぶと、ここで詳細を編集できます</p>`}
+      <table>
+        <thead><tr><th>氏名</th><th>エリア</th><th>シフト</th><th>有給残</th></tr></thead>
+        <tbody>
+          ${list.map(e => `
+            <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
+              <td>${e.name || "(名前未登録)"}</td>
+              <td>${e.area || ""}</td>
+              <td>${e.shiftDays || ""}</td>
+              <td>${remainingLeaveFor(e)}日</td>
+            </tr>
+          `).join("") || `<tr><td colspan="4" class="muted">従業員データがまだありません</td></tr>`}
+        </tbody>
+      </table>
     </div>
   `;
 }

@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
   :root {
@@ -104,33 +105,26 @@
   .chat-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
   .chat-bubble-row.mine .chat-meta { text-align: right; }
   .chat-bubble img { max-width: 100%; border-radius: 10px; margin-top: 6px; display: block; }
-  .chat-compose { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+  .chat-compose { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
   .chat-compose textarea {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;
-    min-height: 46px;
-    max-height: 120px;
-    resize: none;
-    margin-top: 0;
-  }
-  /* パートさん向け：チャット入力欄をより大きく・打ちやすく */
-  .staff-scope .chat-compose { align-items: stretch; }
-  .staff-scope .chat-compose textarea {
     min-height: 90px;
     max-height: 160px;
     font-size: 18px;
     line-height: 1.5;
     padding: 14px;
+    resize: none;
+    margin-top: 0;
   }
-  .staff-scope .chat-photo-btn { width: 66px; }
-  .staff-scope .chat-photo-btn span:first-child { font-size: 24px; }
-  .staff-scope .chat-photo-btn span:last-child { font-size: 12px; }
   .chat-photo-btn {
-    width: 56px; height: 56px; border-radius: 10px; border: 1.5px solid var(--border);
+    width: 66px; height: 66px; border-radius: 10px; border: 1.5px solid var(--border);
     background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0;
     color: var(--text);
   }
+  .chat-photo-btn span:first-child { font-size: 24px; }
+  .chat-photo-btn span:last-child { font-size: 12px; }
   .chat-compose .chat-send-btn {
     flex: 0 0 auto;
     width: auto;
@@ -345,7 +339,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(19)";
+const APP_VERSION = "更新: 2026-07-03(21)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1267,6 +1261,32 @@ function renderEmpAttendanceHistory(emp) {
   `;
 }
 
+function exportEmployeesToExcel() {
+  const list = computeEmpList();
+  if (!list.length) return alert("書き出すデータがありません");
+
+  const rows = list.map(e => {
+    const row = {};
+    EMP_FIELDS.forEach(([key, label]) => {
+      row[label] = e[key] ?? "";
+    });
+    row["満年齢"] = calcAge(e.birthDate) ?? "";
+    row["在籍状況"] = e.status === "resigned" ? "退職済み" : "在籍中";
+    return row;
+  });
+
+  try {
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    const sheetName = state.showResignedList ? "退職者" : "従業員一覧";
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `従業員データ_${sheetName}_${dateStr}.xlsx`);
+  } catch (e) {
+    alert("書き出しに失敗しました: " + e.message);
+  }
+}
+
 function computeEmpList() {
   const searchVal = state.empSearchVal || "";
   const areaFilter = state.empAreaFilter || "";
@@ -1277,11 +1297,21 @@ function computeEmpList() {
   const matchesSearch = e => {
     if (!searchVal) return true;
     const v = searchVal.toLowerCase();
-    return [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
+    const vDigits = searchVal.replace(/[^\d]/g, "");
+    const phoneDigits = (e.phone || "").replace(/[^\d]/g, "");
+    const phoneMatches = vDigits && phoneDigits.includes(vDigits);
+    return phoneMatches || [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
   };
   let list = source.filter(e => matchesSearch(e) && (!areaFilter || e.area === areaFilter));
   list = list.slice().sort((a, b) => {
     if (sortKey === "name") return (a.name || "").localeCompare(b.name || "", "ja");
+    if (sortKey === "age") {
+      const ageA = calcAge(a.birthDate), ageB = calcAge(b.birthDate);
+      if (ageA === null && ageB === null) return 0;
+      if (ageA === null) return 1;
+      if (ageB === null) return -1;
+      return ageB - ageA; // 年上が先
+    }
     return (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true });
   });
   return list;
@@ -1290,14 +1320,18 @@ function computeEmpList() {
 function renderEmpTableRows() {
   const list = computeEmpList();
   const showResigned = !!state.showResignedList;
-  return list.map(e => `
+  return list.map(e => {
+    const age = calcAge(e.birthDate);
+    return `
     <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
       <td>${e.employeeCode || ""}</td>
       <td>${e.name || "(名前未登録)"}</td>
+      <td>${age !== null ? age + "歳" : ""}</td>
       <td>${e.area || ""}</td>
       <td>${e.shiftDays || ""}</td>
     </tr>
-  `).join("") || `<tr><td colspan="4" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`;
+  `;
+  }).join("") || `<tr><td colspan="5" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`;
 }
 
 function updateEmpTableBody() {
@@ -1425,6 +1459,7 @@ function renderAdminEmployeeTab() {
         <div>
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>` : ""}
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>` : ""}
+          <button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="exportEmployeesToExcel()">エクセルに書き出す</button>
           <button style="font-size:13px; padding:8px 14px;" onclick="state.showResignedList = !state.showResignedList; state.editingEmpId=null; render();">${showResigned ? "在籍者一覧に戻る" : `退職者一覧を見る（${resignedAll.length}）`}</button>
         </div>
       </div>
@@ -1449,6 +1484,7 @@ function renderAdminEmployeeTab() {
         <thead><tr>
           <th style="cursor:pointer;" onclick="state.empSortKey='code'; render();">管理番号 ${sortKey === "code" ? "▲" : ""}</th>
           <th style="cursor:pointer;" onclick="state.empSortKey='name'; render();">氏名 ${sortKey === "name" ? "▲" : ""}</th>
+          <th style="cursor:pointer;" onclick="state.empSortKey='age'; render();">年齢 ${sortKey === "age" ? "▲" : ""}</th>
           <th>エリア</th><th>シフト</th>
         </tr></thead>
         <tbody id="empTableBody">

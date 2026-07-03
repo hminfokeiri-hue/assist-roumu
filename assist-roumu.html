@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>アシスト労務</title>
+
+<!-- Firebase（compat版：会計ソフトと同じ書き方） -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root {
+    --blue: #004682;
+    --blue-dark: #003366;
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --border: #dde3ea;
+    --text: #222222;
+    --muted: #777777;
+    --danger: #c0392b;
+    --success: #1a7a4c;
+    --warning: #b8860b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  #app { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--bg); }
+  #app.admin { max-width: 900px; }
+
+  header.topbar {
+    background: var(--blue);
+    color: #fff;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header.topbar h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  header.topbar button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  main { padding: 20px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  /* --- パートさん向け：大きめUI --- */
+  .staff-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
+  .big-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .big-btn {
+    background: #fff;
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .big-btn .emoji { font-size: 30px; }
+  .big-btn:active { background: #eef4fa; }
+
+  label { display: block; font-size: 14px; color: var(--muted); margin: 12px 0 6px; }
+  input, select, textarea {
+    width: 100%;
+    font-size: 16px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: #fff;
+  }
+  .staff-scope input, .staff-scope select, .staff-scope button.primary {
+    font-size: 18px;
+    padding: 16px;
+  }
+
+  button.primary {
+    width: 100%;
+    margin-top: 18px;
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  button.secondary {
+    width: 100%;
+    margin-top: 10px;
+    background: #fff;
+    color: var(--blue);
+    border: 1.5px solid var(--blue);
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  button.link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 8px 0; }
+
+  .status-pill {
+    display: inline-block;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 700;
+  }
+  .status-pending { background: #fdf0d5; color: var(--warning); }
+  .status-approved { background: #e3f3ea; color: var(--success); }
+  .status-rejected { background: #fbe6e4; color: var(--danger); }
+
+  .row-between { display: flex; align-items: center; justify-content: space-between; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .req-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .req-item:last-child { border-bottom: none; }
+
+  /* --- 本社側：ダッシュボード --- */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .stat-card .num { font-size: 24px; font-weight: 700; }
+  .stat-card .label { font-size: 12px; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 700; font-size: 12px; }
+
+  .btn-approve, .btn-reject {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1.5px solid;
+    background: #fff;
+    margin-right: 6px;
+  }
+  .btn-approve { color: var(--success); border-color: var(--success); }
+  .btn-reject { color: var(--danger); border-color: var(--danger); }
+
+  .tabbar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tabbar button {
+    background: #fff; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--text);
+  }
+  .tabbar button.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+  .center-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { width: 100%; max-width: 380px; padding: 32px 24px; }
+  .login-card h1 { font-size: 22px; color: var(--blue); text-align: center; margin-bottom: 4px; }
+  .login-card p.sub { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  .placeholder-note {
+    background: #fff8e1; border: 1px solid #f0d98c; border-radius: 10px;
+    padding: 14px; font-size: 13px; color: #6b5b0e; margin-bottom: 16px;
+  }
+  .contract-preview table td { padding: 8px; border: 1px solid var(--border); vertical-align: top; }
+  .contract-preview .c-label { background: #f4f6f8; font-weight: 700; width: 130px; white-space: nowrap; }
+
+  @media print {
+    @page { size: A4 portrait; margin: 8mm; }
+    body * { visibility: hidden; }
+    .contract-preview, .contract-preview * { visibility: visible; }
+    .contract-preview { position: absolute; top: 0; left: 0; width: 100%; border: none; padding: 0; margin: 0; font-size: 11px; }
+    .contract-preview p:first-child { font-size: 15px !important; margin-bottom: 6px !important; }
+    .contract-preview table { page-break-inside: avoid; margin-bottom: 8px !important; }
+    .contract-preview tr, .contract-preview td { page-break-inside: avoid; }
+    .contract-preview td { padding: 2px 5px !important; height: auto !important; }
+    .contract-preview td[style*="height"] { height: auto !important; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* =========================================================
+   1) Firebase設定
+   ここに、ご自身のFirebaseプロジェクト（assist-roumu）の
+   設定情報を貼り付けてください。
+   Firebaseコンソール → プロジェクトの設定 → 全般
+   → 「マイアプリ」→ ウェブアプリの設定 から確認できます。
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
+  authDomain: "assist-roumu.firebaseapp.com",
+  projectId: "assist-roumu",
+  storageBucket: "assist-roumu.firebasestorage.app",
+  messagingSenderId: "919904591114",
+  appId: "1:919904591114:web:33d30e66ea4264e081eef3"
+};
+
+let db = null;
+let firebaseReady = false;
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
+} catch (e) {
+  console.error("Firebase初期化エラー", e);
+}
+
+/* =========================================================
+   2) 有給の比例付与テーブル（労働基準法）
+   ========================================================= */
+// ブラケット: 6ヶ月, 1年6ヶ月, 2年6ヶ月, 3年6ヶ月, 4年6ヶ月, 5年6ヶ月, 6年6ヶ月以上
+const GRANT_TABLE = {
+  4: [7, 8, 9, 10, 12, 13, 15],
+  3: [5, 6, 6, 8, 9, 10, 11],
+  2: [3, 4, 4, 5, 6, 6, 7],
+  1: [1, 2, 2, 3, 3, 3, 3],
+  5: [10, 11, 12, 14, 16, 18, 20] // 週5日以上（フルタイム相当）
+};
+
+function monthsBetween(hireDateStr, now) {
+  const hire = new Date(hireDateStr);
+  return (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth());
+}
+
+function calcAnnualGrant(hireDateStr, weeklyDays) {
+  if (!hireDateStr || !weeklyDays) return 0;
+  const months = monthsBetween(hireDateStr, new Date());
+  if (months < 6) return 0;
+  // 6ヶ月刻みのブラケット番号（0〜6）
+  let bracket = Math.floor((months - 6) / 12) + 1;
+  bracket = Math.min(bracket, 7) - 1;
+  const table = GRANT_TABLE[weeklyDays] || GRANT_TABLE[4];
+  return table[Math.max(0, Math.min(bracket, table.length - 1))];
+}
+
+/* =========================================================
+   3) アプリの状態管理（ごくシンプルな自作ルーター）
+   ========================================================= */
+const state = {
+  currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
+  screen: "login",
+  adminTab: "leave",
+  leaveRequests: [],
+  employees: []
+};
+
+const appEl = document.getElementById("app");
+
+function render() {
+  appEl.className = state.currentUser && state.currentUser.role === "admin" ? "admin" : "";
+  if (state.screen === "login") return renderLogin();
+  if (!state.currentUser) return renderLogin();
+  if (state.currentUser.role === "admin") return renderAdmin();
+  return renderStaff();
+}
+
+/* ---------- ログイン画面 ---------- */
+function renderLogin() {
+  appEl.innerHTML = `
+    <div class="center-screen">
+      <div class="card login-card">
+        <h1>アシスト労務</h1>
+        <p class="sub">株式会社ホームメンテナンス</p>
+        ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
+        <label>電話番号</label>
+        <input id="loginPhone" type="tel" placeholder="09012345678" />
+        <button class="primary" onclick="handleStaffLogin()">パートさんはこちら</button>
+        <div style="height:8px"></div>
+        <label>本社パスワード</label>
+        <input id="adminPass" type="password" placeholder="本社共通パスワード" />
+        <button class="secondary" onclick="handleAdminLogin()">本社スタッフはこちら</button>
+      </div>
+    </div>
+  `;
+}
+
+async function handleStaffLogin() {
+  const phone = document.getElementById("loginPhone").value.trim();
+  if (!phone) return alert("電話番号を入力してください");
+
+  if (!firebaseReady) {
+    // Firebase未設定時のダミーユーザー（動作確認用）
+    state.currentUser = { id: "demo1", name: "松崎 貞子", phone, role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
+    state.screen = "staffHome";
+    return render();
+  }
+
+  try {
+    const snap = await db.collection("employees").where("phone", "==", phone).limit(1).get();
+    if (snap.empty) return alert("登録が見つかりません。本社にお問い合わせください。");
+    const doc = snap.docs[0];
+    state.currentUser = { id: doc.id, role: "staff", ...doc.data() };
+    state.screen = "staffHome";
+    render();
+    subscribeStaffLeaveRequests();
+  } catch (e) {
+    alert("接続エラーが発生しました: " + e.message);
+  }
+}
+
+function handleAdminLogin() {
+  const pass = document.getElementById("adminPass").value;
+  // MVP: 共通パスワード方式（会計ソフトと同じ考え方）。運用開始後に変更してください。
+  const ADMIN_PASSWORD = "roumu2026";
+  if (pass !== ADMIN_PASSWORD) return alert("パスワードが違います");
+  state.currentUser = { role: "admin", name: "本社担当" };
+  state.screen = "adminHome";
+  render();
+  if (firebaseReady) subscribeAllLeaveRequests();
+}
+
+function logout() {
+  state.currentUser = null;
+  state.screen = "login";
+  render();
+}
+
+/* ---------- パートさん側：ホーム ---------- */
+function renderStaff() {
+  const balance = calcAnnualGrant(state.currentUser.hireDate, state.currentUser.weeklyDays);
+  const usedOrPending = state.leaveRequests.filter(r => r.status !== "rejected").length;
+
+  appEl.innerHTML = `
+    <header class="topbar">
+      <h1>アシスト労務</h1>
+      <button onclick="logout()">ログアウト</button>
+    </header>
+    <main class="staff-scope">
+      <p class="staff-title">おつかれさまです、${state.currentUser.name || ""}さん</p>
+
+      ${state.screen === "staffHome" ? `
+        <div class="big-grid">
+          <button class="big-btn" onclick="state.screen='leaveForm'; render();"><span class="emoji">🗓️</span>休み申請</button>
+          <button class="big-btn" onclick="alert('備品発注は準備中です')"><span class="emoji">📦</span>備品をたのむ</button>
+          <button class="big-btn" onclick="alert('チャットは準備中です')"><span class="emoji">💬</span>本社とお話し</button>
+          <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
+        </div>
+
+        <div class="card" style="margin-top:20px;">
+          <div class="row-between">
+            <div><p class="muted" style="margin:0;">今年度の残り有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${balance - usedOrPending >= 0 ? balance - usedOrPending : 0}日</p></div>
+            <div><p class="muted" style="margin:0;">申請中・承認済み</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
+          </div>
+        </div>
+      ` : ""}
+
+      ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
+      ${state.screen === "leaveForm" ? "" : renderLeaveHistory()}
+    </main>
+  `;
+}
+
+function renderLeaveForm() {
+  const today = new Date();
+  const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
+  const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
+  const toStr = d => d.toISOString().slice(0, 10);
+
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:17px;">休み・有給の申請</p>
+      <label>希望日（2週間後〜1か月後の間で選べます）</label>
+      <input id="leaveDate" type="date" min="${toStr(minDate)}" max="${toStr(maxDate)}" />
+      <label>区分</label>
+      <select id="leaveType">
+        <option value="有給休暇">有給休暇</option>
+        <option value="欠勤（無給）">欠勤（無給）</option>
+        <option value="遅刻・早退">遅刻・早退</option>
+      </select>
+      <label>理由（にんい）</label>
+      <input id="leaveReason" type="text" placeholder="通院のため" />
+      <button class="primary" onclick="submitLeaveRequest()">申請する</button>
+      <button class="link" onclick="state.screen='staffHome'; render();">やめる</button>
+    </div>
+  `;
+}
+
+function renderLeaveHistory() {
+  if (!state.leaveRequests.length) return "";
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">これまでの申請</p>
+      ${state.leaveRequests.map(r => `
+        <div class="req-item row-between">
+          <div>
+            <div>${r.date}（${r.type}）</div>
+            <div class="muted">${r.reason || ""}</div>
+          </div>
+          <span class="status-pill status-${r.status}">${
+            r.status === "pending" ? "まだ確認中です" : r.status === "approved" ? "承認されました" : "却下されました"
+          }</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitLeaveRequest() {
+  const date = document.getElementById("leaveDate").value;
+  const type = document.getElementById("leaveType").value;
+  const reason = document.getElementById("leaveReason").value;
+  if (!date) return alert("希望日を選んでください");
+
+  const today = new Date();
+  const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
+  const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
+  const picked = new Date(date);
+  if (picked < minDate || picked > maxDate) {
+    return alert("申請は2週間後から1か月後までの日付でお願いします");
+  }
+
+  const data = {
+    employeeId: state.currentUser.id,
+    employeeName: state.currentUser.name,
+    area: state.currentUser.area || "",
+    date, type, reason,
+    status: "pending",
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.leaveRequests.unshift({ ...data, id: "demo-" + Date.now() });
+    state.screen = "staffHome";
+    return render();
+  }
+
+  try {
+    await db.collection("leaveRequests").add(data);
+    state.screen = "staffHome";
+    render();
+  } catch (e) {
+    alert("送信エラー: " + e.message);
+  }
+}
+
+function subscribeStaffLeaveRequests() {
+  if (!firebaseReady) return;
+  db.collection("leaveRequests")
+    .where("employeeId", "==", state.currentUser.id)
+    .orderBy("createdAt", "desc")
+    .onSnapshot(snap => {
+      state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    });
+}
+
+/* ---------- 本社側：ダッシュボード ---------- */
+function renderAdmin() {
+  const pending = state.leaveRequests.filter(r => r.status === "pending");
+
+  appEl.innerHTML = `
+    <header class="topbar">
+      <h1>アシスト労務（本社）</h1>
+      <button onclick="logout()">ログアウト</button>
+    </header>
+    <main>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 承認待ち</div></div>
+        <div class="stat-card"><div class="num">0</div><div class="label">未確認の発注</div></div>
+        <div class="stat-card"><div class="num">0</div><div class="label">未読メッセージ</div></div>
+        <div class="stat-card"><div class="num">${state.employees.length || "-"}</div><div class="label">登録従業員数</div></div>
+      </div>
+
+      <div class="tabbar">
+        <button onclick="alert('発注リストは準備中です')">発注リスト</button>
+        <button class="${state.adminTab === "leave" ? "active" : ""}" onclick="state.adminTab='leave'; render();">休暇管理</button>
+        <button onclick="alert('チャットは準備中です')">チャット</button>
+        <button class="${state.adminTab === "emp" ? "active" : ""}" onclick="state.adminTab='emp'; state.editingEmpId=null; render();">従業員管理</button>
+        <button onclick="alert('封筒印刷は準備中です')">封筒印刷</button>
+        <button class="${state.adminTab === "contract" ? "active" : ""}" onclick="state.adminTab='contract'; render();">契約書発行</button>
+      </div>
+
+      ${!firebaseReady ? `<div class="placeholder-note">Firebase未設定のため、お試し表示です。firebaseConfig を設定すると実データにつながります。</div>` : ""}
+
+      ${state.adminTab === "leave" ? renderAdminLeaveTab(pending) : ""}
+      ${state.adminTab === "emp" ? renderAdminEmployeeTab() : ""}
+      ${state.adminTab === "contract" ? renderAdminContractTab() : ""}
+    </main>
+  `;
+}
+
+function renderAdminLeaveTab(pending) {
+  return `
+      <div class="card">
+        <p class="staff-title" style="font-size:16px;">承認待ちの休暇申請</p>
+        <table>
+          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>操作</th></tr></thead>
+          <tbody>
+            ${pending.map(r => `
+              <tr>
+                <td>${r.employeeName || ""}</td>
+                <td>${r.area || ""}</td>
+                <td>${r.date}</td>
+                <td>${r.type}</td>
+                <td>${r.reason || ""}</td>
+                <td>
+                  <button class="btn-approve" onclick="updateLeaveStatus('${r.id}','approved')">承認</button>
+                  <button class="btn-reject" onclick="updateLeaveStatus('${r.id}','rejected')">却下</button>
+                </td>
+              </tr>
+            `).join("") || `<tr><td colspan="6" class="muted">現在、承認待ちの申請はありません</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+  `;
+}
+
+/* ---------- 従業員管理（本社共有・全項目編集可） ---------- */
+const EMP_FIELDS = [
+  ["name", "氏名"], ["furigana", "フリガナ"], ["phone", "電話番号"],
+  ["gender", "性別"], ["birthDate", "生年月日"],
+  ["address", "現住所"], ["area", "エリア"], ["workplace", "就業場所（現場）"],
+  ["hireDate", "入社日（雇用開始日）"], ["contractEnd", "雇用終了日（期間の定めがある場合）"],
+  ["weeklyDays", "週の勤務日数"], ["workHours", "就業時間"], ["holiday", "休日"],
+  ["jobType", "業務の種類"], ["baseWage", "基本給"],
+  ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
+  ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
+  ["continuedYN", "継続雇用の有無"], ["contactPerson", "相談窓口担当者"],
+  ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
+];
+
+function renderAdminEmployeeTab() {
+  const editing = state.employees.find(e => e.id === state.editingEmpId);
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:14px;">
+        <p class="staff-title" style="font-size:16px; margin:0;">従業員一覧</p>
+        <input id="empSearch" type="text" placeholder="氏名で検索" style="width:180px;" oninput="render()" />
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:18px;">
+        ${state.employees
+          .filter(e => !document.getElementById("empSearch") || (e.name || "").includes(document.getElementById("empSearch").value))
+          .map(e => `
+            <div class="row-between" style="border:1px solid var(--border); border-radius:8px; padding:8px 12px; cursor:pointer; ${e.id === state.editingEmpId ? 'background:#eef4fa;' : ''}" onclick="state.editingEmpId='${e.id}'; render();">
+              <span>${e.name || "(名前未登録)"}（${e.area || ""}）</span>
+              <span class="muted">${e.hireDate || ""}</span>
+            </div>
+          `).join("") || `<p class="muted">従業員データがまだありません</p>`}
+      </div>
+
+      ${editing ? `
+        <div style="border-top:1px solid var(--border); padding-top:16px;">
+          <p class="staff-title" style="font-size:15px;">${editing.name || ""} さんの情報</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+            ${EMP_FIELDS.map(([key, label]) => `
+              <div>
+                <label style="margin:6px 0 4px;">${label}</label>
+                <input id="emp_${key}" type="text" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+              </div>
+            `).join("")}
+          </div>
+          <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
+        </div>
+      ` : `<p class="muted">一覧から従業員を選ぶと、ここで詳細を編集できます</p>`}
+    </div>
+  `;
+}
+
+async function saveEmployee(id) {
+  const data = {};
+  EMP_FIELDS.forEach(([key]) => {
+    const el = document.getElementById("emp_" + key);
+    if (el) data[key] = el.value;
+  });
+  if (!firebaseReady) {
+    const idx = state.employees.findIndex(e => e.id === id);
+    if (idx >= 0) state.employees[idx] = { ...state.employees[idx], ...data };
+    alert("（お試し表示のため保存はされません）");
+    return render();
+  }
+  try {
+    await db.collection("employees").doc(id).update(data);
+    alert("保存しました");
+  } catch (e) {
+    alert("保存エラー: " + e.message);
+  }
+}
+
+/* ---------- 契約書発行（試用契約書／雇用契約書） ---------- */
+const COMPANY_NAME = "株式会社ホームメンテナンス";
+const COMPANY_ADDRESS = "大阪府大阪市阿倍野区昭和町２丁目１２-１０-２０１";
+const COMPANY_TEL = "TEL：06-6654-7812";
+const COMPANY_REP = "鈴木 広治";
+
+function toWareki(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  let era, ey;
+  if (y >= 2019 && !(y === 2019 && (m < 5))) { era = "令和"; ey = y - 2018; }
+  else if (y >= 1989) { era = "平成"; ey = y - 1988; }
+  else if (y >= 1926) { era = "昭和"; ey = y - 1925; }
+  else { return dateStr; }
+  if (ey === 1) ey = "元";
+  return `${era}　${ey}年　${m}月　${day}日`;
+}
+function addMonths(dateStr, months) {
+  const d = new Date(dateStr);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+function addDays(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function renderAdminContractTab() {
+  const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
+  const emp = state.employees.find(e => e.id === empId) || {};
+  const type = state.contractType || "雇用契約書";
+
+  if (!state.probationStart) state.probationStart = emp.hireDate || new Date().toISOString().slice(0, 10);
+  if (!state.probationEnd) state.probationEnd = addMonths(state.probationStart, 1);
+
+  return `
+    <div class="card no-print">
+      <p class="staff-title" style="font-size:16px;">契約書を作る</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+        <div>
+          <label>従業員を選ぶ</label>
+          <select onchange="state.contractEmpId=this.value; render();">
+            ${state.employees.map(e => `<option value="${e.id}" ${e.id === empId ? "selected" : ""}>${e.name || e.id}</option>`).join("") || `<option>従業員データがありません</option>`}
+          </select>
+        </div>
+        <div>
+          <label>種類</label>
+          <select onchange="state.contractType=this.value; render();">
+            <option value="雇用契約書" ${type === "雇用契約書" ? "selected" : ""}>雇用契約書</option>
+            <option value="試用契約書" ${type === "試用契約書" ? "selected" : ""}>試用契約書</option>
+          </select>
+        </div>
+      </div>
+      ${type === "試用契約書" ? `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+          <div><label>試用期間　開始日</label><input type="date" value="${state.probationStart}" onchange="state.probationStart=this.value; render();" /></div>
+          <div><label>試用期間　終了日</label><input type="date" value="${state.probationEnd}" onchange="state.probationEnd=this.value; render();" /></div>
+        </div>
+      ` : ""}
+      <button class="primary" onclick="window.print()">印刷する</button>
+    </div>
+
+    <div class="card contract-preview">
+      ${type === "雇用契約書" ? renderKoyoKeiyaku(emp) : renderShiyoKeiyaku(emp)}
+    </div>
+  `;
+}
+
+function renderKoyoKeiyaku(emp) {
+  const yen = emp.baseWage ? emp.baseWage : "";
+  return `
+    <p style="text-align:center; font-size:18px; font-weight:700; letter-spacing:3px; margin-bottom:12px;">雇 用 契 約 書</p>
+
+    <table style="width:100%; font-size:14px; border-collapse:collapse; margin-bottom:16px;">
+      <tr>
+        <td class="c-label" style="width:70px; text-align:center;">フリガナ</td>
+        <td style="text-align:center;">${emp.furigana || ""}</td>
+        <td class="c-label" style="width:50px; text-align:center;">性別</td>
+        <td class="c-label" style="width:24px; text-align:center; padding:2px;"><span style="writing-mode:vertical-rl; letter-spacing:1px;">生年月日</span></td>
+        <td style="width:210px; text-align:center;">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center; height:46px;">氏　名</td>
+        <td style="text-align:center; font-size:18px;">${emp.name || ""}</td>
+        <td style="text-align:center; font-size:16px;">${emp.gender || ""}</td>
+        <td colspan="2"></td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center; height:44px;">現住所</td>
+        <td colspan="4">${emp.address || ""}</td>
+      </tr>
+    </table>
+
+    <table style="width:100%; font-size:14px; border-collapse:collapse;">
+      <tr>
+        <td class="c-label" style="width:110px; text-align:center;">雇用期間</td>
+        <td style="width:38%;">${toWareki(emp.hireDate)}より${emp.contractEnd ? "<br>" + toWareki(emp.contractEnd) + "まで" : "<br>（期間の定めなし）"}</td>
+        <td class="c-label" style="width:110px; text-align:center;">基　本　給</td>
+        <td style="text-align:right; padding-right:12px;">${yen ? yen + "　円" : "　　　　　円"}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">従事する<br>業務の種類</td>
+        <td>${emp.jobType || ""}</td>
+        <td colspan="2"></td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">就業時間</td>
+        <td>${emp.workHours || ""}</td>
+        <td colspan="2"></td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;" rowspan="3">休　日</td>
+        <td rowspan="3" style="vertical-align:middle;">${emp.holiday || ""}</td>
+        <td class="c-label" style="text-align:center;">賃金締切日</td>
+        <td style="text-align:center;">${emp.payCutoffDay || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">賃金支払日</td>
+        <td style="text-align:center;">${emp.payDay || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">支払時の控除</td>
+        <td style="text-align:center;">${emp.deduction || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center; height:50px;">就業場所</td>
+        <td colspan="3">${emp.workplace || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">昇給の有無</td>
+        <td colspan="3">${emp.raiseYN || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">賞与の有無</td>
+        <td colspan="3">${emp.bonusYN || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">退職手当の有無</td>
+        <td colspan="3">${emp.retirementYN || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">継続雇用の有無</td>
+        <td colspan="3">${emp.continuedYN || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">相談窓口担当者</td>
+        <td colspan="3">${emp.contactPerson || ""}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center; height:80px;">備考</td>
+        <td colspan="3" style="white-space:pre-wrap; vertical-align:top;">${emp.notes || ""}</td>
+      </tr>
+    </table>
+
+    <p style="margin-top:10px; font-size:13px;">上記以外の労働条件等については当社就業規則によります。</p>
+    <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:60px;">${toWareki(emp.hireDate)}</p>
+    <table style="width:100%; border:none; margin-top:8px; font-size:13px;">
+      <tr style="border:none;">
+        <td style="border:none; vertical-align:top; width:60px; padding:0 0 0 40px;">会　社</td>
+        <td style="border:none; text-align:right; padding:0 60px 0 0; line-height:1.7;">
+          ${COMPANY_ADDRESS}<br>${COMPANY_TEL}<br>${COMPANY_NAME}<br>代表取締役　${COMPANY_REP}　　　　印
+        </td>
+      </tr>
+      <tr style="border:none;"><td style="border:none; height:10px;" colspan="2"></td></tr>
+      <tr style="border:none;">
+        <td style="border:none; vertical-align:top; padding:0 0 0 40px;">従業員</td>
+        <td style="border:none; text-align:right; padding:0 60px 0 0; line-height:1.9;">
+          住所：${emp.address || "　　　　　　　　　　　　　　　　　　"}<br>氏名：${emp.name || "　　　　　　　　　　　　"}　　　　印
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
+function renderShiyoKeiyaku(emp) {
+  const start = state.probationStart;
+  const end = state.probationEnd;
+  const signDate = addDays(start, -1);
+  return `
+    <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
+    <p style="font-size:14px; line-height:2;">
+      使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。
+    </p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第1条</p>
+    <p style="font-size:14px; line-height:2;">
+      1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。<br/>
+      2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。<br/>
+      3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。<br/>
+      4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。
+    </p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第2条</p>
+    <p style="font-size:14px; line-height:2;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第3条</p>
+    <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
+    <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
+    <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
+    <div style="margin-top:24px; font-size:14px; line-height:2;">
+      使用者（甲）<br/>
+      　${COMPANY_ADDRESS}<br/>
+      　${COMPANY_NAME}<br/>
+      　代表取締役　${COMPANY_REP}　　印
+    </div>
+    <div style="margin-top:24px; font-size:14px; line-height:2;">
+      労働者（乙）<br/>
+      　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}<br/>
+      　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印
+    </div>
+  `;
+}
+
+async function updateLeaveStatus(id, status) {
+  if (!firebaseReady) {
+    const r = state.leaveRequests.find(x => x.id === id);
+    if (r) r.status = status;
+    return render();
+  }
+  try {
+    await db.collection("leaveRequests").doc(id).update({ status });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
+function subscribeAllLeaveRequests() {
+  db.collection("leaveRequests").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
+  db.collection("employees").onSnapshot(snap => {
+    state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
+}
+
+render();
+</script>
+</body>
+</html>

@@ -339,7 +339,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(22)";
+const APP_VERSION = "更新: 2026-07-03(24)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -426,6 +426,7 @@ async function handleStaffLogin() {
     subscribeStaffLeaveRequests();
     subscribeStaffOrders();
     subscribeStaffMessages();
+    subscribeStaffPayslips();
   } catch (e) {
     alert("接続エラーが発生しました: " + e.message);
   }
@@ -471,6 +472,7 @@ function renderStaff() {
             ${staffUnreadCount() > 0 ? `<span class="chat-badge">${staffUnreadCount()}</span>` : ""}
           </button>
           <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
+          <button class="big-btn" style="grid-column: span 2;" onclick="state.screen='payslips'; render();"><span class="emoji">📄</span>給与明細</button>
         </div>
 
         <div class="card" style="margin-top:20px;">
@@ -484,9 +486,10 @@ function renderStaff() {
       ` : ""}
 
       ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
-      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : (state.screen === "chat" ? "" : renderLeaveHistory()))}
+      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : (state.screen === "chat" ? "" : (state.screen === "payslips" ? "" : renderLeaveHistory())))}
       ${state.screen === "orderForm" ? renderOrderForm() : ""}
       ${state.screen === "chat" ? renderStaffChat() : ""}
+      ${state.screen === "payslips" ? renderStaffPayslips() : ""}
     </main>
   `;
 
@@ -676,6 +679,16 @@ function subscribeStaffMessages() {
       state.messages = rows;
       render();
     }, err => console.error("messages購読エラー", err));
+}
+
+function subscribeStaffPayslips() {
+  if (!firebaseReady) return;
+  db.collection("payslips")
+    .where("employeeId", "==", state.currentUser.id)
+    .onSnapshot(snap => {
+      state.payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    }, err => console.error("payslips購読エラー", err));
 }
 
 function staffUnreadCount() {
@@ -991,7 +1004,8 @@ function renderAdmin() {
         <button class="${state.adminTab === "chat" ? "active" : ""}" onclick="state.adminTab='chat'; render();">チャット${adminUnreadCount() > 0 ? ` (${adminUnreadCount()})` : ""}</button>
         <button class="${state.adminTab === "emp" ? "active" : ""}" onclick="state.adminTab='emp'; state.editingEmpId=null; render();">従業員管理</button>
         <button onclick="alert('封筒印刷は準備中です')">封筒印刷</button>
-        <button class="${state.adminTab === "contract" ? "active" : ""}" onclick="state.adminTab='contract'; render();">契約書発行</button>
+        <button class="${state.adminTab === "contract" ? "active" : ""}" onclick="state.adminTab='contract'; render();">書類発行</button>
+        <button class="${state.adminTab === "payslip" ? "active" : ""}" onclick="state.adminTab='payslip'; render();">給与明細</button>
       </div>
 
       ${!firebaseReady ? `<div class="placeholder-note">Firebase未設定のため、お試し表示です。firebaseConfig を設定すると実データにつながります。</div>` : ""}
@@ -1001,6 +1015,7 @@ function renderAdmin() {
       ${state.adminTab === "chat" ? renderAdminChatTab() : ""}
       ${state.adminTab === "emp" ? renderAdminEmployeeTab() : ""}
       ${state.adminTab === "contract" ? renderAdminContractTab() : ""}
+      ${state.adminTab === "payslip" ? renderAdminPayslipTab() : ""}
     </main>
   `;
 
@@ -1171,7 +1186,11 @@ const EMP_FIELDS_TOP = [
 ];
 const EMP_FIELDS_HIGHLIGHT = [
   ["area", "エリア"], ["workplace", "就業場所（現場）"],
-  ["hireDate", "入社日（雇用開始日）"], ["shiftDays", "シフト（勤務曜日）例：月・水・金"]
+  ["hireDate", "入社日（雇用開始日）"]
+];
+const WEEKDAY_FIELDS = [
+  ["shiftMon", "月"], ["shiftTue", "火"], ["shiftWed", "水"], ["shiftThu", "木"],
+  ["shiftFri", "金"], ["shiftSat", "土"], ["shiftSun", "日"]
 ];
 const EMP_FIELDS_SIMPLE = [
   ["contractEnd", "雇用終了日（期間の定めがある場合）"], ["weeklyDays", "週の勤務日数"],
@@ -1179,10 +1198,19 @@ const EMP_FIELDS_SIMPLE = [
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
   ["continuedYN", "継続雇用の有無"], ["contactPerson", "相談窓口担当者"],
+  ["homePhone", "自宅電話（労働者名簿用）"], ["yuchoKigo", "ゆうちょ 記号（5桁）"], ["yuchoBango", "ゆうちょ 番号（8桁）"],
+  ["resignReason", "退職・解雇の事由（労働者名簿用）"],
   ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
 ];
 // 保存時にまとめて読み取るための全項目一覧（住所欄は別扱い）
-const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...EMP_FIELDS_SIMPLE];
+const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...WEEKDAY_FIELDS, ...EMP_FIELDS_SIMPLE];
+
+// 曜日ごとの勤務時間から「月・水・金」のような一覧表示用サマリーを作る（未入力時は旧shiftDaysにフォールバック）
+function shiftSummary(e) {
+  const days = WEEKDAY_FIELDS.filter(([key]) => (e[key] || "").trim()).map(([, label]) => label);
+  if (days.length) return days.join("・");
+  return e.shiftDays || "";
+}
 
 function calcAge(birthDateStr) {
   if (!birthDateStr) return null;
@@ -1300,7 +1328,7 @@ function computeEmpList() {
     const vDigits = searchVal.replace(/[^\d]/g, "");
     const phoneDigits = (e.phone || "").replace(/[^\d]/g, "");
     const phoneMatches = vDigits && phoneDigits.includes(vDigits);
-    return phoneMatches || [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
+    return phoneMatches || [e.name, e.furigana, e.employeeCode, e.phone, e.workplace].some(f => (f || "").toLowerCase().includes(v));
   };
   let list = source.filter(e => matchesSearch(e) && (!areaFilter || e.area === areaFilter));
   list = list.slice().sort((a, b) => {
@@ -1328,7 +1356,7 @@ function renderEmpTableRows() {
       <td>${e.name || "(名前未登録)"}</td>
       <td>${age !== null ? age + "歳" : ""}</td>
       <td>${e.area || ""}</td>
-      <td>${e.shiftDays || ""}</td>
+      <td>${shiftSummary(e)}</td>
     </tr>
   `;
   }).join("") || `<tr><td colspan="5" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`;
@@ -1419,6 +1447,16 @@ function renderAdminEmployeeTab() {
               </div>
             `).join("")}
           </div>
+
+          <p class="muted" style="margin:16px 0 8px; font-size:13px;">シフト（曜日ごとの勤務時間）</p>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${WEEKDAY_FIELDS.map(([key, label]) => `
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="width:28px; font-weight:700; font-size:16px; text-align:center; flex-shrink:0;">${label}</span>
+                <input id="emp_${key}" type="text" placeholder="例：9時〜16時30分（休みの日は空欄）" style="flex:1;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+              </div>
+            `).join("")}
+          </div>
         </div>
 
         <div style="margin-top:14px;">
@@ -1473,7 +1511,7 @@ function renderAdminEmployeeTab() {
       ` : ""}
 
       <div class="responsive-grid" style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:14px;">
-        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="handleEmpSearchInput(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleEmpSearchInput(this)" />
+        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号・就業先で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="handleEmpSearchInput(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleEmpSearchInput(this)" />
         <select onchange="state.empAreaFilter=this.value; render();">
           <option value="">エリア：すべて</option>
           ${areas.map(a => `<option value="${a}" ${a === areaFilter ? "selected" : ""}>${a}</option>`).join("")}
@@ -1699,6 +1737,175 @@ function handleContractSearchInput(el) {
   updateContractEmpSelect();
 }
 
+/* ---------- 給与明細（PDFアップロード／ダウンロード） ---------- */
+function computePayslipEmpOptions() {
+  const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
+  const q = (state.payslipEmpSearchVal || "").toLowerCase();
+  const filtered = !q ? state.employees : state.employees.filter(e =>
+    [e.name, e.furigana, e.employeeCode].some(f => (f || "").toLowerCase().includes(q))
+  );
+  return filtered.map(e => `<option value="${e.id}" ${e.id === empId ? "selected" : ""}>${e.name || e.id}</option>`).join("")
+    || `<option value="">該当する従業員がいません</option>`;
+}
+function updatePayslipEmpSelect() {
+  const sel = document.getElementById("payslipEmpSelect");
+  if (sel) sel.innerHTML = computePayslipEmpOptions();
+}
+function handlePayslipSearchInput(el) {
+  if (el.dataset.composing === "1") return;
+  state.payslipEmpSearchVal = el.value;
+  updatePayslipEmpSelect();
+}
+
+function renderAdminPayslipTab() {
+  const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
+  const emp = state.employees.find(e => e.id === empId) || {};
+  const myPayslips = (state.payslips || [])
+    .filter(p => p.employeeId === empId)
+    .slice()
+    .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">給与明細をアップロード</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与などから出力したPDFを、従業員・対象月ごとにアップロードできます。1ファイル650KBまでです（サイズが大きい場合は白黒・低解像度で出力し直してください）。</p>
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
+        <div>
+          <label>従業員を選ぶ（氏名・フリガナ・管理番号で検索）</label>
+          <input id="payslipEmpSearch" type="text" placeholder="氏名で検索して絞り込む" value="${(state.payslipEmpSearchVal || "").replace(/"/g, '&quot;')}"
+                 oninput="handlePayslipSearchInput(this)"
+                 oncompositionstart="this.dataset.composing='1'"
+                 oncompositionend="this.dataset.composing=''; handlePayslipSearchInput(this)"
+                 style="margin-bottom:8px;" />
+          <select id="payslipEmpSelect" onchange="state.payslipEmpId=this.value; render();">
+            ${computePayslipEmpOptions()}
+          </select>
+        </div>
+        <div>
+          <label>対象月</label>
+          <input id="payslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
+        </div>
+      </div>
+      <label>PDFファイル</label>
+      <input type="file" accept="application/pdf" id="payslipFile" onchange="handlePayslipFileSelect(event)" />
+      <div id="payslipUploadPreview"></div>
+    </div>
+
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">${emp.name || ""} さんの給与明細一覧</p>
+      <table>
+        <thead><tr><th>対象月</th><th>ファイル名</th><th>アップロード日</th><th></th></tr></thead>
+        <tbody>
+          ${myPayslips.map(p => `
+            <tr>
+              <td>${p.month || ""}</td>
+              <td>${p.fileName || ""}</td>
+              <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
+              <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button></td>
+            </tr>
+          `).join("") || `<tr><td colspan="4" class="muted">まだアップロードされた給与明細はありません</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function handlePayslipFileSelect(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (file.type !== "application/pdf") {
+    alert("PDFファイルを選んでください");
+    evt.target.value = "";
+    return;
+  }
+  if (file.size > 650 * 1024) {
+    alert("ファイルが大きすぎます（650KBまで）。弥生給与の出力設定で、白黒・低解像度などにして小さくしてから再度お試しください。");
+    evt.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.pendingPayslip = { base64: reader.result, fileName: file.name };
+    document.getElementById("payslipUploadPreview").innerHTML = `
+      <p style="margin-top:10px;">「${file.name}」を読み込みました。</p>
+      <button class="primary" onclick="uploadPayslip()">この内容でアップロードする</button>
+    `;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadPayslip() {
+  const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
+  const emp = state.employees.find(e => e.id === empId) || {};
+  const month = (document.getElementById("payslipMonth") || {}).value || state.payslipMonth;
+  if (!empId || !month || !state.pendingPayslip) return alert("従業員・対象月・ファイルをご確認ください");
+
+  const data = {
+    employeeId: empId,
+    employeeName: emp.name || "",
+    month,
+    fileName: state.pendingPayslip.fileName,
+    pdfBase64: state.pendingPayslip.base64,
+    uploadedAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+  const docId = empId + "_" + month;
+
+  if (!firebaseReady) {
+    state.payslips = state.payslips || [];
+    const idx = state.payslips.findIndex(p => p.id === docId);
+    if (idx >= 0) state.payslips[idx] = { id: docId, ...data };
+    else state.payslips.push({ id: docId, ...data });
+    state.pendingPayslip = null;
+    alert("（お試し表示のため実際の保存はされません）");
+    return render();
+  }
+  try {
+    await db.collection("payslips").doc(docId).set(data);
+    state.pendingPayslip = null;
+    alert("アップロードしました");
+    render();
+  } catch (e) {
+    alert("アップロードエラー: " + e.message);
+  }
+}
+
+async function deletePayslip(id) {
+  if (!confirm("この給与明細を削除します。よろしいですか？")) return;
+  if (!firebaseReady) {
+    state.payslips = (state.payslips || []).filter(p => p.id !== id);
+    return render();
+  }
+  try {
+    await db.collection("payslips").doc(id).delete();
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
+function openPayslip(id) {
+  const p = (state.payslips || []).find(x => x.id === id);
+  if (!p) return;
+  window.open(p.pdfBase64, "_blank");
+}
+
+function renderStaffPayslips() {
+  const list = (state.payslips || []).slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:8px;">
+        <p class="staff-title" style="font-size:17px; margin:0;">給与明細</p>
+        <button class="link" onclick="state.screen='staffHome'; render();">とじる</button>
+      </div>
+      ${list.length ? list.map(p => `
+        <div class="row-between" style="padding:14px 0; border-bottom:1px solid var(--border);">
+          <div style="font-size:17px; font-weight:700;">${p.month || ""}</div>
+          <button class="primary" style="width:auto; margin-top:0; padding:12px 20px;" onclick="openPayslip('${p.id}')">ひらく・印刷する</button>
+        </div>
+      `).join("") : `<p class="muted">まだ給与明細はありません</p>`}
+    </div>
+  `;
+}
+
 function renderAdminContractTab() {
   const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
@@ -1727,6 +1934,7 @@ function renderAdminContractTab() {
           <select onchange="state.contractType=this.value; render();">
             <option value="雇用契約書" ${type === "雇用契約書" ? "selected" : ""}>雇用契約書</option>
             <option value="試用契約書" ${type === "試用契約書" ? "selected" : ""}>試用契約書</option>
+            <option value="労働者名簿" ${type === "労働者名簿" ? "selected" : ""}>労働者名簿</option>
           </select>
         </div>
       </div>
@@ -1740,7 +1948,7 @@ function renderAdminContractTab() {
     </div>
 
     <div class="card contract-preview">
-      ${type === "雇用契約書" ? renderKoyoKeiyaku(emp) : renderShiyoKeiyaku(emp)}
+      ${type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp)}
     </div>
   `;
 }
@@ -1882,6 +2090,37 @@ function renderShiyoKeiyaku(emp) {
   `;
 }
 
+function renderRoshaMeibo(emp) {
+  const isResigned = emp.status === "resigned";
+  return `
+    <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:10px; margin-bottom:24px;">労 働 者 名 簿</p>
+    <table style="width:100%; font-size:14px;">
+      <tr>
+        <td class="c-label" style="width:110px;">フリガナ</td><td>${emp.furigana || ""}</td>
+        <td class="c-label" style="width:60px; text-align:center;">性別</td><td style="width:70px; text-align:center;">${emp.gender || ""}</td>
+      </tr>
+      <tr><td class="c-label">氏　名</td><td colspan="3" style="font-size:16px;">${emp.name || ""}</td></tr>
+      <tr><td class="c-label">生年月日</td><td colspan="3">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td></tr>
+      <tr><td class="c-label">現住所</td><td colspan="3">${emp.postalCode ? "〒" + emp.postalCode + "　" : ""}${emp.address || ""}</td></tr>
+      <tr><td class="c-label">連絡先</td><td colspan="3">自宅：${emp.homePhone || "　　　　　　　　　　"}　　　携帯：${emp.phone || "　　　　　　　　　　"}</td></tr>
+      <tr><td class="c-label">給与振込先</td><td colspan="3">ゆうちょ銀行　　記号　${emp.yuchoKigo || "□□□□□"}　　番号　${emp.yuchoBango || "□□□□□□□□"}</td></tr>
+      <tr><td class="c-label">雇入年月日</td><td colspan="3">${emp.hireDate ? toWareki(emp.hireDate) : "　　　年　　月　　日"}</td></tr>
+      <tr><td class="c-label">従事する<br/>業務の種類</td><td colspan="3">${emp.jobType || ""}</td></tr>
+      <tr><td class="c-label">備考</td><td colspan="3" style="height:60px; white-space:pre-wrap;">${emp.notes || ""}</td></tr>
+      <tr>
+        <td class="c-label" rowspan="2">解雇・退職<br/>または死亡</td>
+        <td class="c-label" style="text-align:center;">年月日</td>
+        <td colspan="2">${isResigned && emp.resignedDate ? toWareki(emp.resignedDate) : "　　　年　　月　　日"}</td>
+      </tr>
+      <tr>
+        <td class="c-label" style="text-align:center;">事由</td>
+        <td colspan="2">${emp.resignReason || ""}</td>
+      </tr>
+    </table>
+    <p style="margin-top:20px; font-size:12px;">株式会社ホームメンテナンス</p>
+  `;
+}
+
 async function updateLeaveStatus(id, status) {
   if (!firebaseReady) {
     const r = state.leaveRequests.find(x => x.id === id);
@@ -1908,6 +2147,10 @@ function subscribeAllLeaveRequests() {
     state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   });
+  db.collection("payslips").onSnapshot(snap => {
+    state.payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("payslips(admin)購読エラー", err));
 }
 
 function subscribeAllMessages() {

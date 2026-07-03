@@ -429,19 +429,31 @@ function renderOrderHistory(onHome) {
   if (!state.orders || !state.orders.length) return "";
   const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ" };
   const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved" };
+
+  const active = state.orders.filter(o => o.status !== "received");
+  const received = state.orders.filter(o => o.status === "received");
+
+  const itemRow = (o, showReceiveBtn) => `
+    <div class="row-between" style="margin-bottom:8px;">
+      <div>${o.item}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${o.place || ""}</span></div>
+      <div style="text-align:right;">
+        <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>
+        ${showReceiveBtn && (o.status === "ordered" || o.status === "arrived") ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
+      </div>
+    </div>
+  `;
+
   return `
     <div style="${onHome ? "" : "margin-top:18px; border-top:1px solid var(--border); padding-top:12px;"}">
       <p class="${onHome ? "staff-title" : "muted"}" style="${onHome ? "font-size:16px;" : ""} margin:0 0 8px;">たのんだもの</p>
-      ${state.orders.map(o => `
-        <div class="row-between" style="margin-bottom:8px;">
-          <div>${o.item}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${o.place || ""}</span></div>
-          <div style="text-align:right;">
-            <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>
-            ${o.status === "arrived" ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
-          </div>
-        </div>
-      `).join("")}
+      ${active.length ? active.map(o => itemRow(o, true)).join("") : `<p class="muted" style="margin:0 0 8px;">今たのんでいるものはありません</p>`}
     </div>
+    ${received.length ? `
+      <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:12px;">
+        <p class="muted" style="margin:0 0 8px;">とどきましたリスト</p>
+        ${received.map(o => itemRow(o, false)).join("")}
+      </div>
+    ` : ""}
   `;
 }
 

@@ -252,7 +252,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
   screen: "login",
-  adminTab: "leave",
+  adminTab: "order",
   leaveRequests: [],
   employees: []
 };
@@ -306,6 +306,7 @@ async function handleStaffLogin() {
     state.screen = "staffHome";
     render();
     subscribeStaffLeaveRequests();
+    subscribeStaffOrders();
   } catch (e) {
     alert("接続エラーが発生しました: " + e.message);
   }
@@ -344,7 +345,7 @@ function renderStaff() {
       ${state.screen === "staffHome" ? `
         <div class="big-grid">
           <button class="big-btn" onclick="state.screen='leaveForm'; render();"><span class="emoji">🗓️</span>休み申請</button>
-          <button class="big-btn" onclick="alert('備品発注は準備中です')"><span class="emoji">📦</span>備品をたのむ</button>
+          <button class="big-btn" onclick="state.screen='orderForm'; render();"><span class="emoji">📦</span>備品をたのむ</button>
           <button class="big-btn" onclick="alert('チャットは準備中です')"><span class="emoji">💬</span>本社とお話し</button>
           <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
         </div>
@@ -358,10 +359,148 @@ function renderStaff() {
       ` : ""}
 
       ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
-      ${state.screen === "leaveForm" ? "" : renderLeaveHistory()}
+      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : renderLeaveHistory())}
+      ${state.screen === "orderForm" ? renderOrderForm() : ""}
     </main>
   `;
 }
+
+/* 品目マスタ（初期リスト） */
+const ITEM_MASTER = [
+  "ゴミ袋 45L", "ゴミ袋 70L", "ゴミ袋 90L",
+  "トイレットペーパー", "トイレ洗剤", "手洗い石鹸水（希釈タイプ）",
+  "次亜塩素酸ナトリウム", "日報", "会社用封筒", "出勤簿"
+];
+
+/* 平日17時までの受付判定 */
+function isOrderAcceptable() {
+  const now = new Date();
+  const day = now.getDay();       // 0=日, 6=土
+  const hour = now.getHours();
+  if (day === 0 || day === 6) return false;
+  if (hour >= 17) return false;
+  return true;
+}
+
+function renderOrderForm() {
+  const accepting = isOrderAcceptable();
+  const selectedItem = state.orderItem || ITEM_MASTER[0];
+  const isFree = selectedItem === "__free__";
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:17px;">備品をたのむ</p>
+
+      ${accepting ? "" : `<div class="placeholder-note">今は受付時間外です（受付は平日の17時まで、土日祝はお休みです）。申請はできますが、本社の確認は翌営業日になります。</div>`}
+
+      <label>発注する場所（げんば）</label>
+      <input id="orderPlace" type="text" placeholder="例：○○警察署" value="${state.currentUser.workplace || ""}" />
+
+      <label>ほしいもの</label>
+      <select id="orderItemSelect" onchange="state.orderItem=this.value; render();">
+        ${ITEM_MASTER.map(it => `<option value="${it}" ${it === selectedItem ? "selected" : ""}>${it}</option>`).join("")}
+        <option value="__free__" ${isFree ? "selected" : ""}>その他（自分で書く）</option>
+      </select>
+
+      ${isFree ? `<input id="orderFreeText" type="text" placeholder="ほしいものを書いてください" style="margin-top:8px;" />` : ""}
+
+      <label>いくつ</label>
+      <div style="display:flex; align-items:center; justify-content:center; gap:18px; margin:8px 0 4px;">
+        <button type="button" style="width:52px; height:52px; font-size:26px; padding:0;" onclick="changeQty(-1)">－</button>
+        <span id="orderQty" style="font-size:28px; font-weight:700; min-width:40px; text-align:center;">${state.orderQty || 1}</span>
+        <button type="button" style="width:52px; height:52px; font-size:26px; padding:0;" onclick="changeQty(1)">＋</button>
+      </div>
+
+      <button class="primary" onclick="submitOrder()">これで たのむ</button>
+      <button class="link" onclick="state.screen='staffHome'; state.orderItem=null; state.orderQty=1; render();">やめる</button>
+
+      ${renderOrderHistory()}
+    </div>
+  `;
+}
+
+function changeQty(d) {
+  state.orderQty = Math.max(1, (state.orderQty || 1) + d);
+  document.getElementById("orderQty").textContent = state.orderQty;
+}
+
+function renderOrderHistory() {
+  if (!state.orders || !state.orders.length) return "";
+  const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ" };
+  const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved" };
+  return `
+    <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
+      <p class="muted" style="margin:0 0 8px;">たのんだもの</p>
+      ${state.orders.map(o => `
+        <div class="row-between" style="margin-bottom:8px;">
+          <div>${o.item}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${o.place || ""}</span></div>
+          <div style="text-align:right;">
+            <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>
+            ${o.status === "arrived" ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function submitOrder() {
+  const place = document.getElementById("orderPlace").value.trim();
+  let item = state.orderItem || ITEM_MASTER[0];
+  if (item === "__free__") {
+    item = (document.getElementById("orderFreeText").value || "").trim();
+    if (!item) return alert("ほしいものを書いてください");
+  }
+  const qty = state.orderQty || 1;
+  if (!place) return alert("発注する場所を入れてください");
+
+  const data = {
+    employeeId: state.currentUser.id,
+    employeeName: state.currentUser.name,
+    area: state.currentUser.area || "",
+    place, item, qty,
+    status: "pending",
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.orders = state.orders || [];
+    state.orders.unshift({ ...data, id: "demo-" + Date.now() });
+    state.orderItem = null; state.orderQty = 1;
+    return render();
+  }
+  try {
+    await db.collection("orders").add(data);
+    state.orderItem = null; state.orderQty = 1;
+    render();
+  } catch (e) {
+    alert("送信エラー: " + e.message);
+  }
+}
+
+async function markReceived(id) {
+  if (!firebaseReady) {
+    const o = state.orders.find(x => x.id === id);
+    if (o) o.status = "received";
+    return render();
+  }
+  try {
+    await db.collection("orders").doc(id).update({ status: "received" });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
+function subscribeStaffOrders() {
+  if (!firebaseReady) return;
+  db.collection("orders")
+    .where("employeeId", "==", state.currentUser.id)
+    .orderBy("createdAt", "desc")
+    .onSnapshot(snap => {
+      state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    });
+}
+
 
 function renderLeaveForm() {
   const today = new Date();
@@ -469,13 +608,13 @@ function renderAdmin() {
     <main>
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 承認待ち</div></div>
-        <div class="stat-card"><div class="num">0</div><div class="label">未確認の発注</div></div>
+        <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
         <div class="stat-card"><div class="num">0</div><div class="label">未読メッセージ</div></div>
         <div class="stat-card"><div class="num">${state.employees.length || "-"}</div><div class="label">登録従業員数</div></div>
       </div>
 
       <div class="tabbar">
-        <button onclick="alert('発注リストは準備中です')">発注リスト</button>
+        <button class="${state.adminTab === "order" ? "active" : ""}" onclick="state.adminTab='order'; render();">発注リスト</button>
         <button class="${state.adminTab === "leave" ? "active" : ""}" onclick="state.adminTab='leave'; render();">休暇管理</button>
         <button onclick="alert('チャットは準備中です')">チャット</button>
         <button class="${state.adminTab === "emp" ? "active" : ""}" onclick="state.adminTab='emp'; state.editingEmpId=null; render();">従業員管理</button>
@@ -485,11 +624,63 @@ function renderAdmin() {
 
       ${!firebaseReady ? `<div class="placeholder-note">Firebase未設定のため、お試し表示です。firebaseConfig を設定すると実データにつながります。</div>` : ""}
 
+      ${state.adminTab === "order" ? renderAdminOrderTab() : ""}
       ${state.adminTab === "leave" ? renderAdminLeaveTab(pending) : ""}
       ${state.adminTab === "emp" ? renderAdminEmployeeTab() : ""}
       ${state.adminTab === "contract" ? renderAdminContractTab() : ""}
     </main>
   `;
+}
+
+/* ---------- 本社側：発注リスト ---------- */
+function renderAdminOrderTab() {
+  const orders = state.orders || [];
+  const statusOptions = [
+    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
+    ["arrived", "到着済み"], ["received", "受け取り完了"]
+  ];
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:14px;">
+        <p class="staff-title" style="font-size:16px; margin:0;">発注リスト</p>
+        <span class="muted">未確認 ${orders.filter(o => o.status === "pending").length}件</span>
+      </div>
+      <table>
+        <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th></tr></thead>
+        <tbody>
+          ${orders.map(o => `
+            <tr>
+              <td>${o.employeeName || ""}<br><span class="muted" style="font-size:12px;">${o.area || ""}</span></td>
+              <td>${o.place || ""}</td>
+              <td>${o.item}</td>
+              <td>${o.qty}</td>
+              <td>
+                <select onchange="updateOrderStatus('${o.id}', this.value)" style="font-size:13px; padding:4px 8px;">
+                  ${statusOptions.map(([v, l]) => `<option value="${v}" ${o.status === v ? "selected" : ""}>${l}</option>`).join("")}
+                </select>
+              </td>
+              <td class="muted" style="font-size:12px;">${o.handledBy || "-"}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="6" class="muted">発注はまだありません</td></tr>`}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発注済み」まで見えます。</p>
+    </div>
+  `;
+}
+
+async function updateOrderStatus(id, status) {
+  const handler = state.currentUser.name || "本社担当";
+  if (!firebaseReady) {
+    const o = state.orders.find(x => x.id === id);
+    if (o) { o.status = status; o.handledBy = handler; }
+    return render();
+  }
+  try {
+    await db.collection("orders").doc(id).update({ status, handledBy: handler });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
 }
 
 function renderAdminLeaveTab(pending) {
@@ -747,22 +938,17 @@ function renderKoyoKeiyaku(emp) {
     </table>
 
     <p style="margin-top:10px; font-size:13px;">上記以外の労働条件等については当社就業規則によります。</p>
-    <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:60px;">${toWareki(emp.hireDate)}</p>
-    <table style="width:100%; border:none; margin-top:8px; font-size:13px;">
-      <tr style="border:none;">
-        <td style="border:none; vertical-align:top; width:60px; padding:0 0 0 40px;">会　社</td>
-        <td style="border:none; text-align:right; padding:0 60px 0 0; line-height:1.7;">
-          ${COMPANY_ADDRESS}<br>${COMPANY_TEL}<br>${COMPANY_NAME}<br>代表取締役　${COMPANY_REP}　　　　印
-        </td>
-      </tr>
-      <tr style="border:none;"><td style="border:none; height:10px;" colspan="2"></td></tr>
-      <tr style="border:none;">
-        <td style="border:none; vertical-align:top; padding:0 0 0 40px;">従業員</td>
-        <td style="border:none; text-align:right; padding:0 60px 0 0; line-height:1.9;">
-          住所：${emp.address || "　　　　　　　　　　　　　　　　　　"}<br>氏名：${emp.name || "　　　　　　　　　　　　"}　　　　印
-        </td>
-      </tr>
-    </table>
+    <p style="text-align:center; margin-top:12px; font-size:13px;">${toWareki(emp.hireDate)}</p>
+    <div style="margin-top:14px; font-size:13px; line-height:1.9; padding-left:70px;">
+      <div>会　社　　${COMPANY_ADDRESS}</div>
+      <div style="padding-left:56px;">${COMPANY_TEL}</div>
+      <div style="padding-left:56px;">${COMPANY_NAME}</div>
+      <div style="padding-left:56px;">代表取締役　${COMPANY_REP}　　　　　　　　印</div>
+    </div>
+    <div style="margin-top:16px; font-size:13px; line-height:1.9; padding-left:70px;">
+      <div>従業員　　住所：${emp.address || "　　　　　　　　　　　　　　　　　　"}</div>
+      <div style="padding-left:56px;">氏名：${emp.name || "　　　　　　　　　　　　"}　　　　　　　　印</div>
+    </div>
   `;
 }
 
@@ -822,6 +1008,10 @@ function subscribeAllLeaveRequests() {
   });
   db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
+  db.collection("orders").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   });
 }

@@ -249,6 +249,8 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
+const APP_VERSION = "更新: 2026-07-03 発注機能v2";
+
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
   screen: "login",
@@ -336,7 +338,7 @@ function renderStaff() {
 
   appEl.innerHTML = `
     <header class="topbar">
-      <h1>アシスト労務</h1>
+      <h1>アシスト労務<span style="font-size:11px; color:#aebbcc; font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
       <button onclick="logout()">ログアウト</button>
     </header>
     <main class="staff-scope">
@@ -635,7 +637,7 @@ function renderAdmin() {
 
   appEl.innerHTML = `
     <header class="topbar">
-      <h1>アシスト労務（本社）</h1>
+      <h1>アシスト労務（本社）<span style="font-size:11px; color:#aebbcc; font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
       <button onclick="logout()">ログアウト</button>
     </header>
     <main>
@@ -672,18 +674,55 @@ function renderAdminOrderTab() {
     ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
     ["arrived", "到着済み"], ["received", "受け取り完了"]
   ];
+  const showForm = !!state.showPhoneOrderForm;
+  const selectedItem = state.phoneOrderItem || ITEM_MASTER[0];
+  const isFree = selectedItem === "__free__";
+
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:14px;">
         <p class="staff-title" style="font-size:16px; margin:0;">発注リスト</p>
-        <span class="muted">未確認 ${orders.filter(o => o.status === "pending").length}件</span>
+        <div>
+          <span class="muted" style="margin-right:14px;">未確認 ${orders.filter(o => o.status === "pending").length}件</span>
+          <button style="font-size:13px; padding:8px 14px;" onclick="state.showPhoneOrderForm = !state.showPhoneOrderForm; render();">${showForm ? "閉じる" : "＋ 電話注文を入力"}</button>
+        </div>
       </div>
+
+      ${showForm ? `
+        <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; background:#f9fafb;">
+          <p class="muted" style="margin:0 0 10px;">電話などで受けた注文を代わりに入力します</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+            <div>
+              <label>申請者名</label>
+              <input id="phoneOrderName" type="text" placeholder="例：植野 かずよ" />
+            </div>
+            <div>
+              <label>発注する場所</label>
+              <input id="phoneOrderPlace" type="text" placeholder="例：○○警察署" />
+            </div>
+            <div>
+              <label>品目</label>
+              <select onchange="state.phoneOrderItem=this.value; render();">
+                ${ITEM_MASTER.map(it => `<option value="${it}" ${it === selectedItem ? "selected" : ""}>${it}</option>`).join("")}
+                <option value="__free__" ${isFree ? "selected" : ""}>その他（自分で書く）</option>
+              </select>
+              ${isFree ? `<input id="phoneOrderFreeText" type="text" placeholder="品目を書いてください" style="margin-top:6px;" />` : ""}
+            </div>
+          </div>
+          <div style="margin-top:10px; width:140px;">
+            <label>数量</label>
+            <input id="phoneOrderQty" type="number" min="1" value="1" />
+          </div>
+          <button class="primary" style="margin-top:12px;" onclick="submitPhoneOrder()">この内容で登録する</button>
+        </div>
+      ` : ""}
+
       <table>
         <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th></tr></thead>
         <tbody>
           ${orders.map(o => `
             <tr>
-              <td>${o.employeeName || ""}<br><span class="muted" style="font-size:12px;">${o.area || ""}</span></td>
+              <td>${o.employeeName || ""}${o.byPhone ? '<br><span class="muted" style="font-size:11px;">（電話）</span>' : ""}<br><span class="muted" style="font-size:12px;">${o.area || ""}</span></td>
               <td>${o.place || ""}</td>
               <td>${o.item}</td>
               <td>${o.qty}</td>
@@ -700,6 +739,46 @@ function renderAdminOrderTab() {
       <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発注済み」まで見えます。</p>
     </div>
   `;
+}
+
+async function submitPhoneOrder() {
+  const name = document.getElementById("phoneOrderName").value.trim();
+  const place = document.getElementById("phoneOrderPlace").value.trim();
+  let item = state.phoneOrderItem || ITEM_MASTER[0];
+  if (item === "__free__") {
+    item = (document.getElementById("phoneOrderFreeText").value || "").trim();
+    if (!item) return alert("品目を書いてください");
+  }
+  const qty = parseInt(document.getElementById("phoneOrderQty").value, 10) || 1;
+  if (!name) return alert("申請者名を入れてください");
+  if (!place) return alert("発注する場所を入れてください");
+
+  const data = {
+    employeeId: "phone-" + Date.now(),
+    employeeName: name,
+    area: "",
+    place, item, qty,
+    status: "pending",
+    byPhone: true,
+    handledBy: state.currentUser.name || "本社担当",
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.orders = state.orders || [];
+    state.orders.unshift({ ...data, id: "demo-" + Date.now() });
+    state.showPhoneOrderForm = false;
+    state.phoneOrderItem = null;
+    return render();
+  }
+  try {
+    await db.collection("orders").add(data);
+    state.showPhoneOrderForm = false;
+    state.phoneOrderItem = null;
+    render();
+  } catch (e) {
+    alert("登録エラー: " + e.message);
+  }
 }
 
 async function updateOrderStatus(id, status) {

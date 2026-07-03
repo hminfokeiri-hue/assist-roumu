@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(8)";
+const APP_VERSION = "更新: 2026-07-03(10)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1116,18 +1116,66 @@ function renderAdminLeaveTab(pending) {
 }
 
 /* ---------- 従業員管理（本社共有・全項目編集可） ---------- */
-const EMP_FIELDS = [
+const EMP_FIELDS_TOP = [
   ["loginId", "ログインID（8桁）"], ["employeeCode", "管理番号"], ["name", "氏名"], ["furigana", "フリガナ"], ["phone", "電話番号"],
-  ["gender", "性別"], ["birthDate", "生年月日"],
-  ["address", "現住所"], ["area", "エリア"], ["workplace", "就業場所（現場）"],
-  ["hireDate", "入社日（雇用開始日）"], ["contractEnd", "雇用終了日（期間の定めがある場合）"],
-  ["weeklyDays", "週の勤務日数"], ["shiftDays", "シフト（勤務曜日）例：月・水・金"], ["workHours", "就業時間"], ["holiday", "休日"],
-  ["jobType", "業務の種類"], ["baseWage", "基本給"],
+  ["gender", "性別"], ["birthDate", "生年月日"]
+];
+const EMP_FIELDS_HIGHLIGHT = [
+  ["area", "エリア"], ["workplace", "就業場所（現場）"],
+  ["hireDate", "入社日（雇用開始日）"], ["shiftDays", "シフト（勤務曜日）例：月・水・金"]
+];
+const EMP_FIELDS_SIMPLE = [
+  ["contractEnd", "雇用終了日（期間の定めがある場合）"], ["weeklyDays", "週の勤務日数"],
+  ["workHours", "就業時間"], ["holiday", "休日"], ["jobType", "業務の種類"], ["baseWage", "基本給"],
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
   ["continuedYN", "継続雇用の有無"], ["contactPerson", "相談窓口担当者"],
   ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
 ];
+// 保存時にまとめて読み取るための全項目一覧（住所欄は別扱い）
+const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...EMP_FIELDS_SIMPLE];
+
+function calcAge(birthDateStr) {
+  if (!birthDateStr) return null;
+  const b = new Date(birthDateStr);
+  if (isNaN(b)) return null;
+  const today = new Date();
+  let age = today.getFullYear() - b.getFullYear();
+  const m = today.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
+  return age;
+}
+
+// 郵便番号と住所が「560-0041 豊中市…」のように結合されている旧データを表示用に分割する
+function splitAddressForDisplay(editing) {
+  let postalCode = editing.postalCode || "";
+  let address = editing.address || "";
+  if (!postalCode) {
+    const m = address.match(/^(\d{3}-?\d{4})\s+(.*)$/);
+    if (m) { postalCode = m[1]; address = m[2]; }
+  }
+  return { postalCode, address };
+}
+
+async function lookupPostalCode() {
+  const zipEl = document.getElementById("emp_postalCode");
+  const addrEl = document.getElementById("emp_address");
+  if (!zipEl || !addrEl) return;
+  const raw = zipEl.value.replace(/[^\d]/g, "");
+  if (raw.length !== 7) { alert("郵便番号は7桁の数字で入力してください"); return; }
+  try {
+    const res = await fetch(`https://zipcloud.ibsdoc.jp/api/search?zipcode=${raw}`);
+    const data = await res.json();
+    if (data.results && data.results[0]) {
+      const r = data.results[0];
+      addrEl.value = `${r.address1}${r.address2}${r.address3}`;
+    } else {
+      alert("住所が見つかりませんでした。番号をご確認ください。");
+    }
+  } catch (e) {
+    alert("住所検索に失敗しました（通信環境をご確認ください）");
+  }
+}
 
 function remainingLeaveFor(emp) {
   const balance = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
@@ -1165,6 +1213,7 @@ function renderEmpAttendanceHistory(emp) {
 }
 
 function handleEmpSearchInput(el) {
+  if (el.dataset.composing === "1") return; // 日本語入力の変換中は何もしない
   const pos = el.selectionStart;
   state.empSearchVal = el.value;
   render();
@@ -1180,6 +1229,16 @@ function renderAdminEmployeeTab() {
 
   if (editing) {
     const isResigned = editing.status === "resigned";
+    const age = calcAge(editing.birthDate);
+    const { postalCode, address } = splitAddressForDisplay(editing);
+
+    const fieldInput = (key, label, opts) => `
+      <div>
+        <label style="margin:${opts && opts.tight ? "4px 0 3px" : "6px 0 4px"};${opts && opts.small ? "font-size:12px;" : ""}">${label}</label>
+        <input id="emp_${key}" type="text" style="${opts && opts.small ? "font-size:14px; padding:9px;" : ""}" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+      </div>
+    `;
+
     return `
       <div class="card">
         <button class="link" style="margin-bottom:6px;" onclick="state.editingEmpId=null; render();">← 従業員一覧にもどる</button>
@@ -1190,14 +1249,52 @@ function renderAdminEmployeeTab() {
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
           </div>
         </div>
+
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
-          ${EMP_FIELDS.map(([key, label]) => `
-            <div>
-              <label style="margin:6px 0 4px;">${label}</label>
-              <input id="emp_${key}" type="text" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
-            </div>
-          `).join("")}
+          ${EMP_FIELDS_TOP.map(([key, label]) => {
+            if (key === "birthDate") {
+              return `
+                <div>
+                  <label style="margin:6px 0 4px;">${label}${age !== null ? `　<span class="muted" style="font-weight:400;">（満${age}歳）</span>` : ""}</label>
+                  <input id="emp_birthDate" type="text" value="${(editing.birthDate ?? "").toString().replace(/"/g, '&quot;')}" />
+                </div>
+              `;
+            }
+            return fieldInput(key, label);
+          }).join("")}
         </div>
+
+        <div style="display:grid; grid-template-columns:1fr 2fr; gap:10px 16px; margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <div>
+            <label style="margin:6px 0 4px;">郵便番号</label>
+            <input id="emp_postalCode" type="text" placeholder="例：123-4567" value="${postalCode.replace(/"/g, '&quot;')}" />
+            <button type="button" style="margin-top:6px; width:100%; font-size:13px; padding:8px;" onclick="lookupPostalCode()">郵便番号から住所を自動入力</button>
+          </div>
+          <div>
+            <label style="margin:6px 0 4px;">住所</label>
+            <input id="emp_address" type="text" value="${address.replace(/"/g, '&quot;')}" />
+          </div>
+        </div>
+
+        <div style="margin-top:14px; padding:14px; background:#f4f9f6; border:1.5px solid #cfe8db; border-radius:12px;">
+          <p class="muted" style="margin:0 0 8px; font-size:13px;">勤務の基本情報</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+            ${EMP_FIELDS_HIGHLIGHT.map(([key, label]) => `
+              <div>
+                <label style="margin:4px 0 4px; font-weight:700;">${label}</label>
+                <input id="emp_${key}" type="text" style="font-size:16px; padding:12px;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+              </div>
+            `).join("")}
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
+            ${EMP_FIELDS_SIMPLE.map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+          </div>
+        </div>
+
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
         ${isResigned
           ? `<button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--border); background:#fff;" onclick="reinstateEmployee('${editing.id}')">復職させる（ログインIDを再発行）</button>`
@@ -1252,7 +1349,7 @@ function renderAdminEmployeeTab() {
       ` : ""}
 
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:14px;">
-        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="handleEmpSearchInput(this)" />
+        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="handleEmpSearchInput(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleEmpSearchInput(this)" />
         <select onchange="state.empAreaFilter=this.value; render();">
           <option value="">エリア：すべて</option>
           ${areas.map(a => `<option value="${a}" ${a === areaFilter ? "selected" : ""}>${a}</option>`).join("")}

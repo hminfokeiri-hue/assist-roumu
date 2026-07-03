@@ -501,10 +501,17 @@ function subscribeStaffOrders() {
   if (!firebaseReady) return;
   db.collection("orders")
     .where("employeeId", "==", state.currentUser.id)
-    .orderBy("createdAt", "desc")
     .onSnapshot(snap => {
-      state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+        return tb - ta;
+      });
+      state.orders = rows;
       render();
+    }, err => {
+      console.error("orders購読エラー", err);
     });
 }
 
@@ -596,10 +603,17 @@ function subscribeStaffLeaveRequests() {
   if (!firebaseReady) return;
   db.collection("leaveRequests")
     .where("employeeId", "==", state.currentUser.id)
-    .orderBy("createdAt", "desc")
     .onSnapshot(snap => {
-      state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+        return tb - ta;
+      });
+      state.leaveRequests = rows;
       render();
+    }, err => {
+      console.error("leaveRequests購読エラー", err);
     });
 }
 

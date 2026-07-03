@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(10)";
+const APP_VERSION = "更新: 2026-07-03(11)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1212,16 +1212,48 @@ function renderEmpAttendanceHistory(emp) {
   `;
 }
 
+function computeEmpList() {
+  const searchVal = state.empSearchVal || "";
+  const areaFilter = state.empAreaFilter || "";
+  const showResigned = !!state.showResignedList;
+  const sortKey = state.empSortKey || "code";
+
+  const source = state.employees.filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned");
+  const matchesSearch = e => {
+    if (!searchVal) return true;
+    const v = searchVal.toLowerCase();
+    return [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
+  };
+  let list = source.filter(e => matchesSearch(e) && (!areaFilter || e.area === areaFilter));
+  list = list.slice().sort((a, b) => {
+    if (sortKey === "name") return (a.name || "").localeCompare(b.name || "", "ja");
+    return (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true });
+  });
+  return list;
+}
+
+function renderEmpTableRows() {
+  const list = computeEmpList();
+  const showResigned = !!state.showResignedList;
+  return list.map(e => `
+    <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
+      <td>${e.employeeCode || ""}</td>
+      <td>${e.name || "(名前未登録)"}</td>
+      <td>${e.area || ""}</td>
+      <td>${e.shiftDays || ""}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="4" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`;
+}
+
+function updateEmpTableBody() {
+  const tbody = document.getElementById("empTableBody");
+  if (tbody) tbody.innerHTML = renderEmpTableRows();
+}
+
 function handleEmpSearchInput(el) {
   if (el.dataset.composing === "1") return; // 日本語入力の変換中は何もしない
-  const pos = el.selectionStart;
   state.empSearchVal = el.value;
-  render();
-  const newEl = document.getElementById("empSearch");
-  if (newEl) {
-    newEl.focus();
-    newEl.setSelectionRange(pos, pos);
-  }
+  updateEmpTableBody(); // 入力欄そのものは作り直さない（フォーカスを保つため）
 }
 
 function renderAdminEmployeeTab() {
@@ -1306,7 +1338,7 @@ function renderAdminEmployeeTab() {
     `;
   }
 
-  const searchVal = document.getElementById("empSearch") ? document.getElementById("empSearch").value : (state.empSearchVal || "");
+  const searchVal = state.empSearchVal || "";
   const areaFilter = state.empAreaFilter || "";
   const showResigned = !!state.showResignedList;
   const sortKey = state.empSortKey || "code"; // "code" | "name"
@@ -1315,19 +1347,6 @@ function renderAdminEmployeeTab() {
   const activeAll = state.employees.filter(e => e.status !== "resigned");
   const resignedAll = state.employees.filter(e => e.status === "resigned");
   const areas = [...new Set(state.employees.map(e => e.area).filter(Boolean))];
-
-  const source = showResigned ? resignedAll : activeAll;
-  const matchesSearch = e => {
-    if (!searchVal) return true;
-    const v = searchVal.toLowerCase();
-    return [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
-  };
-  let list = source.filter(e => matchesSearch(e) && (!areaFilter || e.area === areaFilter));
-
-  list = list.slice().sort((a, b) => {
-    if (sortKey === "name") return (a.name || "").localeCompare(b.name || "", "ja");
-    return (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true });
-  });
 
   return `
     <div class="card">
@@ -1362,15 +1381,8 @@ function renderAdminEmployeeTab() {
           <th style="cursor:pointer;" onclick="state.empSortKey='name'; render();">氏名 ${sortKey === "name" ? "▲" : ""}</th>
           <th>エリア</th><th>シフト</th>
         </tr></thead>
-        <tbody>
-          ${list.map(e => `
-            <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
-              <td>${e.employeeCode || ""}</td>
-              <td>${e.name || "(名前未登録)"}</td>
-              <td>${e.area || ""}</td>
-              <td>${e.shiftDays || ""}</td>
-            </tr>
-          `).join("") || `<tr><td colspan="4" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`}
+        <tbody id="empTableBody">
+          ${renderEmpTableRows()}
         </tbody>
       </table>
     </div>

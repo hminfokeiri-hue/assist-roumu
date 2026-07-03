@@ -310,7 +310,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(6)";
+const APP_VERSION = "更新: 2026-07-03(7)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -372,7 +372,11 @@ async function handleStaffLogin() {
     const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
     if (snap.empty) return alert("登録が見つかりません。本社にお問い合わせください。");
     const doc = snap.docs[0];
-    state.currentUser = { id: doc.id, role: "staff", ...doc.data() };
+    const empData = doc.data();
+    if (empData.status === "resigned") {
+      return alert("このログインIDは現在ご利用いただけません。本社にお問い合わせください。");
+    }
+    state.currentUser = { id: doc.id, role: "staff", ...empData };
     state.screen = "staffHome";
     render();
     subscribeStaffLeaveRequests();
@@ -1164,12 +1168,16 @@ function renderAdminEmployeeTab() {
   const editing = state.employees.find(e => e.id === state.editingEmpId);
 
   if (editing) {
+    const isResigned = editing.status === "resigned";
     return `
       <div class="card">
         <button class="link" style="margin-bottom:6px;" onclick="state.editingEmpId=null; render();">← 従業員一覧にもどる</button>
         <div class="row-between" style="margin-bottom:4px;">
           <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
-          <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
+          <div>
+            ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
+            <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
+          </div>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
           ${EMP_FIELDS.map(([key, label]) => `
@@ -1180,28 +1188,47 @@ function renderAdminEmployeeTab() {
           `).join("")}
         </div>
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
+        ${isResigned
+          ? `<button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--border); background:#fff;" onclick="reinstateEmployee('${editing.id}')">復職させる（ログインIDを再発行）</button>`
+          : `<button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff; color:var(--danger);" onclick="resignEmployee('${editing.id}')">退職した</button>`
+        }
 
         ${renderEmpAttendanceHistory(editing)}
       </div>
     `;
   }
 
-  const searchVal = document.getElementById("empSearch") ? document.getElementById("empSearch").value : "";
-  let list = state.employees.filter(e => !searchVal || (e.name || "").includes(searchVal));
+  const searchVal = document.getElementById("empSearch") ? document.getElementById("empSearch").value : (state.empSearchVal || "");
+  const areaFilter = state.empAreaFilter || "";
+  const showResigned = !!state.showResignedList;
+  const sortKey = state.empSortKey || "code"; // "code" | "name"
   const showImport = !!state.showBulkImport;
-  const sortByCode = !!state.empSortByCode;
 
-  if (sortByCode) {
-    list = list.slice().sort((a, b) => (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true }));
-  }
+  const activeAll = state.employees.filter(e => e.status !== "resigned");
+  const resignedAll = state.employees.filter(e => e.status === "resigned");
+  const areas = [...new Set(state.employees.map(e => e.area).filter(Boolean))];
+
+  const source = showResigned ? resignedAll : activeAll;
+  const matchesSearch = e => {
+    if (!searchVal) return true;
+    const v = searchVal.toLowerCase();
+    return [e.name, e.furigana, e.employeeCode, e.phone].some(f => (f || "").toLowerCase().includes(v));
+  };
+  let list = source.filter(e => matchesSearch(e) && (!areaFilter || e.area === areaFilter));
+
+  list = list.slice().sort((a, b) => {
+    if (sortKey === "name") return (a.name || "").localeCompare(b.name || "", "ja");
+    return (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true });
+  });
 
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:14px;">
-        <p class="staff-title" style="font-size:16px; margin:0;">従業員一覧</p>
+        <p class="staff-title" style="font-size:16px; margin:0;">${showResigned ? "退職者一覧（管理者のみ閲覧可）" : "従業員一覧"}</p>
         <div>
-          <button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>
-          <button style="font-size:13px; padding:8px 14px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>
+          ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>` : ""}
+          ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>` : ""}
+          <button style="font-size:13px; padding:8px 14px;" onclick="state.showResignedList = !state.showResignedList; state.editingEmpId=null; render();">${showResigned ? "在籍者一覧に戻る" : `退職者一覧を見る（${resignedAll.length}）`}</button>
         </div>
       </div>
 
@@ -1213,14 +1240,19 @@ function renderAdminEmployeeTab() {
         </div>
       ` : ""}
 
-      <div class="row-between" style="margin-bottom:14px;">
-        <span></span>
-        <input id="empSearch" type="text" placeholder="氏名で検索" style="width:180px;" oninput="render()" />
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:14px;">
+        <input id="empSearch" type="text" placeholder="氏名・フリガナ・管理番号・電話番号で検索" value="${searchVal.replace(/"/g, '&quot;')}" oninput="state.empSearchVal=this.value; render();" />
+        <select onchange="state.empAreaFilter=this.value; render();">
+          <option value="">エリア：すべて</option>
+          ${areas.map(a => `<option value="${a}" ${a === areaFilter ? "selected" : ""}>${a}</option>`).join("")}
+        </select>
       </div>
+
       <table>
         <thead><tr>
-          <th style="cursor:pointer;" onclick="state.empSortByCode=!state.empSortByCode; render();">管理番号 ${sortByCode ? "▲" : "▽"}</th>
-          <th>氏名</th><th>エリア</th><th>シフト</th>
+          <th style="cursor:pointer;" onclick="state.empSortKey='code'; render();">管理番号 ${sortKey === "code" ? "▲" : ""}</th>
+          <th style="cursor:pointer;" onclick="state.empSortKey='name'; render();">氏名 ${sortKey === "name" ? "▲" : ""}</th>
+          <th>エリア</th><th>シフト</th>
         </tr></thead>
         <tbody>
           ${list.map(e => `
@@ -1230,11 +1262,47 @@ function renderAdminEmployeeTab() {
               <td>${e.area || ""}</td>
               <td>${e.shiftDays || ""}</td>
             </tr>
-          `).join("") || `<tr><td colspan="4" class="muted">従業員データがまだありません</td></tr>`}
+          `).join("") || `<tr><td colspan="4" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+}
+
+async function resignEmployee(id) {
+  if (!confirm("この方を「退職」扱いにします。ログインIDは自動的に無効化され、ログインできなくなります。よろしいですか？")) return;
+  const emp = state.employees.find(e => e.id === id) || {};
+  const data = {
+    status: "resigned",
+    resignedDate: new Date().toISOString().slice(0, 10),
+    formerLoginId: emp.loginId || "",
+    loginId: ""
+  };
+  if (!firebaseReady) {
+    const idx = state.employees.findIndex(e => e.id === id);
+    if (idx >= 0) state.employees[idx] = { ...state.employees[idx], ...data };
+    return render();
+  }
+  try {
+    await db.collection("employees").doc(id).update(data);
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
+async function reinstateEmployee(id) {
+  if (!confirm("この方を在籍者に戻しますか？新しいログインIDが発行されます。")) return;
+  const data = { status: "active", loginId: generateLoginId() };
+  if (!firebaseReady) {
+    const idx = state.employees.findIndex(e => e.id === id);
+    if (idx >= 0) state.employees[idx] = { ...state.employees[idx], ...data };
+    return render();
+  }
+  try {
+    await db.collection("employees").doc(id).update(data);
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
 }
 
 function generateLoginId() {
@@ -1592,7 +1660,15 @@ function adminUnreadCount() {
 function renderAdminChatTab() {
   const employees = state.employees || [];
   const msgs = state.messages || [];
-  const selectedId = state.chatEmployeeId || (employees[0] && employees[0].id);
+
+  const lastActivityFor = (empId) => {
+    const own = msgs.filter(m => m.employeeId === empId);
+    if (!own.length) return 0;
+    return Math.max(...own.map(m => (m.createdAt && m.createdAt.seconds) ? m.createdAt.seconds : 0));
+  };
+  const sortedEmployees = employees.slice().sort((a, b) => lastActivityFor(b.id) - lastActivityFor(a.id));
+
+  const selectedId = state.chatEmployeeId || (sortedEmployees[0] && sortedEmployees[0].id);
   const thread = msgs.filter(m => m.employeeId === selectedId && !m.broadcastId);
   const broadcasts = groupBroadcasts(msgs);
   const areas = [...new Set(employees.map(e => e.area).filter(Boolean))];
@@ -1602,8 +1678,8 @@ function renderAdminChatTab() {
   return `
     <div class="card" style="display:grid; grid-template-columns:220px 1fr; gap:16px;">
       <div>
-        <p class="muted" style="margin:0 0 8px;">従業員一覧</p>
-        ${employees.map(e => `
+        <p class="muted" style="margin:0 0 8px;">従業員一覧（更新順）</p>
+        ${sortedEmployees.map(e => `
           <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
             <div class="row-between" style="margin:0;">
               <span>${e.name || "(名前未登録)"}</span>

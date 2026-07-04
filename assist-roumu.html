@@ -18,6 +18,7 @@
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <style>
   :root {
@@ -269,6 +270,96 @@
     .contract-preview td { padding: 2px 5px !important; height: auto !important; }
     .contract-preview td[style*="height"] { height: auto !important; }
     .no-print { display: none !important; }
+    .payslip-preview, .payslip-preview * { visibility: visible; }
+    .payslip-preview { position: absolute; top: 0; left: 0; width: 100%; }
+  }
+
+  /* ---------- 給与明細（弥生台紙そっくりレイアウト） ---------- */
+  .payslip-sheet {
+    background: #fff; border: 2px solid #2AA9D8; border-radius: 2px;
+    max-width: 720px; margin: 0 auto; font-size: 12.5px; color: #1a1a1a;
+    font-family: 'Noto Sans JP', 'Zen Maru Gothic', sans-serif;
+  }
+  .payslip-sheet .ps-head {
+    display: flex; border-bottom: 2px solid #2AA9D8;
+  }
+  .payslip-sheet .ps-head > div { padding: 8px 12px; border-right: 2px solid #2AA9D8; }
+  .payslip-sheet .ps-head > div:last-child { border-right: none; }
+  .payslip-sheet .ps-code { width: 90px; color: #2AA9D8; font-weight: 700; font-size: 11px; }
+  .payslip-sheet .ps-code b { display: block; color: #1a1a1a; font-size: 13px; margin-top: 2px; }
+  .payslip-sheet .ps-name { flex: 1; font-size: 16px; font-weight: 700; }
+  .payslip-sheet .ps-name .ps-branch { font-size: 11px; color: #666; font-weight: 400; margin-left: 8px; }
+  .payslip-sheet .ps-month { width: 170px; font-size: 13px; font-weight: 700; text-align: right; }
+
+  .payslip-sheet .ps-attend {
+    display: flex; border-bottom: 2px solid #2AA9D8; align-items: stretch;
+  }
+  .payslip-sheet .ps-attend-label {
+    width: 44px; background: #E7F7FC; color: #2AA9D8; font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.3;
+    border-right: 2px solid #2AA9D8; padding: 6px 0;
+  }
+  .payslip-sheet .ps-attend-items { display: flex; flex-wrap: wrap; flex: 1; }
+  .payslip-sheet .ps-attend-item {
+    min-width: 90px; padding: 6px 10px; border-right: 1px solid #BFE8F4; border-bottom: 1px solid #BFE8F4;
+  }
+  .payslip-sheet .ps-attend-item .lb { font-size: 10.5px; color: #2AA9D8; }
+  .payslip-sheet .ps-attend-item .vl { font-size: 13px; font-weight: 700; }
+
+  .payslip-sheet .ps-body { display: flex; border-bottom: 2px solid #2AA9D8; }
+  .payslip-sheet .ps-col { flex: 1; display: flex; }
+  .payslip-sheet .ps-col:first-child { border-right: 2px solid #2AA9D8; }
+  .payslip-sheet .ps-col-label {
+    width: 30px; background: #E7F7FC; color: #2AA9D8; font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.3;
+    border-right: 2px solid #2AA9D8;
+  }
+  .payslip-sheet .ps-col-items { flex: 1; }
+  .payslip-sheet .ps-item-row {
+    display: flex; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid #BFE8F4;
+    font-size: 12px;
+  }
+  .payslip-sheet .ps-item-row:last-child { border-bottom: none; }
+  .payslip-sheet .ps-item-row .lb { color: #333; }
+  .payslip-sheet .ps-item-row .vl { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .payslip-sheet .ps-item-row.ps-empty { color: #bbb; }
+
+  .payslip-sheet .ps-totals { display: flex; border-bottom: 2px solid #2AA9D8; }
+  .payslip-sheet .ps-totals > div {
+    flex: 1; padding: 8px 4px; text-align: center; border-right: 1px solid #BFE8F4;
+  }
+  .payslip-sheet .ps-totals > div:last-child { border-right: none; }
+  .payslip-sheet .ps-totals .lb { font-size: 10.5px; color: #2AA9D8; }
+  .payslip-sheet .ps-totals .vl { font-size: 13.5px; font-weight: 700; margin-top: 2px; }
+
+  .payslip-sheet .ps-foot { display: flex; }
+  .payslip-sheet .ps-memo {
+    flex: 1; padding: 10px 12px; border-right: 2px solid #2AA9D8; min-height: 54px;
+  }
+  .payslip-sheet .ps-memo .lb { font-size: 10.5px; color: #2AA9D8; margin-bottom: 4px; }
+  .payslip-sheet .ps-pay-boxes { width: 190px; }
+  .payslip-sheet .ps-pay-box {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-bottom: 1px solid #BFE8F4;
+  }
+  .payslip-sheet .ps-pay-box:last-child { border-bottom: none; }
+  .payslip-sheet .ps-pay-box.ps-highlight { background: #FFF6EA; }
+  .payslip-sheet .ps-pay-box .lb { font-size: 11px; color: #2AA9D8; font-weight: 700; }
+  .payslip-sheet .ps-pay-box .vl { font-size: 14px; font-weight: 700; }
+  .payslip-sheet .ps-company {
+    text-align: center; padding: 8px; font-size: 11px; color: #666; border-top: 2px solid #2AA9D8;
+  }
+  .payslip-warning {
+    background: #FEF0EE; border: 1px solid #E8A79C; color: var(--danger); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px;
+  }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 999;
+    display: flex; align-items: flex-start; justify-content: center; padding: 30px 16px; overflow-y: auto;
+  }
+  .modal-box {
+    background: #fff; border-radius: 14px; padding: 20px; width: 100%; max-width: 640px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.25);
   }
 
   /* iPhoneなど狭い画面で管理者側の2カラムが横に押し潰されないよう、縦積みにする */
@@ -353,7 +444,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(28)";
+const APP_VERSION = "更新: 2026-07-04(29)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -501,10 +592,11 @@ function renderStaff() {
       ` : ""}
 
       ${state.screen === "leaveForm" ? renderLeaveForm() : ""}
-      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : (state.screen === "chat" ? "" : (state.screen === "payslips" ? "" : renderLeaveHistory())))}
+      ${state.screen === "leaveForm" ? "" : (state.screen === "orderForm" ? "" : (state.screen === "chat" ? "" : ((state.screen === "payslips" || state.screen === "payslipView") ? "" : renderLeaveHistory())))}
       ${state.screen === "orderForm" ? renderOrderForm() : ""}
       ${state.screen === "chat" ? renderStaffChat() : ""}
       ${state.screen === "payslips" ? renderStaffPayslips() : ""}
+      ${state.screen === "payslipView" ? renderPayslipViewScreen() : ""}
     </main>
   `;
 
@@ -1790,7 +1882,9 @@ function guessEmployeeIdFromText(text, employees) {
 async function handleBulkPayslipFile(evt) {
   const file = evt.target.files[0];
   if (!file) return;
-  if (file.type !== "application/pdf") { alert("PDFファイルを選んでください"); evt.target.value = ""; return; }
+  const isOxps = /\.oxps$/i.test(file.name);
+  if (isOxps) return handleBulkPayslipOxps(file, evt);
+  if (file.type !== "application/pdf") { alert("PDFまたはOXPSファイルを選んでください"); evt.target.value = ""; return; }
 
   document.getElementById("bulkPayslipArea").innerHTML = `<p class="muted">読み込み中です…（管理番号を自動で読み取っています）しばらくお待ちください</p>`;
   try {
@@ -1825,6 +1919,339 @@ async function handleBulkPayslipFile(evt) {
   } catch (e) {
     document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">PDFの読み込みに失敗しました: ${e.message}</p>`;
   }
+}
+
+/* ========== OXPS（弥生給与の明細出力）対応 ========== */
+
+const PS_KYUYO_LABELS = new Set([
+  "基本給", "基本給(日給)", "基本給(時給)", "基本給(月給)",
+  "職務給", "役員報酬", "役付手当", "皆勤手当", "出張手当",
+  "非課税通勤費", "休日勤務手当"
+]);
+const PS_KOJO_LABELS = new Set([
+  "健康保険料", "厚生年金保険", "雇用保険料", "年末調整還付", "年末調整徴収",
+  "(定額減税額)", "(減税前税額)"
+]);
+const PS_AMBIGUOUS_LABELS = new Set(["前月修正", "立替", "立替金"]);
+const PS_ATTEND_LABELS = new Set(["所定", "出勤", "休日", "実働", "有休", "欠勤"]);
+
+function psParseGlyphRuns(xml) {
+  const re = /<Glyphs[^>]*OriginX="([\d.]+)"[^>]*OriginY="([\d.]+)"[^>]*Indices="([^"]*)"[^>]*UnicodeString="([^"]*)"/g;
+  const runs = [];
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    runs.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), indices: m[3], text: m[4] });
+  }
+  return runs;
+}
+
+// 結合された数値ラン（例："249,00023,9901,11025,100223,900"）を、
+// 弥生のOXPS出力ではフィールドの区切り位置の文字だけIndices内にアドバンス幅の上書き（カンマ区切りの2値目）
+// が入っているため、それを目印に分割する。
+function psSplitCombinedNumberRun(run) {
+  const tokens = run.indices.split(";");
+  const text = run.text;
+  if (tokens.length !== text.length) return [text];
+  const parts = [];
+  let cur = "";
+  for (let i = 0; i < tokens.length; i++) {
+    cur += text[i];
+    if (tokens[i].includes(",") && i !== tokens.length - 1) { parts.push(cur); cur = ""; }
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+function psToNumber(s) {
+  if (s == null) return 0;
+  const n = String(s).replace(/,/g, "").replace(/[△▲]/, "-").trim();
+  const v = parseFloat(n);
+  return isNaN(v) ? 0 : v;
+}
+
+function psWarekiToMonth(str) {
+  const m = str.match(/令和\s*(\d+)年\s*(\d+)月分/);
+  if (!m) return "";
+  const year = 2018 + parseInt(m[1], 10);
+  const month = String(parseInt(m[2], 10)).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function psParseOnePage(xml) {
+  const allRuns = psParseGlyphRuns(xml);
+  // 1ページに「正」「副」の2部（同一内容）が上下に印字されているため、上半分のみを使う
+  const runs = allRuns.filter(r => r.y < 558).sort((a, b) => (Math.round(a.y / 5) - Math.round(b.y / 5)) || (a.x - b.x));
+
+  const rec = {
+    code: "", name: "", branch: "", month: "",
+    attendance: {}, kyuyo: [], kojo: [],
+    kyuyoGokei: 0, shakaihokenGokei: 0, shotokuzei: 0, kojoGokei: 0,
+    sashihikiShikyu: 0, furikomiShikyu: 0, genkinShikyu: 0
+  };
+
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+    const next = runs[i + 1];
+
+    if (r.text === "番号" && next) { rec.code = next.text.trim(); continue; }
+
+    if (r.text.startsWith("氏名") && r.text.includes("令和")) {
+      const nameMatch = r.text.match(/^氏名(.+?)殿組織(.*?)令和/);
+      if (nameMatch) { rec.name = nameMatch[1]; rec.branch = nameMatch[2] || ""; }
+      rec.month = psWarekiToMonth(r.text);
+      continue;
+    }
+
+    if (PS_ATTEND_LABELS.has(r.text) && next && r.y >= 85 && r.y <= 160) {
+      rec.attendance[r.text] = next.text.trim();
+      continue;
+    }
+
+    if (r.text === "支給合計社会保険料計所得税控除合計") continue;
+
+    if (r.y > 415 && r.y < 435 && /^[\d,]+$/.test(r.text) && r.indices.split(";").length === r.text.length) {
+      const parts = psSplitCombinedNumberRun(r);
+      if (parts.length === 5) {
+        rec.kyuyoGokei = psToNumber(parts[0]);
+        rec.shakaihokenGokei = psToNumber(parts[1]);
+        rec.shotokuzei = psToNumber(parts[2]);
+        rec.kojoGokei = psToNumber(parts[3]);
+        rec.sashihikiShikyu = psToNumber(parts[4]);
+      }
+      continue;
+    }
+
+    if (r.y > 465 && r.y < 485 && r.x > 650 && /^[\d,]+$/.test(r.text)) { rec.furikomiShikyu = psToNumber(r.text); continue; }
+    if (r.y > 515 && r.y < 530 && r.x > 650 && /^[\d,]+$/.test(r.text)) { rec.genkinShikyu = psToNumber(r.text); continue; }
+
+    if (r.y >= 180 && r.y <= 365 && next &&
+        (PS_KYUYO_LABELS.has(r.text) || PS_KOJO_LABELS.has(r.text) || PS_AMBIGUOUS_LABELS.has(r.text))) {
+      const amount = psToNumber(next.text);
+      if (PS_KYUYO_LABELS.has(r.text) || (PS_AMBIGUOUS_LABELS.has(r.text) && r.x < 430)) {
+        rec.kyuyo.push({ label: r.text, amount });
+      } else {
+        rec.kojo.push({ label: r.text, amount });
+      }
+      i++;
+      continue;
+    }
+  }
+  return rec;
+}
+
+function psNaturalSort(a, b) {
+  const na = parseInt(a.match(/(\d+)/)[1], 10);
+  const nb = parseInt(b.match(/(\d+)/)[1], 10);
+  return na - nb;
+}
+
+async function handleBulkPayslipOxps(file, evt) {
+  document.getElementById("bulkPayslipArea").innerHTML = `<p class="muted">読み込み中です…（OXPSファイルを解析し、金額を読み取っています）しばらくお待ちください</p>`;
+  try {
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const pageFiles = Object.keys(zip.files)
+      .filter(p => /^Documents\/1\/Pages\/\d+\.fpage$/.test(p))
+      .sort(psNaturalSort);
+    if (!pageFiles.length) throw new Error("ページが見つかりませんでした（OXPSの形式をご確認ください）");
+
+    const records = [];
+    for (const pf of pageFiles) {
+      const xml = await zip.file(pf).async("string");
+      const rec = psParseOnePage(xml);
+      records.push(rec);
+    }
+
+    // 従業員マッチング（管理番号優先、見つからなければ氏名）
+    records.forEach(rec => {
+      let emp = state.employees.find(e => e.employeeCode && e.employeeCode === rec.code);
+      if (!emp) emp = state.employees.find(e => e.name && e.name === rec.name);
+      rec.employeeId = emp ? emp.id : "";
+      rec.matched = !!emp;
+      rec.noWorkplace = emp ? !emp.workplace : false;
+      // 検算：弥生自身が計算した合計欄どうしの整合性のみを確認する
+      // （支給・控除の内訳項目は弥生台紙表示用であり、内訳の合算とは一致しないことがあるため検算には使わない）
+      rec.reconcileOk =
+        (rec.kyuyoGokei - rec.kojoGokei) === rec.sashihikiShikyu &&
+        (rec.furikomiShikyu + rec.genkinShikyu) === rec.sashihikiShikyu;
+    });
+
+    state.bulkOxpsRecords = records;
+    state.bulkOxpsMonth = records[0] && records[0].month || state.payslipMonth || new Date().toISOString().slice(0, 7);
+    document.getElementById("bulkPayslipArea").innerHTML = renderBulkOxpsReview();
+  } catch (e) {
+    document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">OXPSの読み込みに失敗しました: ${e.message}</p>`;
+  } finally {
+    if (evt) evt.target.value = "";
+  }
+}
+
+function renderBulkOxpsReview() {
+  const records = state.bulkOxpsRecords || [];
+  if (!records.length) return "";
+  const ngCount = records.filter(r => !r.reconcileOk).length;
+  const noWorkplaceCount = records.filter(r => r.noWorkplace).length;
+  const unmatchedCount = records.filter(r => !r.matched).length;
+  const totalSashihiki = records.reduce((s, r) => s + r.sashihikiShikyu, 0);
+  const month = state.bulkOxpsMonth;
+
+  return `
+    <div style="margin-top:14px;">
+      <div class="responsive-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px;">
+        <div class="stat-card"><div class="num">${records.length}名</div><div class="label">読み取り</div></div>
+        <div class="stat-card"><div class="num" style="color:${ngCount ? 'var(--danger)' : 'inherit'};">${ngCount}名</div><div class="label">検算NG</div></div>
+        <div class="stat-card"><div class="num">${noWorkplaceCount}名</div><div class="label">所属未設定</div></div>
+        <div class="stat-card"><div class="num" style="font-size:16px;">${totalSashihiki.toLocaleString()}円</div><div class="label">差引支給額 総計</div></div>
+      </div>
+      ${unmatchedCount ? `<div class="payslip-warning">従業員に一致しなかった方が${unmatchedCount}名います。お試しモードのため従業員データが少ないと、この件数が多く出ます（実際のFirebase環境では管理番号でご登録の従業員と自動照合されます）。下の一覧から手動で割り当てることもできます。</div>` : ""}
+      ${ngCount ? `<div class="payslip-warning">検算に一致しない明細が${ngCount}名分あります。金額が正しく読み取れていない可能性があるため、対象月を確認し、必要であれば元のOXPSファイルをご確認ください。</div>` : ""}
+      <p class="muted" style="margin:0 0 8px;">対象月：
+        <select onchange="state.bulkOxpsMonth=this.value;">
+          ${[state.bulkOxpsMonth].concat(records.map(r=>r.month)).filter((v,i,a)=>v && a.indexOf(v)===i).map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
+        </select>
+      </p>
+      <table>
+        <thead><tr><th>管理番号</th><th>氏名</th><th>組織</th><th>差引支給額</th><th>状態</th><th>割り当てる従業員</th><th></th></tr></thead>
+        <tbody>
+          ${records.map((r, i) => `
+            <tr>
+              <td>${r.code}</td>
+              <td>${r.name}</td>
+              <td>${r.branch || `<span class="muted">未設定</span>`}</td>
+              <td style="text-align:right;">${r.sashihikiShikyu.toLocaleString()}円</td>
+              <td>
+                ${r.matched ? `<span class="status-pill status-approved">一致</span>` : `<span class="status-pill status-pending">未一致</span>`}
+                ${r.reconcileOk ? "" : `<span class="status-pill" style="background:#FEE2E2;color:var(--danger);">検算NG</span>`}
+              </td>
+              <td>
+                <select onchange="state.bulkOxpsRecords[${i}].employeeId=this.value; state.bulkOxpsRecords[${i}].matched=!!this.value;">
+                  <option value="">選ばない</option>
+                  ${state.employees.map(e => `<option value="${e.id}" ${e.id === r.employeeId ? "selected" : ""}>${e.name || e.id}${e.employeeCode ? "（" + e.employeeCode + "）" : ""}</option>`).join("")}
+                </select>
+              </td>
+              <td><button style="font-size:12px; padding:6px 10px;" onclick="previewOxpsRecord(${i})">見る</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <button class="primary" style="margin-top:12px;" onclick="registerBulkOxpsPayslips()">この内容でまとめて登録する（配信する）</button>
+    </div>
+    <div id="oxpsPreviewModal"></div>
+  `;
+}
+
+function previewOxpsRecord(i) {
+  const r = (state.bulkOxpsRecords || [])[i];
+  if (!r) return;
+  document.getElementById("oxpsPreviewModal").innerHTML = `
+    <div class="modal-overlay" onclick="document.getElementById('oxpsPreviewModal').innerHTML=''">
+      <div class="modal-box" style="max-width:760px;" onclick="event.stopPropagation()">
+        <div class="row-between" style="margin-bottom:10px;">
+          <p class="staff-title" style="margin:0;">明細プレビュー</p>
+          <button class="link" onclick="document.getElementById('oxpsPreviewModal').innerHTML=''">とじる</button>
+        </div>
+        ${renderPayslipSheet(r)}
+      </div>
+    </div>
+  `;
+}
+
+async function registerBulkOxpsPayslips() {
+  const records = state.bulkOxpsRecords || [];
+  const month = state.bulkOxpsMonth;
+  if (!month) return alert("対象月を選んでください");
+  const targets = records.filter(r => r.employeeId);
+  if (!targets.length) return alert("登録できる明細がありません（従業員の割り当てをご確認ください）");
+
+  if (!firebaseReady) {
+    state.payslips = state.payslips || [];
+    targets.forEach(r => {
+      const emp = state.employees.find(e => e.id === r.employeeId) || {};
+      const docId = r.employeeId + "_" + month;
+      const data = { id: docId, employeeId: r.employeeId, employeeName: emp.name || r.name, month, fileName: `給与明細_${month}.pdf`, source: "oxps", data: r };
+      const idx = state.payslips.findIndex(x => x.id === docId);
+      if (idx >= 0) state.payslips[idx] = data; else state.payslips.push(data);
+    });
+    state.bulkOxpsRecords = null;
+    alert(`${targets.length}件、登録しました（お試し表示のため実際の保存はされません）`);
+    return render();
+  }
+
+  try {
+    const batch = db.batch();
+    targets.forEach(r => {
+      const emp = state.employees.find(e => e.id === r.employeeId) || {};
+      const docId = r.employeeId + "_" + month;
+      const ref = db.collection("payslips").doc(docId);
+      batch.set(ref, {
+        employeeId: r.employeeId,
+        employeeName: emp.name || r.name,
+        month,
+        fileName: `給与明細_${month}.pdf`,
+        source: "oxps",
+        data: r,
+        uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    state.bulkOxpsRecords = null;
+    alert(`${targets.length}件、登録しました`);
+    render();
+  } catch (e) {
+    alert("登録エラー: " + e.message);
+  }
+}
+
+/* 弥生台紙そっくりのブルー罫線レイアウトで1名分の明細を描画 */
+function renderPayslipSheet(r) {
+  const kyuyoRows = r.kyuyo.length ? r.kyuyo : [{ label: "（内訳なし）", amount: 0 }];
+  const kojoRows = r.kojo.length ? r.kojo : [{ label: "（内訳なし）", amount: 0 }];
+  const attendEntries = Object.entries(r.attendance || {});
+  return `
+    <div class="payslip-sheet">
+      <div class="ps-head">
+        <div class="ps-code">番号<b>${r.code || ""}</b></div>
+        <div class="ps-name">${r.name || ""} 様<span class="ps-branch">${r.branch || "所属未設定"}</span></div>
+        <div class="ps-month">${r.month || ""} 分給与</div>
+      </div>
+      ${attendEntries.length ? `
+      <div class="ps-attend">
+        <div class="ps-attend-label">勤<br>怠</div>
+        <div class="ps-attend-items">
+          ${attendEntries.map(([lb, vl]) => `<div class="ps-attend-item"><div class="lb">${lb}</div><div class="vl">${vl}</div></div>`).join("")}
+        </div>
+      </div>` : ""}
+      <div class="ps-body">
+        <div class="ps-col">
+          <div class="ps-col-label">支<br>給</div>
+          <div class="ps-col-items">
+            ${kyuyoRows.map(x => `<div class="ps-item-row ${x.amount === 0 && x.label === "（内訳なし）" ? "ps-empty" : ""}"><span class="lb">${x.label}</span><span class="vl">${x.amount.toLocaleString()}円</span></div>`).join("")}
+          </div>
+        </div>
+        <div class="ps-col">
+          <div class="ps-col-label">控<br>除</div>
+          <div class="ps-col-items">
+            ${kojoRows.map(x => `<div class="ps-item-row ${x.amount === 0 && x.label === "（内訳なし）" ? "ps-empty" : ""}"><span class="lb">${x.label}</span><span class="vl">${x.amount.toLocaleString()}円</span></div>`).join("")}
+          </div>
+        </div>
+      </div>
+      <div class="ps-totals">
+        <div><div class="lb">支給合計</div><div class="vl">${r.kyuyoGokei.toLocaleString()}</div></div>
+        <div><div class="lb">社会保険料計</div><div class="vl">${r.shakaihokenGokei.toLocaleString()}</div></div>
+        <div><div class="lb">所得税</div><div class="vl">${r.shotokuzei.toLocaleString()}</div></div>
+        <div><div class="lb">控除合計</div><div class="vl">${r.kojoGokei.toLocaleString()}</div></div>
+      </div>
+      <div class="ps-foot">
+        <div class="ps-memo"><div class="lb">メモ</div></div>
+        <div class="ps-pay-boxes">
+          <div class="ps-pay-box ps-highlight"><span class="lb">差引支給額</span><span class="vl">${r.sashihikiShikyu.toLocaleString()}円</span></div>
+          <div class="ps-pay-box"><span class="lb">振込支給額</span><span class="vl">${r.furikomiShikyu.toLocaleString()}円</span></div>
+          <div class="ps-pay-box"><span class="lb">現金支給額</span><span class="vl">${r.genkinShikyu.toLocaleString()}円</span></div>
+        </div>
+      </div>
+      <div class="ps-company">株式会社ホームメンテナンス</div>
+    </div>
+  `;
 }
 
 function renderBulkPayslipAssignList() {
@@ -1962,18 +2389,18 @@ function renderAdminPayslipTab() {
   return `
     <div class="card">
       <p class="staff-title" style="font-size:16px;">給与明細をまとめてアップロード（おすすめ）</p>
-      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与で「全員分」を1つのPDF（1人1ページ）として出力し、そのままアップロードできます。ページごとに従業員を割り当てると、自動で1人分ずつに分けて登録されます。</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与から出力した<b>OXPSファイル</b>（1人1ページ、管理番号入り）をそのままアップロードすると、氏名・金額を自動で読み取って全員分をまとめて登録できます。PDF（全員分・1人1ページ）にも対応しています。</p>
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
-          <label>対象月</label>
+          <label>対象月（PDFアップロード時のみ使用／OXPSは自動で読み取ります）</label>
           <input id="bulkPayslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
         </div>
         <div>
-          <label>まとめてPDF（複数ページ）</label>
-          <input type="file" accept="application/pdf" id="bulkPayslipFile" onchange="handleBulkPayslipFile(event)" />
+          <label>まとめてOXPSまたはPDF</label>
+          <input type="file" accept=".oxps,application/pdf" id="bulkPayslipFile" onchange="handleBulkPayslipFile(event)" />
         </div>
       </div>
-      <div id="bulkPayslipArea">${renderBulkPayslipAssignList()}</div>
+      <div id="bulkPayslipArea">${renderBulkPayslipAssignList() || renderBulkOxpsReview()}</div>
     </div>
 
     <div class="card">
@@ -2011,7 +2438,10 @@ function renderAdminPayslipTab() {
               <td>${p.month || ""}</td>
               <td>${p.fileName || ""}</td>
               <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
-              <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button></td>
+              <td>
+                <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="adminPreviewPayslip('${p.id}')">見る</button>
+                <button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button>
+              </td>
             </tr>
           `).join("") || `<tr><td colspan="4" class="muted">まだアップロードされた給与明細はありません</td></tr>`}
         </tbody>
@@ -2036,6 +2466,7 @@ function renderAdminPayslipTab() {
               <td>${p.employeeName || ""}</td>
               <td>${p.fileName || ""}</td>
               <td>
+                <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="adminPreviewPayslip('${p.id}')">見る</button>
                 <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="prepareReupload('${p.employeeId}','${p.month}')">再アップロード</button>
                 <button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button>
               </td>
@@ -2127,10 +2558,55 @@ async function deletePayslip(id) {
   }
 }
 
+function adminPreviewPayslip(id) {
+  const p = (state.payslips || []).find(x => x.id === id);
+  if (!p) return;
+  if (!p.data) { window.open(p.pdfBase64, "_blank"); return; }
+  const holder = document.createElement("div");
+  holder.id = "adminPayslipPreviewModal";
+  document.body.appendChild(holder);
+  holder.innerHTML = `
+    <div class="modal-overlay" onclick="document.getElementById('adminPayslipPreviewModal').remove()">
+      <div class="modal-box payslip-preview" style="max-width:760px;" onclick="event.stopPropagation()">
+        <div class="row-between no-print" style="margin-bottom:10px;">
+          <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${p.month || ""}分</p>
+          <div>
+            <button style="margin-right:8px;" onclick="window.print()">印刷する</button>
+            <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
+          </div>
+        </div>
+        ${renderPayslipSheet(p.data)}
+      </div>
+    </div>
+  `;
+}
+
 function openPayslip(id) {
   const p = (state.payslips || []).find(x => x.id === id);
   if (!p) return;
+  if (p.data) {
+    state.viewingPayslipId = id;
+    state.screen = "payslipView";
+    return render();
+  }
   window.open(p.pdfBase64, "_blank");
+}
+
+function renderPayslipViewScreen() {
+  const p = (state.payslips || []).find(x => x.id === state.viewingPayslipId);
+  if (!p || !p.data) return `<p class="muted">給与明細が見つかりません</p>`;
+  return `
+    <div class="card no-print">
+      <div class="row-between">
+        <p class="staff-title" style="font-size:17px; margin:0;">${p.month || ""} の給与明細</p>
+        <button class="link" onclick="state.screen='payslips'; render();">一覧にもどる</button>
+      </div>
+      <button class="primary" style="margin-top:14px;" onclick="window.print()">印刷する</button>
+    </div>
+    <div class="card payslip-preview">
+      ${renderPayslipSheet(p.data)}
+    </div>
+  `;
 }
 
 function renderStaffPayslips() {

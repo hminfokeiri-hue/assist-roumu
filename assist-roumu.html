@@ -105,12 +105,13 @@
   }
 
   /* --- チャット --- */
-  .chat-scroll { height: 55vh; overflow-y: auto; padding: 6px 2px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-scroll { height: 68vh; overflow-y: auto; padding: 6px 2px; display: flex; flex-direction: column; gap: 10px; }
   .chat-bubble-row { display: flex; }
   .chat-bubble-row.mine { justify-content: flex-end; }
   .chat-bubble {
-    max-width: 78%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.5;
+    max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.6;
     background: #fff; border: 1.5px solid var(--border);
+    white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word;
   }
   .chat-bubble-row.mine .chat-bubble { background: var(--blue); color: #fff; border-color: var(--blue); }
   .chat-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
@@ -444,7 +445,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(29)";
+const APP_VERSION = "更新: 2026-07-04(30)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2943,7 +2944,7 @@ function renderAdminChatTab() {
       ${isNarrow ? `<button class="link" style="margin-bottom:8px;" onclick="state.chatEmployeeId=null; render();">← 従業員一覧にもどる</button>` : ""}
       ${selectedId ? `
         <p class="staff-title" style="font-size:16px; margin:0 0 8px;">${(allEmployees.find(e => e.id === selectedId) || {}).name || ""} さんとのやりとり${showResigned ? "（退職済み）" : ""}</p>
-        <div class="chat-scroll" id="chatScroll" style="height:40vh;">
+        <div class="chat-scroll" id="chatScroll" style="height:60vh;">
           ${thread.length ? thread.map(m => renderChatBubble(m, m.senderRole === "office")).join("") : `<p class="muted">まだメッセージはありません</p>`}
         </div>
         <div class="preset-row">

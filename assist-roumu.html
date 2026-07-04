@@ -10,19 +10,29 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <style>
   :root {
-    --blue: #1f7a45;
-    --blue-dark: #145c33;
-    --bg: #f4f6f8;
+    /* やさしい太陽テーマ（既存の --blue は主要アクセント＝オレンジに置換） */
+    --blue: #E8873A;
+    --blue-dark: #C96A1E;
+    --sun-soft: #F7DDBF;
+    --bg: #FBF6ED;
     --card: #ffffff;
-    --border: #dde3ea;
-    --text: #222222;
-    --muted: #777777;
-    --danger: #c0392b;
-    --success: #1a7a4c;
-    --warning: #b8860b;
+    --border: #EDE2CE;
+    --text: #3A3530;
+    --muted: #9A8F80;
+    --danger: #C65D4B;
+    --success: #4A7C6F;
+    --warning: #C08A2B;
   }
   * { box-sizing: border-box; }
   body {
@@ -85,10 +95,10 @@
     cursor: pointer;
   }
   .big-btn .emoji { font-size: 30px; }
-  .big-btn:active { background: #eef4fa; }
+  .big-btn:active { background: #FCF1E2; }
   .chat-badge {
     position: absolute; top: 10px; right: 14px;
-    background: #e0453c; color: #fff; font-size: 12px; font-weight: 700;
+    background: #C65D4B; color: #fff; font-size: 12px; font-weight: 700;
     min-width: 20px; height: 20px; border-radius: 10px;
     display: flex; align-items: center; justify-content: center; padding: 0 5px;
   }
@@ -135,10 +145,10 @@
   .preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .preset-btn {
     font-size: 13px; padding: 7px 12px; border-radius: 999px; border: 1.5px solid var(--border);
-    background: #f4f6f8; color: var(--text); cursor: pointer;
+    background: #F6EDDC; color: var(--text); cursor: pointer;
   }
   .chat-thread-item { padding: 12px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); margin-bottom: 8px; }
-  .chat-thread-item.active { background: #eef4fa; border-color: var(--primary); }
+  .chat-thread-item.active { background: #FCF1E2; border-color: var(--primary); }
   .chat-photo-preview { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; color: var(--muted); }
   .chat-photo-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
 
@@ -246,7 +256,7 @@
     padding: 14px; font-size: 13px; color: #6b5b0e; margin-bottom: 16px;
   }
   .contract-preview table td { padding: 8px; border: 1px solid var(--border); vertical-align: top; }
-  .contract-preview .c-label { background: #f4f6f8; font-weight: 700; width: 130px; white-space: nowrap; }
+  .contract-preview .c-label { background: #F6EDDC; font-weight: 700; width: 130px; white-space: nowrap; }
 
   @media print {
     @page { size: A4 portrait; margin: 8mm; }
@@ -291,6 +301,10 @@ const firebaseConfig = {
   messagingSenderId: "919904591114",
   appId: "1:919904591114:web:33d30e66ea4264e081eef3"
 };
+
+if (typeof pdfjsLib !== "undefined") {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
 
 let db = null;
 let firebaseReady = false;
@@ -339,7 +353,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-03(24)";
+const APP_VERSION = "更新: 2026-07-04(28)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -369,6 +383,7 @@ function renderLogin() {
   appEl.innerHTML = `
     <div class="center-screen">
       <div class="card login-card">
+        <div style="width:52px;height:52px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 8px var(--sun-soft);margin:4px auto 16px;"></div>
         <h1>アシスト労務</h1>
         <p class="sub">株式会社ホームメンテナンス</p>
         ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
@@ -457,7 +472,7 @@ function renderStaff() {
 
   appEl.innerHTML = `
     <header class="topbar">
-      <h1>アシスト労務<span style="font-size:11px; color:#aebbcc; font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
+      <h1>アシスト労務<span style="font-size:11px; color:rgba(255,255,255,0.75); font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
       <button onclick="logout()">ログアウト</button>
     </header>
     <main class="staff-scope">
@@ -987,7 +1002,7 @@ function renderAdmin() {
 
   appEl.innerHTML = `
     <header class="topbar">
-      <h1>アシスト労務（本社）<span style="font-size:11px; color:#aebbcc; font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
+      <h1>アシスト労務（本社）<span style="font-size:11px; color:rgba(255,255,255,0.75); font-weight:400; margin-left:8px;">${APP_VERSION}</span></h1>
       <button onclick="logout()">ログアウト</button>
     </header>
     <main>
@@ -1738,6 +1753,155 @@ function handleContractSearchInput(el) {
 }
 
 /* ---------- 給与明細（PDFアップロード／ダウンロード） ---------- */
+function arrayBufferToBase64Pdf(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return "data:application/pdf;base64," + btoa(binary);
+}
+
+async function extractPageTexts(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const texts = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      texts.push(content.items.map(it => it.str).join(" "));
+    }
+    return texts;
+  } catch (e) {
+    console.error("PDF文字読み取りエラー", e);
+    return [];
+  }
+}
+
+function guessEmployeeIdFromText(text, employees) {
+  if (!text) return "";
+  for (const e of employees) {
+    if (e.employeeCode && text.includes(e.employeeCode)) return e.id;
+  }
+  return "";
+}
+
+async function handleBulkPayslipFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (file.type !== "application/pdf") { alert("PDFファイルを選んでください"); evt.target.value = ""; return; }
+
+  document.getElementById("bulkPayslipArea").innerHTML = `<p class="muted">読み込み中です…（管理番号を自動で読み取っています）しばらくお待ちください</p>`;
+  try {
+    const pageTexts = await extractPageTexts(file);
+
+    const arrayBuffer = await file.arrayBuffer();
+    const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+    const pageCount = srcDoc.getPageCount();
+
+    const activeSorted = state.employees
+      .filter(e => e.status !== "resigned")
+      .slice()
+      .sort((a, b) => (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true }));
+
+    const pages = [];
+    for (let i = 0; i < pageCount; i++) {
+      const newDoc = await PDFLib.PDFDocument.create();
+      const [copiedPage] = await newDoc.copyPages(srcDoc, [i]);
+      newDoc.addPage(copiedPage);
+      const bytes = await newDoc.save();
+      const matchedId = guessEmployeeIdFromText(pageTexts[i], state.employees);
+      pages.push({
+        pageIndex: i,
+        base64: arrayBufferToBase64Pdf(bytes),
+        sizeKB: Math.round(bytes.length / 1024),
+        employeeId: matchedId || (activeSorted[i] && activeSorted[i].id) || "",
+        matchedByCode: !!matchedId
+      });
+    }
+    state.bulkPayslipPages = pages;
+    document.getElementById("bulkPayslipArea").innerHTML = renderBulkPayslipAssignList();
+  } catch (e) {
+    document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">PDFの読み込みに失敗しました: ${e.message}</p>`;
+  }
+}
+
+function renderBulkPayslipAssignList() {
+  const pages = state.bulkPayslipPages || [];
+  if (!pages.length) return "";
+  const matchedCount = pages.filter(p => p.matchedByCode).length;
+  return `
+    <div style="margin-top:14px;">
+      <p class="muted" style="margin:0 0 8px;">ページごとの割り当て（全${pages.length}ページ／うち${matchedCount}件は管理番号を読み取って自動判定しました）</p>
+      <table>
+        <thead><tr><th>ページ</th><th>判定方法</th><th>サイズ</th><th>割り当てる従業員</th></tr></thead>
+        <tbody>
+          ${pages.map((p, i) => `
+            <tr>
+              <td>${p.pageIndex + 1}ページ目</td>
+              <td>${p.matchedByCode ? `<span class="status-pill status-approved">番号で自動判定</span>` : `<span class="status-pill status-pending">順番で仮割り当て・要確認</span>`}</td>
+              <td style="${p.sizeKB > 650 ? 'color:var(--danger); font-weight:700;' : ''}">${p.sizeKB}KB${p.sizeKB > 650 ? '（大きすぎるため登録されません）' : ''}</td>
+              <td>
+                <select onchange="state.bulkPayslipPages[${i}].employeeId=this.value; state.bulkPayslipPages[${i}].matchedByCode=false;">
+                  <option value="">選ばない</option>
+                  ${state.employees.map(e => `<option value="${e.id}" ${e.id === p.employeeId ? "selected" : ""}>${e.name || e.id}${e.employeeCode ? "（" + e.employeeCode + "）" : ""}</option>`).join("")}
+                </select>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <button class="primary" style="margin-top:12px;" onclick="registerBulkPayslips()">この内容でまとめて登録する</button>
+    </div>
+  `;
+}
+
+async function registerBulkPayslips() {
+  const month = (document.getElementById("bulkPayslipMonth") || {}).value || state.payslipMonth;
+  const pages = state.bulkPayslipPages || [];
+  if (!month) return alert("対象月を選んでください");
+  const targets = pages.filter(p => p.employeeId && p.sizeKB <= 650);
+  if (!targets.length) return alert("登録できるページがありません（割り当てとサイズをご確認ください）");
+
+  if (!firebaseReady) {
+    state.payslips = state.payslips || [];
+    targets.forEach(p => {
+      const emp = state.employees.find(e => e.id === p.employeeId) || {};
+      const docId = p.employeeId + "_" + month;
+      const idx = state.payslips.findIndex(x => x.id === docId);
+      const data = { id: docId, employeeId: p.employeeId, employeeName: emp.name || "", month, fileName: `給与明細_${month}.pdf`, pdfBase64: p.base64 };
+      if (idx >= 0) state.payslips[idx] = data; else state.payslips.push(data);
+    });
+    state.bulkPayslipPages = null;
+    alert(`${targets.length}件、登録しました（お試し表示のため実際の保存はされません）`);
+    return render();
+  }
+
+  try {
+    const batch = db.batch();
+    targets.forEach(p => {
+      const emp = state.employees.find(e => e.id === p.employeeId) || {};
+      const docId = p.employeeId + "_" + month;
+      const ref = db.collection("payslips").doc(docId);
+      batch.set(ref, {
+        employeeId: p.employeeId,
+        employeeName: emp.name || "",
+        month,
+        fileName: `給与明細_${month}.pdf`,
+        pdfBase64: p.base64,
+        uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    state.bulkPayslipPages = null;
+    alert(`${targets.length}件、登録しました`);
+    render();
+  } catch (e) {
+    alert("登録エラー: " + e.message);
+  }
+}
+
 function computePayslipEmpOptions() {
   const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
   const q = (state.payslipEmpSearchVal || "").toLowerCase();
@@ -1757,18 +1921,64 @@ function handlePayslipSearchInput(el) {
   updatePayslipEmpSelect();
 }
 
+/* 給与明細：36か月より古いものは表示せず、管理者側で自動的に削除する */
+function payslipCutoffMonth() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 36);
+  return d.toISOString().slice(0, 7); // "YYYY-MM"
+}
+function filterRecentPayslips(list) {
+  const cutoff = payslipCutoffMonth();
+  return (list || []).filter(p => !p.month || p.month >= cutoff);
+}
+async function cleanupOldPayslips(allPayslips) {
+  if (!firebaseReady) return;
+  const cutoff = payslipCutoffMonth();
+  const old = (allPayslips || []).filter(p => p.month && p.month < cutoff);
+  if (!old.length) return;
+  try {
+    const batch = db.batch();
+    old.forEach(p => batch.delete(db.collection("payslips").doc(p.id)));
+    await batch.commit();
+    console.log(`36か月より古い給与明細を${old.length}件、自動削除しました`);
+  } catch (e) {
+    console.error("古い給与明細の自動削除エラー", e);
+  }
+}
+
 function renderAdminPayslipTab() {
   const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
-  const myPayslips = (state.payslips || [])
+  const myPayslips = filterRecentPayslips(state.payslips)
     .filter(p => p.employeeId === empId)
     .slice()
     .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
 
+  const allPayslips = filterRecentPayslips(state.payslips).slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+  const monthFilter = state.payslipListMonthFilter || "";
+  const months = [...new Set((state.payslips || []).map(p => p.month).filter(Boolean))].sort().reverse();
+  const filteredAll = monthFilter ? allPayslips.filter(p => p.month === monthFilter) : allPayslips;
+
   return `
     <div class="card">
-      <p class="staff-title" style="font-size:16px;">給与明細をアップロード</p>
-      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与などから出力したPDFを、従業員・対象月ごとにアップロードできます。1ファイル650KBまでです（サイズが大きい場合は白黒・低解像度で出力し直してください）。</p>
+      <p class="staff-title" style="font-size:16px;">給与明細をまとめてアップロード（おすすめ）</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与で「全員分」を1つのPDF（1人1ページ）として出力し、そのままアップロードできます。ページごとに従業員を割り当てると、自動で1人分ずつに分けて登録されます。</p>
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
+        <div>
+          <label>対象月</label>
+          <input id="bulkPayslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
+        </div>
+        <div>
+          <label>まとめてPDF（複数ページ）</label>
+          <input type="file" accept="application/pdf" id="bulkPayslipFile" onchange="handleBulkPayslipFile(event)" />
+        </div>
+      </div>
+      <div id="bulkPayslipArea">${renderBulkPayslipAssignList()}</div>
+    </div>
+
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">1人分だけアップロード（差し替え・再アップロードもこちらから）</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">個別のPDFを、従業員・対象月ごとにアップロードします。同じ人・同じ月でもう一度アップロードすると、内容が上書きされます。1ファイル650KBまでです（大きい場合は白黒・低解像度で出力し直してください）。</p>
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
           <label>従業員を選ぶ（氏名・フリガナ・管理番号で検索）</label>
@@ -1807,7 +2017,42 @@ function renderAdminPayslipTab() {
         </tbody>
       </table>
     </div>
+
+    <div class="card">
+      <div class="row-between" style="margin-bottom:10px;">
+        <p class="staff-title" style="font-size:16px; margin:0;">アップロード済みの給与明細一覧（全員）</p>
+        <select onchange="state.payslipListMonthFilter=this.value; render();">
+          <option value="">対象月：すべて</option>
+          ${months.map(m => `<option value="${m}" ${m === monthFilter ? "selected" : ""}>${m}</option>`).join("")}
+        </select>
+      </div>
+      <p class="muted" style="font-size:11px; margin-top:-4px;">36か月より古いものは、自動的に一覧から消え、削除されます。</p>
+      <table>
+        <thead><tr><th>対象月</th><th>氏名</th><th>ファイル名</th><th></th></tr></thead>
+        <tbody>
+          ${filteredAll.map(p => `
+            <tr>
+              <td>${p.month || ""}</td>
+              <td>${p.employeeName || ""}</td>
+              <td>${p.fileName || ""}</td>
+              <td>
+                <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="prepareReupload('${p.employeeId}','${p.month}')">再アップロード</button>
+                <button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button>
+              </td>
+            </tr>
+          `).join("") || `<tr><td colspan="4" class="muted">アップロードされた給与明細はありません</td></tr>`}
+        </tbody>
+      </table>
+    </div>
   `;
+}
+
+function prepareReupload(empId, month) {
+  state.payslipEmpId = empId;
+  state.payslipMonth = month;
+  state.payslipEmpSearchVal = "";
+  render();
+  alert("上の「1人分だけアップロード」欄に、この方とこの月をセットしました。新しいPDFファイルを選んでアップロードしてください。");
 }
 
 function handlePayslipFileSelect(evt) {
@@ -1889,7 +2134,7 @@ function openPayslip(id) {
 }
 
 function renderStaffPayslips() {
-  const list = (state.payslips || []).slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""));
+  const list = filterRecentPayslips(state.payslips).slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""));
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
@@ -2148,8 +2393,10 @@ function subscribeAllLeaveRequests() {
     render();
   });
   db.collection("payslips").onSnapshot(snap => {
-    state.payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.payslips = rows;
     render();
+    cleanupOldPayslips(rows);
   }, err => console.error("payslips(admin)購読エラー", err));
 }
 

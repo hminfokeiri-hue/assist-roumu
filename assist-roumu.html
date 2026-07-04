@@ -445,7 +445,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(30)";
+const APP_VERSION = "更新: 2026-07-04(31)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -481,6 +481,8 @@ function renderLogin() {
         ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
         <label>ログインID（8桁の数字）</label>
         <input id="loginId" type="tel" inputmode="numeric" placeholder="12345678" maxlength="8" />
+        <label style="margin-top:10px;">従業員コード下3桁</label>
+        <input id="loginCode3" type="tel" inputmode="numeric" placeholder="例：001" maxlength="3" />
         <button class="primary" onclick="handleStaffLogin()">ログインはこちら</button>
 
         <div style="margin-top:32px; padding-top:14px; border-top:1px solid var(--border);">
@@ -506,13 +508,21 @@ function waitForAuth(timeoutMs) {
   });
 }
 
+function last3OfEmployeeCode(code) {
+  const digits = (code || "").replace(/\D/g, "");
+  return digits.slice(-3);
+}
+
 async function handleStaffLogin() {
   const loginId = document.getElementById("loginId").value.trim();
+  const code3 = document.getElementById("loginCode3").value.trim();
   if (!loginId) return alert("ログインIDを入力してください");
+  if (!/^\d{3}$/.test(code3)) return alert("従業員コードの下3桁（数字3桁）を入力してください");
 
   if (!firebaseReady) {
-    // Firebase未設定時のダミーユーザー（動作確認用）
-    state.currentUser = { id: "demo1", name: "松崎 貞子", loginId, role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
+    // Firebase未設定時のダミーユーザー（動作確認用）。デモの従業員コードは "1-0-001" 固定です。
+    if (code3 !== "001") return alert("ログインIDまたは従業員コードが正しくありません。");
+    state.currentUser = { id: "demo1", name: "松崎 貞子", loginId, employeeCode: "1-0-001", role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
     state.screen = "staffHome";
     return render();
   }
@@ -521,9 +531,12 @@ async function handleStaffLogin() {
 
   try {
     const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
-    if (snap.empty) return alert("登録が見つかりません。本社にお問い合わせください。");
+    if (snap.empty) return alert("ログインIDまたは従業員コードが正しくありません。");
     const doc = snap.docs[0];
     const empData = doc.data();
+    if (last3OfEmployeeCode(empData.employeeCode) !== code3) {
+      return alert("ログインIDまたは従業員コードが正しくありません。");
+    }
     if (empData.status === "resigned") {
       return alert("このログインIDは現在ご利用いただけません。本社にお問い合わせください。");
     }
@@ -1460,7 +1473,7 @@ function renderEmpTableRows() {
     const age = calcAge(e.birthDate);
     return `
     <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
-      <td>${e.employeeCode || ""}</td>
+      <td>${e.employeeCode || `<span style="color:var(--danger); font-weight:600;">未設定 ⚠️</span>`}</td>
       <td>${e.name || "(名前未登録)"}</td>
       <td>${age !== null ? age + "歳" : ""}</td>
       <td>${e.area || ""}</td>

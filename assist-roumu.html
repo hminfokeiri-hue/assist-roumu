@@ -270,6 +270,7 @@
     .contract-preview table { page-break-inside: avoid; margin-bottom: 8px !important; }
     .contract-preview tr, .contract-preview td { page-break-inside: avoid; }
     .contract-preview td { padding: 2px 5px !important; height: auto !important; }
+    .contract-preview td.flex-cell { padding: 0 !important; }
     .contract-preview td[style*="height"] { height: auto !important; }
     .no-print { display: none !important; }
     .payslip-preview, .payslip-preview * { visibility: visible; }
@@ -446,7 +447,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(33)";
+const APP_VERSION = "更新: 2026-07-04(34)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2898,27 +2899,38 @@ function renderRoshaMeibo(emp) {
   const isResigned = emp.status === "resigned";
   return `
     <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:10px; margin-bottom:24px;">労 働 者 名 簿</p>
-    <table style="width:100%; font-size:14px;">
+    <table style="width:100%; font-size:14px; border-collapse:collapse; table-layout:fixed;">
+      <colgroup>
+        <col style="width:130px;"><col><col style="width:70px;"><col style="width:110px;">
+      </colgroup>
       <tr>
-        <td class="c-label" style="width:110px;">フリガナ</td><td>${emp.furigana || ""}</td>
-        <td class="c-label" style="width:60px; text-align:center;">性別</td><td style="width:70px; text-align:center;">${emp.gender || ""}</td>
+        <td class="c-label" style="text-align:center;">フリガナ</td><td>${emp.furigana || ""}</td>
+        <td class="c-label" style="text-align:center;">性別</td><td style="text-align:center;">${emp.gender || ""}</td>
       </tr>
-      <tr><td class="c-label">氏　名</td><td colspan="3" style="font-size:16px;">${emp.name || ""}</td></tr>
-      <tr><td class="c-label">生年月日</td><td colspan="3">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td></tr>
-      <tr><td class="c-label">現住所</td><td colspan="3">${emp.postalCode ? "〒" + emp.postalCode + "　" : ""}${emp.address || ""}</td></tr>
-      <tr><td class="c-label">連絡先</td><td colspan="3">自宅：${emp.homePhone || "　　　　　　　　　　"}　　　携帯：${emp.phone || "　　　　　　　　　　"}</td></tr>
-      <tr><td class="c-label">給与振込先</td><td colspan="3">ゆうちょ銀行　　記号　${emp.yuchoKigo || "□□□□□"}　　番号　${emp.yuchoBango || "□□□□□□□□"}</td></tr>
-      <tr><td class="c-label">雇入年月日</td><td colspan="3">${emp.hireDate ? toWareki(emp.hireDate) : "　　　年　　月　　日"}</td></tr>
-      <tr><td class="c-label">従事する<br/>業務の種類</td><td colspan="3">${emp.jobType || ""}</td></tr>
-      <tr><td class="c-label">備考</td><td colspan="3" style="height:60px; white-space:pre-wrap;">${emp.notes || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">氏　名</td><td colspan="3" style="font-size:16px;">${emp.name || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">生年月日</td><td colspan="3">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">現住所</td><td colspan="3">${emp.postalCode ? "〒" + emp.postalCode + "　" : ""}${emp.address || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">連絡先</td><td colspan="3">自宅：${emp.homePhone || "　　　　　　　　　　"}　　　携帯：${emp.phone || "　　　　　　　　　　"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">給与振込先</td><td colspan="3">ゆうちょ銀行　　記号　${emp.yuchoKigo || "□□□□□"}　　番号　${emp.yuchoBango || "□□□□□□□□"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">雇入年月日</td><td colspan="3">${emp.hireDate ? toWareki(emp.hireDate) : "　　　年　　月　　日"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">従事する<br/>業務の種類</td><td colspan="3">${emp.jobType || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">備考</td><td colspan="3" style="height:60px; white-space:pre-wrap;">${emp.notes || ""}</td></tr>
       <tr>
-        <td class="c-label" rowspan="2">解雇・退職<br/>または死亡</td>
-        <td class="c-label" style="text-align:center;">年月日</td>
-        <td colspan="2">${isResigned && emp.resignedDate ? toWareki(emp.resignedDate) : "　　　年　　月　　日"}</td>
+        <td class="c-label" style="text-align:center;" rowspan="2">解雇・退職<br/>または死亡</td>
+        <td colspan="3" class="flex-cell" style="padding:0;">
+          <div style="display:flex;">
+            <div style="width:90px; flex-shrink:0; background:#F6EDDC; font-weight:700; text-align:center; padding:8px; border-right:1px solid var(--border);">年月日</div>
+            <div style="flex:1; padding:8px;">${isResigned && emp.resignedDate ? toWareki(emp.resignedDate) : "　　　年　　月　　日"}</div>
+          </div>
+        </td>
       </tr>
       <tr>
-        <td class="c-label" style="text-align:center;">事由</td>
-        <td colspan="2">${emp.resignReason || ""}</td>
+        <td colspan="3" class="flex-cell" style="padding:0;">
+          <div style="display:flex;">
+            <div style="width:90px; flex-shrink:0; background:#F6EDDC; font-weight:700; text-align:center; padding:8px; border-right:1px solid var(--border);">事由</div>
+            <div style="flex:1; padding:8px;">${emp.resignReason || ""}</div>
+          </div>
+        </td>
       </tr>
     </table>
     <p style="margin-top:20px; font-size:12px;">株式会社ホームメンテナンス</p>

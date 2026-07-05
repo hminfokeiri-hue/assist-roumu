@@ -19,6 +19,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <style>
   :root {
@@ -445,7 +446,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(31)";
+const APP_VERSION = "更新: 2026-07-04(33)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -472,6 +473,7 @@ function render() {
 
 /* ---------- ログイン画面 ---------- */
 function renderLogin() {
+  const savedLoginId = localStorage.getItem("assistRoumuLoginId") || "";
   appEl.innerHTML = `
     <div class="center-screen">
       <div class="card login-card">
@@ -480,10 +482,15 @@ function renderLogin() {
         <p class="sub">株式会社ホームメンテナンス</p>
         ${!firebaseReady ? `<div class="placeholder-note">Firebaseの設定がまだ完了していません。コード内の firebaseConfig を入力してください。今はお試し用のダミーデータで動作します。</div>` : ""}
         <label>ログインID（8桁の数字）</label>
-        <input id="loginId" type="tel" inputmode="numeric" placeholder="12345678" maxlength="8" />
+        <input id="loginId" type="tel" inputmode="numeric" placeholder="12345678" maxlength="8" value="${savedLoginId}" />
         <label style="margin-top:10px;">従業員コード下3桁</label>
         <input id="loginCode3" type="tel" inputmode="numeric" placeholder="例：001" maxlength="3" />
+        <label style="display:flex; align-items:center; gap:6px; margin-top:10px; font-size:12px; font-weight:400;">
+          <input id="rememberLoginId" type="checkbox" style="width:auto;" checked />
+          このIDを次回から自動で入力する
+        </label>
         <button class="primary" onclick="handleStaffLogin()">ログインはこちら</button>
+        ${savedLoginId ? `<button class="link" style="font-size:12px; margin-top:6px;" onclick="localStorage.removeItem('assistRoumuLoginId'); render();">保存したIDを削除する</button>` : ""}
 
         <div style="margin-top:32px; padding-top:14px; border-top:1px solid var(--border);">
           <label style="font-size:12px;">管理者パスワード</label>
@@ -513,6 +520,15 @@ function last3OfEmployeeCode(code) {
   return digits.slice(-3);
 }
 
+function saveOrClearLoginId(loginId) {
+  const remember = document.getElementById("rememberLoginId");
+  if (remember && remember.checked) {
+    localStorage.setItem("assistRoumuLoginId", loginId);
+  } else {
+    localStorage.removeItem("assistRoumuLoginId");
+  }
+}
+
 async function handleStaffLogin() {
   const loginId = document.getElementById("loginId").value.trim();
   const code3 = document.getElementById("loginCode3").value.trim();
@@ -522,6 +538,7 @@ async function handleStaffLogin() {
   if (!firebaseReady) {
     // Firebase未設定時のダミーユーザー（動作確認用）。デモの従業員コードは "1-0-001" 固定です。
     if (code3 !== "001") return alert("ログインIDまたは従業員コードが正しくありません。");
+    saveOrClearLoginId(loginId);
     state.currentUser = { id: "demo1", name: "松崎 貞子", loginId, employeeCode: "1-0-001", role: "staff", area: "大阪エリア", hireDate: "2020-04-01", weeklyDays: 3 };
     state.screen = "staffHome";
     return render();
@@ -540,6 +557,7 @@ async function handleStaffLogin() {
     if (empData.status === "resigned") {
       return alert("このログインIDは現在ご利用いただけません。本社にお問い合わせください。");
     }
+    saveOrClearLoginId(loginId);
     state.currentUser = { id: doc.id, role: "staff", ...empData };
     state.screen = "staffHome";
     render();
@@ -2572,6 +2590,54 @@ async function deletePayslip(id) {
   }
 }
 
+/* PDF保存（iOSの印刷機能を経由しないため、印刷時のURL帯が付かない） */
+async function savePreviewAsPdf(elementId, filename, btnEl) {
+  const el = document.getElementById(elementId);
+  if (!el) return alert("保存する内容が見つかりません");
+  const originalLabel = btnEl ? btnEl.textContent : "";
+  if (btnEl) { btnEl.textContent = "PDFを作成中…"; btnEl.disabled = true; }
+  try {
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    const pageW = 595.28, pageH = 841.89; // A4（pt）
+    const pageAspect = pageH / pageW;
+    const pxPerPage = Math.floor(canvas.width * pageAspect);
+
+    const pdfDoc = await PDFLib.PDFDocument.create();
+    let y = 0;
+    while (y < canvas.height) {
+      const sliceH = Math.min(pxPerPage, canvas.height - y);
+      const sliceCanvas = document.createElement("canvas");
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = sliceH;
+      const ctx = sliceCanvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, sliceH);
+      ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      const imgData = sliceCanvas.toDataURL("image/png");
+      const imgBytes = Uint8Array.from(atob(imgData.split(",")[1]), c => c.charCodeAt(0));
+      const png = await pdfDoc.embedPng(imgBytes);
+      const page = pdfDoc.addPage([pageW, pageH]);
+      const drawH = pageW * (sliceH / canvas.width);
+      page.drawImage(png, { x: 0, y: pageH - drawH, width: pageW, height: drawH });
+      y += sliceH;
+    }
+    const bytes = await pdfDoc.save();
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    alert("PDFの作成に失敗しました: " + e.message);
+  } finally {
+    if (btnEl) { btnEl.textContent = originalLabel; btnEl.disabled = false; }
+  }
+}
+
 function adminPreviewPayslip(id) {
   const p = (state.payslips || []).find(x => x.id === id);
   if (!p) return;
@@ -2586,10 +2652,11 @@ function adminPreviewPayslip(id) {
           <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${p.month || ""}分</p>
           <div>
             <button style="margin-right:8px;" onclick="window.print()">印刷する</button>
+            <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${p.month || ""}.pdf', this)">PDFとして保存する</button>
             <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
           </div>
         </div>
-        ${renderPayslipSheet(p.data)}
+        <div id="adminPayslipSheet">${renderPayslipSheet(p.data)}</div>
       </div>
     </div>
   `;
@@ -2616,8 +2683,9 @@ function renderPayslipViewScreen() {
         <button class="link" onclick="state.screen='payslips'; render();">一覧にもどる</button>
       </div>
       <button class="primary" style="margin-top:14px;" onclick="window.print()">印刷する</button>
+      <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${p.month || ""}.pdf', this)">PDFとして保存する</button>
     </div>
-    <div class="card payslip-preview">
+    <div class="card payslip-preview" id="staffPayslipSheet">
       ${renderPayslipSheet(p.data)}
     </div>
   `;
@@ -2680,9 +2748,10 @@ function renderAdminContractTab() {
         </div>
       ` : ""}
       <button class="primary" onclick="window.print()">印刷する</button>
+      <button class="secondary" onclick="savePreviewAsPdf('contractSheet','${type}_${(emp && emp.name) || ""}.pdf', this)">PDFとして保存する</button>
     </div>
 
-    <div class="card contract-preview">
+    <div class="card contract-preview" id="contractSheet">
       ${type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp)}
     </div>
   `;

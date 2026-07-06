@@ -485,7 +485,8 @@ const state = {
   groupScreen: "list",
   activeGroupId: null,
   groupMessages: [],
-  groupPendingPhoto: null
+  groupPendingPhoto: null,
+  allGroups: []
 };
 
 const appEl = document.getElementById("app");
@@ -625,7 +626,7 @@ async function handleAdminLogin() {
   state.currentUser = { role: "admin", name: "本社担当" };
   state.screen = "adminHome";
   render();
-  if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); }
+  if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); }
   subscribeEnvelopeSettings();
 }
 
@@ -1220,6 +1221,34 @@ function subscribeGroupMessages(groupId) {
     }, err => console.error("groupMessages購読エラー", err));
 }
 
+async function leaveGroup(groupId) {
+  if (!confirm("このグループから抜けます。よろしいですか？")) return;
+
+  if (!firebaseReady) {
+    state.groupChats = (state.groupChats || []).filter(g => g.id !== groupId);
+    state.groupScreen = "list";
+    state.activeGroupId = null;
+    return render();
+  }
+  try {
+    const doc = await db.collection("groupChats").doc(groupId).get();
+    const g = doc.data() || {};
+    const remaining = (g.members || []).filter(m => m !== state.currentUser.id);
+    if (remaining.length === 0) {
+      await deleteGroupAndMessages(groupId);
+    } else {
+      await db.collection("groupChats").doc(groupId).update({
+        members: firebase.firestore.FieldValue.arrayRemove(state.currentUser.id)
+      });
+    }
+    state.groupScreen = "list";
+    state.activeGroupId = null;
+    render();
+  } catch (e) {
+    alert("退出エラー: " + e.message);
+  }
+}
+
 function renderGroupChatThread() {
   const group = (state.groupChats || []).find(g => g.id === state.activeGroupId) || {};
   const msgs = state.groupMessages || [];
@@ -1230,6 +1259,7 @@ function renderGroupChatThread() {
         <button class="link" onclick="state.groupScreen='list'; state.activeGroupId=null; render();">一覧にもどる</button>
       </div>
       <p class="muted" style="margin:0 0 10px; font-size:12px;">参加コード：${group.code || ""}（メンバーを増やしたいときは、このコードを伝えてください）</p>
+      <button class="link" style="font-size:12px; padding:0 0 10px; color:var(--danger);" onclick="leaveGroup('${group.id}')">このグループから抜ける</button>
 
       ${state.groupPendingPhoto ? `
         <div class="chat-photo-preview">
@@ -1999,7 +2029,7 @@ function renderAdminEmployeeTab() {
 }
 
 async function resignEmployee(id) {
-  if (!confirm("この方を「退職」扱いにします。ログインIDは自動的に無効化され、ログインできなくなります。よろしいですか？")) return;
+  if (!confirm("この方を「退職」扱いにします。ログインIDは自動的に無効化され、ログインできなくなります。\nまた、参加しているグループチャットからも自動的に抜けます。よろしいですか？")) return;
   const emp = state.employees.find(e => e.id === id) || {};
   const data = {
     status: "resigned",
@@ -2014,9 +2044,38 @@ async function resignEmployee(id) {
   }
   try {
     await db.collection("employees").doc(id).update(data);
+    await removeMemberFromAllGroups(id);
   } catch (e) {
     alert("更新エラー: " + e.message);
   }
+}
+
+// 退職・削除された従業員を、参加中のすべてのグループチャットから抜けさせる。
+// 抜けた結果メンバーが0人になったグループは、メッセージごと削除する。
+async function removeMemberFromAllGroups(employeeId) {
+  if (!firebaseReady) return;
+  try {
+    const snap = await db.collection("groupChats").where("members", "array-contains", employeeId).get();
+    for (const doc of snap.docs) {
+      const g = doc.data();
+      const remaining = (g.members || []).filter(m => m !== employeeId);
+      if (remaining.length === 0) {
+        await deleteGroupAndMessages(doc.id);
+      } else {
+        await db.collection("groupChats").doc(doc.id).update({ members: remaining });
+      }
+    }
+  } catch (e) {
+    console.error("グループからの自動退出エラー", e);
+  }
+}
+
+async function deleteGroupAndMessages(groupId) {
+  const msgSnap = await db.collection("groupMessages").where("groupId", "==", groupId).get();
+  const batch = db.batch();
+  msgSnap.docs.forEach(d => batch.delete(d.ref));
+  batch.delete(db.collection("groupChats").doc(groupId));
+  await batch.commit();
 }
 
 async function reinstateEmployee(id) {
@@ -2045,6 +2104,7 @@ async function deleteEmployee(id, name) {
   }
   try {
     await db.collection("employees").doc(id).delete();
+    await removeMemberFromAllGroups(id);
     state.editingEmpId = null;
     alert("削除しました");
     render();
@@ -3604,6 +3664,33 @@ function subscribeAllMessages() {
   }, err => console.error("messages(admin)購読エラー", err));
 }
 
+// 本社側は「グループが存在すること・メンバー数」だけ確認できる（groupMessagesは購読しない＝トーク内容は見えない）
+function subscribeAllGroups() {
+  db.collection("groupChats").onSnapshot(snap => {
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    rows.sort((a, b) => {
+      const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+      const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+      return tb - ta;
+    });
+    state.allGroups = rows;
+    render();
+  }, err => console.error("groupChats(admin)購読エラー", err));
+}
+
+async function adminDeleteGroup(groupId, name) {
+  if (!confirm(`「${name}」を削除します。このグループのメッセージもすべて削除され、元に戻せません。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    state.allGroups = (state.allGroups || []).filter(g => g.id !== groupId);
+    return render();
+  }
+  try {
+    await deleteGroupAndMessages(groupId);
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
 function adminUnreadCount() {
   if (!state.messages) return 0;
   return state.messages.filter(m => m.senderRole === "staff" && !m.readByOffice).length;
@@ -3721,6 +3808,25 @@ function renderAdminChatTab() {
           `).join("")}
         </div>
       ` : ""}
+    </div>
+
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">グループチャット一覧（本社確認用）</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">従業員同士の「みんなとお話し」グループの一覧です。トーク内容は本社側からは見えません。存在するグループの確認と、削除だけができます。</p>
+      <table>
+        <thead><tr><th>グループ名</th><th>参加コード</th><th>人数</th><th>作成日</th><th></th></tr></thead>
+        <tbody>
+          ${(state.allGroups || []).map(g => `
+            <tr>
+              <td>${escapeHtml(g.name || "")}</td>
+              <td>${g.code || ""}</td>
+              <td>${(g.members || []).length}人</td>
+              <td class="muted" style="font-size:12px;">${g.createdAt && g.createdAt.seconds ? new Date(g.createdAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
+              <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="adminDeleteGroup('${g.id}', '${(g.name || "").replace(/'/g, "\\'")}')">削除</button></td>
+            </tr>
+          `).join("") || `<tr><td colspan="5" class="muted">グループチャットはまだありません</td></tr>`}
+        </tbody>
+      </table>
     </div>
   `;
 }

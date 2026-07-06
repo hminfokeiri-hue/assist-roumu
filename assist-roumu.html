@@ -447,7 +447,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(34)";
+const APP_VERSION = "更新: 2026-07-04(35)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1875,6 +1875,20 @@ function handleContractSearchInput(el) {
   if (el.dataset.composing === "1") return; // 日本語入力の変換中は何もしない
   state.contractEmpSearchVal = el.value;
   updateContractEmpSelect();
+  // 選択肢を絞り込むと、ブラウザは自動的に先頭の候補を表示するが
+  // onchangeイベントは発生しないため、ここで明示的にstateと表示を同期させる
+  const sel = document.getElementById("contractEmpSelect");
+  if (sel) state.contractEmpId = sel.value;
+  refreshContractSheet();
+}
+
+function refreshContractSheet() {
+  const sheet = document.getElementById("contractSheet");
+  if (!sheet) return;
+  const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
+  const emp = state.employees.find(e => e.id === empId) || {};
+  const type = state.contractType || "雇用契約書";
+  sheet.innerHTML = type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp);
 }
 
 /* ---------- 給与明細（PDFアップロード／ダウンロード） ---------- */
@@ -2907,14 +2921,18 @@ function renderRoshaMeibo(emp) {
         <td class="c-label" style="text-align:center;">フリガナ</td><td>${emp.furigana || ""}</td>
         <td class="c-label" style="text-align:center;">性別</td><td style="text-align:center;">${emp.gender || ""}</td>
       </tr>
-      <tr><td class="c-label" style="text-align:center;">氏　名</td><td colspan="3" style="font-size:16px;">${emp.name || ""}</td></tr>
+      <tr>
+        <td class="c-label" style="text-align:center; height:50px;">氏　名</td>
+        <td colspan="2" style="font-size:18px;">${emp.name || ""}</td>
+        <td></td>
+      </tr>
       <tr><td class="c-label" style="text-align:center;">生年月日</td><td colspan="3">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td></tr>
-      <tr><td class="c-label" style="text-align:center;">現住所</td><td colspan="3">${emp.postalCode ? "〒" + emp.postalCode + "　" : ""}${emp.address || ""}</td></tr>
-      <tr><td class="c-label" style="text-align:center;">連絡先</td><td colspan="3">自宅：${emp.homePhone || "　　　　　　　　　　"}　　　携帯：${emp.phone || "　　　　　　　　　　"}</td></tr>
-      <tr><td class="c-label" style="text-align:center;">給与振込先</td><td colspan="3">ゆうちょ銀行　　記号　${emp.yuchoKigo || "□□□□□"}　　番号　${emp.yuchoBango || "□□□□□□□□"}</td></tr>
-      <tr><td class="c-label" style="text-align:center;">雇入年月日</td><td colspan="3">${emp.hireDate ? toWareki(emp.hireDate) : "　　　年　　月　　日"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">現住所</td><td colspan="3">${emp.postalCode ? "〒" + emp.postalCode + "　" : "〒"}${emp.address || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">連絡先</td><td colspan="3">自宅：${emp.homePhone || "　　　　　　　　　　"}　　　　　携帯：${emp.phone || "　　　　　　　　　　"}</td></tr>
+      <tr><td class="c-label" style="text-align:center; height:56px;">給与振込先</td><td colspan="3">ゆうちょ銀行<br/>記号　${emp.yuchoKigo || "□□□□□"}　　　　番号　${emp.yuchoBango || "□□□□□□□□"}</td></tr>
+      <tr><td class="c-label" style="text-align:center;">雇入年月日</td><td colspan="3">${emp.hireDate ? toWareki(emp.hireDate) : "令和　　年　　月　　日"}</td></tr>
       <tr><td class="c-label" style="text-align:center;">従事する<br/>業務の種類</td><td colspan="3">${emp.jobType || ""}</td></tr>
-      <tr><td class="c-label" style="text-align:center;">備考</td><td colspan="3" style="height:60px; white-space:pre-wrap;">${emp.notes || ""}</td></tr>
+      <tr><td class="c-label" style="text-align:center; height:120px;">備考</td><td colspan="3" style="height:120px; vertical-align:top; white-space:pre-wrap;">${emp.notes || ""}</td></tr>
       <tr>
         <td class="c-label" style="text-align:center;" rowspan="2">解雇・退職<br/>または死亡</td>
         <td colspan="3" class="flex-cell" style="padding:0;">

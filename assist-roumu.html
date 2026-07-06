@@ -602,6 +602,7 @@ async function handleAdminLogin() {
   state.screen = "adminHome";
   render();
   if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); }
+  subscribeEnvelopeSettings();
 }
 
 function logout() {
@@ -2853,14 +2854,56 @@ function renderAdminContractTab() {
   `;
 }
 
+/* ---------- 封筒印刷の設定を保存する（本社共有・次回から自動で同じ位置に印刷） ---------- */
+const ENVELOPE_SETTINGS_LOCAL_KEY = "assistRoumuEnvelopeSettings";
+
+function subscribeEnvelopeSettings() {
+  if (!firebaseReady) {
+    try {
+      const raw = localStorage.getItem(ENVELOPE_SETTINGS_LOCAL_KEY);
+      if (raw) applyEnvelopeSettings(JSON.parse(raw));
+    } catch (e) { /* 読み込めない場合は初期値のまま */ }
+    return;
+  }
+  db.collection("settings").doc("envelope").onSnapshot(doc => {
+    if (doc.exists) applyEnvelopeSettings(doc.data());
+  }, err => console.error("封筒設定の読み込みエラー", err));
+}
+
+function applyEnvelopeSettings(d) {
+  if (!d) return;
+  if (d.envelopeOffset) state.envelopeOffset = d.envelopeOffset;
+  if (d.envelopeOffsetH) state.envelopeOffsetH = d.envelopeOffsetH;
+  if (d.envelopeShowBoxes != null) state.envelopeShowBoxes = d.envelopeShowBoxes;
+  if (d.envelopeMode) state.envelopeMode = d.envelopeMode;
+  // 封筒印刷タブを表示中は、画面全体(＝「位置の微調整」パネルを含む)を作り直さない。
+  // プレビューの絵だけを更新することで、パネルが開いたまま数値調整を続けられるようにする。
+  if (state.adminTab === "envelope") refreshEnvelopeSheet();
+}
+
+function saveEnvelopeSettings() {
+  const data = {
+    envelopeOffset: state.envelopeOffset,
+    envelopeOffsetH: state.envelopeOffsetH,
+    envelopeShowBoxes: !!state.envelopeShowBoxes,
+    envelopeMode: state.envelopeMode || "vertical"
+  };
+  if (!firebaseReady) {
+    try { localStorage.setItem(ENVELOPE_SETTINGS_LOCAL_KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+    return;
+  }
+  db.collection("settings").doc("envelope").set(data, { merge: true })
+    .catch(e => console.error("封筒設定の保存エラー", e));
+}
+
 function renderAdminEnvelopeTab() {
   const empId = state.envelopeEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
   if (!state.envelopeOffset) {
-    state.envelopeOffset = { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13 };
+    state.envelopeOffset = { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14 };
   }
   if (!state.envelopeOffsetH) {
-    state.envelopeOffsetH = { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28 };
+    state.envelopeOffsetH = { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28, zipFontSize: 14 };
   }
   const mode = state.envelopeMode || "vertical";
   const off = state.envelopeOffset;
@@ -2870,16 +2913,17 @@ function renderAdminEnvelopeTab() {
     <div class="card no-print">
       <p class="staff-title" style="font-size:16px;">封筒の宛名を印刷する</p>
       <p class="muted" style="font-size:12px; margin-top:-6px;">差出人（本社）はあらかじめ封筒に印刷済みのものを想定しているので、宛先だけを印刷します。</p>
+      <p class="muted" style="font-size:12px; margin-top:4px;">位置の微調整は、変更するたびに自動で保存されます。次回からもこの位置のまま印刷されるので、毎回やり直す必要はありません。</p>
 
       <div style="margin:12px 0;">
         <label style="font-size:12px; display:block; margin-bottom:6px;">封筒の種類</label>
         <div style="display:flex; gap:16px;">
           <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:13px;">
-            <input type="radio" name="envelopeMode" style="width:auto;" ${mode === "vertical" ? "checked" : ""} onchange="state.envelopeMode='vertical'; render();" />
+            <input type="radio" name="envelopeMode" style="width:auto;" ${mode === "vertical" ? "checked" : ""} onchange="state.envelopeMode='vertical'; saveEnvelopeSettings(); render();" />
             長形3号（縦書き）
           </label>
           <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:13px;">
-            <input type="radio" name="envelopeMode" style="width:auto;" ${mode === "horizontal" ? "checked" : ""} onchange="state.envelopeMode='horizontal'; render();" />
+            <input type="radio" name="envelopeMode" style="width:auto;" ${mode === "horizontal" ? "checked" : ""} onchange="state.envelopeMode='horizontal'; saveEnvelopeSettings(); render();" />
             角形2号（横書き）
           </label>
         </div>
@@ -2899,7 +2943,7 @@ function renderAdminEnvelopeTab() {
 
       <div style="margin:12px 0;">
         <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:13px;">
-          <input id="envelopeShowBoxes" type="checkbox" style="width:auto;" ${state.envelopeShowBoxes ? "checked" : ""} onchange="state.envelopeShowBoxes=this.checked; refreshEnvelopeSheet();" />
+          <input id="envelopeShowBoxes" type="checkbox" style="width:auto;" ${state.envelopeShowBoxes ? "checked" : ""} onchange="state.envelopeShowBoxes=this.checked; refreshEnvelopeSheet(); saveEnvelopeSettings();" />
           郵便番号の赤い枠も一緒に印刷する（無地の封筒を使うとき用。封筒に枠が印刷済みの場合はチェックを外してください）
         </label>
       </div>
@@ -2908,29 +2952,31 @@ function renderAdminEnvelopeTab() {
       <details style="margin-bottom:14px;">
         <summary style="cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:8px;">位置の微調整（初回の試し印刷でずれる場合はここで調整してください）</summary>
         <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:8px;">
-          <div><label style="font-size:11px;">郵便番号：上からの位置(mm)</label><input type="number" value="${off.top}" onchange="state.envelopeOffset.top=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">郵便番号：右からの位置(mm)</label><input type="number" value="${off.right}" onchange="state.envelopeOffset.right=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">郵便番号：文字の間隔(mm)</label><input type="number" value="${off.zipGap}" onchange="state.envelopeOffset.zipGap=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${off.nameTop}" onchange="state.envelopeOffset.nameTop=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所・氏名：右からの位置(mm)</label><input type="number" value="${off.nameRight}" onchange="state.envelopeOffset.nameRight=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所と氏名の間隔(mm)</label><input type="number" value="${off.nameColGap != null ? off.nameColGap : 13}" onchange="state.envelopeOffset.nameColGap=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${off.fontSize}" onchange="state.envelopeOffset.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${off.nameFontSize}" onchange="state.envelopeOffset.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet();" /></div>
-          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffset={top:12,right:8,nameTop:30,nameRight:62,fontSize:15,nameFontSize:22,zipGap:1.5,nameColGap:13}; render();">初期値に戻す</button></div>
+          <div><label style="font-size:11px;">郵便番号：上からの位置(mm)</label><input type="number" value="${off.top}" onchange="state.envelopeOffset.top=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：右からの位置(mm)</label><input type="number" value="${off.right}" onchange="state.envelopeOffset.right=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：文字の間隔(mm)</label><input type="number" value="${off.zipGap}" onchange="state.envelopeOffset.zipGap=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：文字の大きさ(pt)</label><input type="number" value="${off.zipFontSize != null ? off.zipFontSize : 14}" onchange="state.envelopeOffset.zipFontSize=parseFloat(this.value)||14; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${off.nameTop}" onchange="state.envelopeOffset.nameTop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所・氏名：右からの位置(mm)</label><input type="number" value="${off.nameRight}" onchange="state.envelopeOffset.nameRight=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所と氏名の間隔(mm)</label><input type="number" value="${off.nameColGap != null ? off.nameColGap : 13}" onchange="state.envelopeOffset.nameColGap=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${off.fontSize}" onchange="state.envelopeOffset.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${off.nameFontSize}" onchange="state.envelopeOffset.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffset={top:12,right:8,nameTop:30,nameRight:62,fontSize:15,nameFontSize:22,zipGap:1.5,nameColGap:13,zipFontSize:14}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
         </div>
       </details>
       ` : `
       <details style="margin-bottom:14px;">
         <summary style="cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:8px;">位置の微調整（初回の試し印刷でずれる場合はここで調整してください）</summary>
         <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:8px;">
-          <div><label style="font-size:11px;">郵便番号：上からの位置(mm)</label><input type="number" value="${offH.zipTop}" onchange="state.envelopeOffsetH.zipTop=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">郵便番号：左からの位置(mm)</label><input type="number" value="${offH.zipLeft}" onchange="state.envelopeOffsetH.zipLeft=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">郵便番号：文字の間隔(mm)</label><input type="number" value="${offH.zipGap}" onchange="state.envelopeOffsetH.zipGap=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${offH.addrTop}" onchange="state.envelopeOffsetH.addrTop=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所・氏名：左からの位置(mm)</label><input type="number" value="${offH.addrLeft}" onchange="state.envelopeOffsetH.addrLeft=parseFloat(this.value)||0; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${offH.fontSize}" onchange="state.envelopeOffsetH.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet();" /></div>
-          <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${offH.nameFontSize}" onchange="state.envelopeOffsetH.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet();" /></div>
-          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffsetH={zipTop:35,zipLeft:30,zipGap:2,addrTop:100,addrLeft:32,fontSize:18,nameFontSize:28}; render();">初期値に戻す</button></div>
+          <div><label style="font-size:11px;">郵便番号：上からの位置(mm)</label><input type="number" value="${offH.zipTop}" onchange="state.envelopeOffsetH.zipTop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：左からの位置(mm)</label><input type="number" value="${offH.zipLeft}" onchange="state.envelopeOffsetH.zipLeft=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：文字の間隔(mm)</label><input type="number" value="${offH.zipGap}" onchange="state.envelopeOffsetH.zipGap=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">郵便番号：文字の大きさ(pt)</label><input type="number" value="${offH.zipFontSize != null ? offH.zipFontSize : 14}" onchange="state.envelopeOffsetH.zipFontSize=parseFloat(this.value)||14; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${offH.addrTop}" onchange="state.envelopeOffsetH.addrTop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所・氏名：左からの位置(mm)</label><input type="number" value="${offH.addrLeft}" onchange="state.envelopeOffsetH.addrLeft=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${offH.fontSize}" onchange="state.envelopeOffsetH.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${offH.nameFontSize}" onchange="state.envelopeOffsetH.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffsetH={zipTop:35,zipLeft:30,zipGap:2,addrTop:100,addrLeft:32,fontSize:18,nameFontSize:28,zipFontSize:14}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
         </div>
       </details>
       `}
@@ -2972,15 +3018,19 @@ function refreshEnvelopeSheet() {
   sheet.innerHTML = renderEnvelopeSheet(emp);
 }
 
-function buildZipBoxesHtml(emp, zipGap, showBoxes) {
+function buildZipBoxesHtml(emp, zipGap, showBoxes, zipFontSize) {
   const zip = (emp.postalCode || "").replace(/[^\d]/g, "");
   const zipDigits = zip ? zip.split("") : ["", "", "", "", "", "", ""];
   const boxStyle = showBoxes ? "border:0.5mm solid #E6001A; border-radius:0.5mm; box-sizing:border-box;" : "";
-  const digitBox = (d) => `<span style="display:inline-flex; align-items:center; justify-content:center; width:5.5mm; height:7mm; font-weight:800; ${boxStyle}">${d}</span>`;
+  const scale = (zipFontSize || 14) / 14;
+  const boxW = (5.5 * scale).toFixed(2);
+  const boxH = (7 * scale).toFixed(2);
+  const hyphenW = (3 * scale).toFixed(2);
+  const digitBox = (d) => `<span style="display:inline-flex; align-items:center; justify-content:center; width:${boxW}mm; height:${boxH}mm; font-weight:800; ${boxStyle}">${d}</span>`;
   const gap = (mm) => `<span style="display:inline-block; width:${mm}mm;"></span>`;
   return zipDigits.map((d, i) => {
     let html = digitBox(d);
-    if (i === 2) html += gap(zipGap) + `<span style="display:inline-flex; align-items:center; justify-content:center; width:3mm; ${showBoxes ? "color:#E6001A; font-weight:700;" : ""}">-</span>` + gap(zipGap);
+    if (i === 2) html += gap(zipGap) + `<span style="display:inline-flex; align-items:center; justify-content:center; width:${hyphenW}mm; ${showBoxes ? "color:#E6001A; font-weight:700;" : ""}">-</span>` + gap(zipGap);
     else if (i < 6) html += gap(zipGap);
     return html;
   }).join("");
@@ -2992,10 +3042,11 @@ function renderEnvelopeSheet(emp) {
   const FONT = "'Yu Gothic','Hiragino Kaku Gothic ProN','Noto Sans CJK JP','Noto Serif CJK JP',sans-serif";
 
   if (mode === "horizontal") {
-    const offH = state.envelopeOffsetH || { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28 };
-    const zipBoxes = buildZipBoxesHtml(emp, offH.zipGap, showBoxes);
+    const offH = state.envelopeOffsetH || { zipTop: 35, zipLeft: 30, zipGap: 2, zipFontSize: 14, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28 };
+    const zipFontSizeH = offH.zipFontSize || 14;
+    const zipBoxes = buildZipBoxesHtml(emp, offH.zipGap, showBoxes, zipFontSizeH);
     return `
-      <div class="envelope-zip" style="position:absolute; top:${offH.zipTop}mm; left:${offH.zipLeft}mm; font-size:14pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
+      <div class="envelope-zip" style="position:absolute; top:${offH.zipTop}mm; left:${offH.zipLeft}mm; font-size:${zipFontSizeH}pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
         ${zipBoxes}
       </div>
       <div class="envelope-addr" style="position:absolute; top:${offH.addrTop}mm; left:${offH.addrLeft}mm; font-family:${FONT};">
@@ -3008,11 +3059,12 @@ function renderEnvelopeSheet(emp) {
   // 長形3号・縦書き：writing-modeはブラウザ/プリンタによって印刷結果が化けることがあるため、
   // 横書きのテキストを90度回転させることで「縦に寝かせる」方式にしている（印刷の再現性が高い）。
   // 封筒の横幅は120mmなので、right指定と同じ感覚で使えるよう left = 120mm - 右からの位置 に変換している。
-  const off = state.envelopeOffset || { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13 };
-  const zipBoxes = buildZipBoxesHtml(emp, off.zipGap, showBoxes);
+  const off = state.envelopeOffset || { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14 };
+  const zipFontSizeV = off.zipFontSize || 14;
+  const zipBoxes = buildZipBoxesHtml(emp, off.zipGap, showBoxes, zipFontSizeV);
   const colGap = off.nameColGap != null ? off.nameColGap : 13;
   return `
-    <div class="envelope-zip" style="position:absolute; top:${off.top}mm; right:${off.right}mm; font-size:14pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
+    <div class="envelope-zip" style="position:absolute; top:${off.top}mm; right:${off.right}mm; font-size:${zipFontSizeV}pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
       ${zipBoxes}
     </div>
     <div style="position:absolute; top:${off.nameTop}mm; left:calc(120mm - ${off.nameRight}mm); transform:rotate(90deg); transform-origin:top left; white-space:nowrap; font-family:${FONT};">
@@ -3037,8 +3089,8 @@ function renderKoyoKeiyaku(emp) {
         <td class="c-label" style="width:70px; text-align:center;">フリガナ</td>
         <td style="text-align:center;">${emp.furigana || ""}</td>
         <td class="c-label" style="width:50px; text-align:center;">性別</td>
-        <td class="c-label" style="width:24px; text-align:center; padding:2px;"><span style="writing-mode:vertical-rl; letter-spacing:1px;">生年月日</span></td>
-        <td style="width:210px; text-align:center;">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td>
+        <td class="c-label" style="width:64px; text-align:center; font-size:12px;">生年月日</td>
+        <td style="width:170px; text-align:center;">${emp.birthDate ? toWareki(emp.birthDate) : "　　　年　　月　　日"}</td>
       </tr>
       <tr>
         <td class="c-label" style="text-align:center; height:46px;">氏　名</td>

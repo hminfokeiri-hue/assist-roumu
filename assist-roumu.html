@@ -1967,7 +1967,13 @@ function renderAdminEmployeeTab() {
             <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--border); background:#fff;" onclick="reinstateEmployee('${editing.id}')">復職させる（ログインIDを再発行）</button>
             <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff4f3; color:var(--danger);" onclick="deleteEmployee('${editing.id}', '${(editing.name || "").replace(/'/g, "\\'")}')">この方のデータを完全に削除する</button>
           `
-          : `<button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff;" onclick="resignEmployee('${editing.id}')">退職した</button>`
+          : `
+            <div style="margin-top:14px; padding:14px; border-radius:10px; border:1.5px solid var(--danger); background:#fff4f3;">
+              <label style="margin:0 0 6px; color:var(--danger); font-weight:700;">退職日を選んでから、「退職した」を押してください</label>
+              <input id="resignDate_${editing.id}" type="date" value="${new Date().toISOString().slice(0, 10)}" />
+              <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff; color:var(--danger); font-weight:700;" onclick="resignEmployee('${editing.id}')">退職した</button>
+            </div>
+          `
         }
 
         ${renderEmpAttendanceHistory(editing)}
@@ -2029,11 +2035,14 @@ function renderAdminEmployeeTab() {
 }
 
 async function resignEmployee(id) {
-  if (!confirm("この方を「退職」扱いにします。ログインIDは自動的に無効化され、ログインできなくなります。\nまた、参加しているグループチャットからも自動的に抜けます。よろしいですか？")) return;
+  const dateEl = document.getElementById(`resignDate_${id}`);
+  const resignedDate = dateEl ? dateEl.value : "";
+  if (!resignedDate) return alert("退職日を選んでください");
+  if (!confirm(`退職日を ${resignedDate} として、この方を「退職」扱いにします。ログインIDは自動的に無効化され、ログインできなくなります。\nまた、参加しているグループチャットからも自動的に抜けます。よろしいですか？`)) return;
   const emp = state.employees.find(e => e.id === id) || {};
   const data = {
     status: "resigned",
-    resignedDate: new Date().toISOString().slice(0, 10),
+    resignedDate,
     formerLoginId: emp.loginId || "",
     loginId: ""
   };

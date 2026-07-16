@@ -1707,6 +1707,43 @@ function shiftSummary(e) {
   return e.shiftDays || "";
 }
 
+// 曜日ごとの勤務時間から「週の勤務日数」「就業時間」「休日」を自動計算する
+function computeShiftDerivedFields(emp) {
+  const filled = WEEKDAY_FIELDS.map(([key, label]) => [label, (emp[key] || "").trim()]).filter(([, v]) => v);
+  const weeklyDays = filled.length;
+  const groups = [];
+  filled.forEach(([label, time]) => {
+    const g = groups.find(g => g.time === time);
+    if (g) g.labels.push(label); else groups.push({ time, labels: [label] });
+  });
+  const workHours = groups.map(g => `${g.labels.join("・")} ${g.time}`).join("、");
+  const offLabels = WEEKDAY_FIELDS.map(([key, label]) => [label, (emp[key] || "").trim()]).filter(([, v]) => !v).map(([label]) => label);
+  const holiday = offLabels.join("・");
+  return { weeklyDays, workHours, holiday };
+}
+
+// シフト入力欄が変わるたびに、週の勤務日数・就業時間・休日の表示をその場で更新する
+function updateShiftComputedFields() {
+  const emp = {};
+  WEEKDAY_FIELDS.forEach(([key]) => {
+    const el = document.getElementById("emp_" + key);
+    emp[key] = el ? el.value : "";
+  });
+  const { weeklyDays, workHours, holiday } = computeShiftDerivedFields(emp);
+  const wDisp = document.getElementById("computed_weeklyDays");
+  const hDisp = document.getElementById("computed_workHours");
+  const hoDisp = document.getElementById("computed_holiday");
+  const wInput = document.getElementById("emp_weeklyDays");
+  const hInput = document.getElementById("emp_workHours");
+  const hoInput = document.getElementById("emp_holiday");
+  if (wDisp) wDisp.textContent = weeklyDays + "日";
+  if (hDisp) hDisp.textContent = workHours || "（シフト未入力）";
+  if (hoDisp) hoDisp.textContent = holiday || "（シフト未入力）";
+  if (wInput) wInput.value = weeklyDays;
+  if (hInput) hInput.value = workHours;
+  if (hoInput) hoInput.value = holiday;
+}
+
 function calcAge(birthDateStr) {
   if (!birthDateStr) return null;
   const b = new Date(birthDateStr);
@@ -1874,6 +1911,7 @@ function renderAdminEmployeeTab() {
   if (editing) {
     const isResigned = editing.status === "resigned";
     const age = calcAge(editing.birthDate);
+    const shiftComputed = computeShiftDerivedFields(editing);
     const { postalCode, address } = splitAddressForDisplay(editing);
 
     const fieldInput = (key, label, opts) => `
@@ -1890,6 +1928,7 @@ function renderAdminEmployeeTab() {
           <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
           <div>
             ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
+            ${age !== null ? `<span class="status-pill status-pending" style="margin-right:8px;">満${age}歳</span>` : ""}
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
           </div>
         </div>
@@ -1948,16 +1987,35 @@ function renderAdminEmployeeTab() {
             ${WEEKDAY_FIELDS.map(([key, label]) => `
               <div style="display:flex; align-items:center; gap:12px;">
                 <span style="width:28px; font-weight:700; font-size:16px; text-align:center; flex-shrink:0;">${label}</span>
-                <input id="emp_${key}" type="text" placeholder="例：9時〜16時30分（休みの日は空欄）" style="flex:1;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+                <input id="emp_${key}" type="text" placeholder="例：9時〜16時30分（休みの日は空欄）" style="flex:1;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" oninput="updateShiftComputedFields()" />
               </div>
             `).join("")}
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px; font-size:12px;">↓ シフトから自動で計算されます（直接の編集はできません）</p>
+          <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px 16px;">
+            <div>
+              <label style="margin:4px 0 4px;">週の勤務日数</label>
+              <div id="computed_weeklyDays" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px; font-weight:700;">${shiftComputed.weeklyDays}日</div>
+              <input type="hidden" id="emp_weeklyDays" value="${shiftComputed.weeklyDays}" />
+            </div>
+            <div>
+              <label style="margin:4px 0 4px;">就業時間</label>
+              <div id="computed_workHours" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px;">${shiftComputed.workHours || "（シフト未入力）"}</div>
+              <input type="hidden" id="emp_workHours" value="${shiftComputed.workHours.replace(/"/g, '&quot;')}" />
+            </div>
+            <div>
+              <label style="margin:4px 0 4px;">休日</label>
+              <div id="computed_holiday" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px;">${shiftComputed.holiday || "（シフト未入力）"}</div>
+              <input type="hidden" id="emp_holiday" value="${shiftComputed.holiday.replace(/"/g, '&quot;')}" />
+            </div>
           </div>
         </div>
 
         <div style="margin-top:14px;">
           <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
-            ${EMP_FIELDS_SIMPLE.map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
         </div>
 
@@ -2132,7 +2190,17 @@ function generateLoginId() {
 }
 
 async function addNewEmployee() {
-  const data = { name: "新しい従業員", loginId: generateLoginId() };
+  const data = {
+    name: "新しい従業員", loginId: generateLoginId(),
+    payCutoffDay: "月末",
+    payDay: "翌月末",
+    deduction: "所得税",
+    raiseYN: "無",
+    bonusYN: "無",
+    retirementYN: "無",
+    continuedYN: "自動更新",
+    contactPerson: "本社　尾藤",
+  };
   if (!firebaseReady) {
     const id = "demo-" + Date.now();
     state.employees.unshift({ id, ...data });

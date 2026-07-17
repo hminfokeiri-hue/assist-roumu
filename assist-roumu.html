@@ -450,7 +450,8 @@ const GRANT_TABLE = {
 };
 
 function monthsBetween(hireDateStr, now) {
-  const hire = new Date(hireDateStr);
+  const hire = parseFlexibleDate(hireDateStr);
+  if (!hire) return -1;
   return (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth());
 }
 
@@ -2060,8 +2061,14 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px;">
           <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
-            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday", "notes"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
+        </div>
+
+        <div style="margin-top:14px; padding:14px; background:#fffaf0; border:1.5px solid #f0d98c; border-radius:12px;">
+          <label style="margin:0 0 6px; font-weight:700; color:var(--text);">備考・特記事項（社内メモ）</label>
+          <p class="muted" style="margin:0 0 8px; font-size:12px;">この方について、本社が自由に書き残せるメモ欄です（本人には表示されません）</p>
+          <textarea id="emp_notes" rows="5" style="width:100%; font-size:15px; padding:12px; border-radius:10px; border:1.5px solid var(--border); resize:vertical;" placeholder="例：〇〇現場は車での送迎が必要／扶養範囲内での勤務を希望　など">${(editing.notes ?? "").toString()}</textarea>
         </div>
 
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
@@ -2338,8 +2345,8 @@ const COMPANY_REP = "鈴木 広治";
 
 function toWareki(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr);
-  if (isNaN(d)) return dateStr;
+  const d = parseFlexibleDate(dateStr);
+  if (!d) return dateStr;
   const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
   let era, ey;
   if (y >= 2019 && !(y === 2019 && (m < 5))) { era = "令和"; ey = y - 2018; }
@@ -2350,12 +2357,12 @@ function toWareki(dateStr) {
   return `${era}　${ey}年　${m}月　${day}日`;
 }
 function addMonths(dateStr, months) {
-  const d = new Date(dateStr);
+  const d = parseFlexibleDate(dateStr) || new Date();
   d.setMonth(d.getMonth() + months);
   return d.toISOString().slice(0, 10);
 }
 function addDays(dateStr, days) {
-  const d = new Date(dateStr);
+  const d = parseFlexibleDate(dateStr) || new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
@@ -3275,7 +3282,10 @@ function renderAdminContractTab() {
   const emp = state.employees.find(e => e.id === empId) || {};
   const type = state.contractType || "雇用契約書";
 
-  if (!state.probationStart) state.probationStart = emp.hireDate || new Date().toISOString().slice(0, 10);
+  if (!state.probationStart) {
+    const parsedHire = emp.hireDate ? parseFlexibleDate(emp.hireDate) : null;
+    state.probationStart = parsedHire ? parsedHire.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  }
   if (!state.probationEnd) state.probationEnd = addMonths(state.probationStart, 1);
 
   return `

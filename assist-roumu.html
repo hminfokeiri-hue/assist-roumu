@@ -1760,6 +1760,14 @@ function parseFlexibleDate(str) {
     if (!isNaN(d)) return d;
   }
 
+  // 西暦を漢字で書いた形式（例：1959年5月22日）
+  const kanjiMatch = s.match(/^(\d{3,4})\s*年\s*(\d+)\s*月\s*(\d+)\s*日/);
+  if (kanjiMatch) {
+    const [, yearStr, monthStr, dayStr] = kanjiMatch;
+    const d = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, parseInt(dayStr, 10));
+    if (!isNaN(d)) return d;
+  }
+
   // 西暦（1990-05-01, 1990/05/01 など、Dateがそのまま解釈できる形式）
   const d2 = new Date(s);
   if (!isNaN(d2)) return d2;
@@ -1903,18 +1911,32 @@ function computeEmpList() {
 function renderEmpTableRows() {
   const list = computeEmpList();
   const showResigned = !!state.showResignedList;
+  if (!list.length) {
+    return `<p class="muted" style="padding:16px 4px;">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`;
+  }
   return list.map(e => {
     const age = calcAge(e.birthDate);
+    const shift = shiftSummary(e);
+    const metaParts = [e.employeeCode || "管理番号未設定", e.area || ""].filter(Boolean);
+    if (shift) metaParts.push(shift);
     return `
-    <tr style="cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
-      <td>${e.employeeCode || `<span style="color:var(--danger); font-weight:600;">未設定 ⚠️</span>`}</td>
-      <td>${e.name || "(名前未登録)"}</td>
-      <td>${age !== null ? age + "歳" : ""}</td>
-      <td>${e.area || ""}</td>
-      <td>${shiftSummary(e)}</td>
-    </tr>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
+      <div style="min-width:0; flex:1;">
+        <div style="display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;">
+          <span style="font-weight:700; font-size:16px;">${e.name || "(名前未登録)"}</span>
+          ${age !== null ? `<span class="status-pill status-pending" style="font-size:11px; padding:2px 8px;">満${age}歳</span>` : ""}
+          ${!e.employeeCode ? `<span style="color:var(--danger); font-weight:600; font-size:12px;">⚠️未設定</span>` : ""}
+        </div>
+        <div class="muted" style="font-size:12px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${metaParts.join(" ・ ")}</div>
+      </div>
+      ${e.phone ? `
+        <a href="tel:${e.phone}" onclick="event.stopPropagation()" style="flex-shrink:0; display:flex; align-items:center; gap:5px; padding:8px 12px; border:1.5px solid var(--success); border-radius:10px; color:var(--success); text-decoration:none; font-weight:700; font-size:13px; white-space:nowrap;">
+          📞 ${e.phone}
+        </a>
+      ` : ""}
+    </div>
   `;
-  }).join("") || `<tr><td colspan="5" class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</td></tr>`;
+  }).join("");
 }
 
 function updateEmpTableBody() {
@@ -2100,17 +2122,14 @@ function renderAdminEmployeeTab() {
         </select>
       </div>
 
-      <table>
-        <thead><tr>
-          <th style="cursor:pointer;" onclick="state.empSortKey='code'; render();">管理番号 ${sortKey === "code" ? "▲" : ""}</th>
-          <th style="cursor:pointer;" onclick="state.empSortKey='name'; render();">氏名 ${sortKey === "name" ? "▲" : ""}</th>
-          <th style="cursor:pointer;" onclick="state.empSortKey='age'; render();">年齢 ${sortKey === "age" ? "▲" : ""}</th>
-          <th>エリア</th><th>シフト</th>
-        </tr></thead>
-        <tbody id="empTableBody">
-          ${renderEmpTableRows()}
-        </tbody>
-      </table>
+      <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+        <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "code" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "code" ? "var(--blue)" : "#fff"}; color:${sortKey === "code" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='code'; render();">管理番号順</button>
+        <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "name" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "name" ? "var(--blue)" : "#fff"}; color:${sortKey === "name" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='name'; render();">氏名順</button>
+        <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "age" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "age" ? "var(--blue)" : "#fff"}; color:${sortKey === "age" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='age'; render();">年齢順</button>
+      </div>
+      <div id="empTableBody">
+        ${renderEmpTableRows()}
+      </div>
     </div>
   `;
 }

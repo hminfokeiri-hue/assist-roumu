@@ -429,12 +429,33 @@ try {
   db = firebase.firestore();
   firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
   if (firebaseReady) {
-    // 画面や操作は一切変えず、裏側でアプリ自身を認証させる（Firestoreルール強化のため）
-    firebase.auth().signInAnonymously().catch(e => console.error("匿名認証エラー", e));
-    firebase.auth().onAuthStateChanged(user => { authReady = !!user; });
+    // パートさん用：裏側で匿名認証（画面や操作は変わりません）
+    // 管理者用：メールアドレス＋パスワードでFirebase Authenticationにログイン
+    firebase.auth().onAuthStateChanged(user => {
+      authReady = !!user;
+      if (!user) {
+        // 誰もログインしていない状態になったら、匿名認証に戻す
+        firebase.auth().signInAnonymously().catch(e => console.error("匿名認証エラー", e));
+      }
+    });
   }
 } catch (e) {
   console.error("Firebase初期化エラー", e);
+}
+
+/* 現在ログイン中のFirebaseユーザーが管理者かどうかを確認する。
+   Firestoreの admins コレクションに、そのユーザーのUIDのドキュメントが
+   存在する場合だけ管理者として扱う（コード内にパスワードを持たない）。 */
+async function verifyAdminClaim() {
+  const user = firebase.auth().currentUser;
+  if (!user || user.isAnonymous) return false;
+  try {
+    const doc = await db.collection("admins").doc(user.uid).get();
+    return doc.exists;
+  } catch (e) {
+    console.error("管理者確認エラー", e);
+    return false;
+  }
 }
 
 /* =========================================================
@@ -450,8 +471,7 @@ const GRANT_TABLE = {
 };
 
 function monthsBetween(hireDateStr, now) {
-  const hire = parseFlexibleDate(hireDateStr);
-  if (!hire) return -1;
+  const hire = new Date(hireDateStr);
   return (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth());
 }
 
@@ -504,7 +524,9 @@ function render() {
 function renderLogin() {
   const savedLoginId = localStorage.getItem("assistRoumuLoginId") || "";
   const savedCode3 = localStorage.getItem("assistRoumuLoginCode3") || "";
-  const savedAdminPass = localStorage.getItem("assistRoumuAdminPass") || "";
+  // 旧バージョンで保存された管理者パスワードが残っていれば消す（安全のため）
+  localStorage.removeItem("assistRoumuAdminPass");
+  const savedAdminEmail = localStorage.getItem("assistRoumuAdminEmail") || "";
   appEl.innerHTML = `
     <div class="center-screen">
       <div class="card login-card">
@@ -524,14 +546,16 @@ function renderLogin() {
         ${savedLoginId ? `<button class="link" style="font-size:12px; margin-top:6px;" onclick="localStorage.removeItem('assistRoumuLoginId'); localStorage.removeItem('assistRoumuLoginCode3'); render();">保存したIDとコードを削除する</button>` : ""}
 
         <div style="margin-top:32px; padding-top:14px; border-top:1px solid var(--border);">
-          <label style="font-size:12px;">管理者パスワード</label>
-          <input id="adminPass" type="password" placeholder="管理者パスワード" style="font-size:13px; padding:8px;" value="${savedAdminPass}" />
+          <label style="font-size:12px;">管理者メールアドレス</label>
+          <input id="adminEmail" type="email" inputmode="email" autocomplete="username" placeholder="admin@example.com" style="font-size:13px; padding:8px;" value="${savedAdminEmail}" />
+          <label style="font-size:12px; margin-top:8px;">管理者パスワード</label>
+          <input id="adminPass" type="password" autocomplete="current-password" placeholder="パスワード" style="font-size:13px; padding:8px;" />
           <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; font-weight:400;">
-            <input id="rememberAdminPass" type="checkbox" style="width:auto;" ${savedAdminPass ? "checked" : ""} />
-            このパソコンにパスワードを保存する（共有のパソコンではおすすめしません）
+            <input id="rememberAdminEmail" type="checkbox" style="width:auto;" ${savedAdminEmail ? "checked" : ""} />
+            このパソコンにメールアドレスを保存する（パスワードは保存されません）
           </label>
           <button class="secondary" style="font-size:13px; padding:8px; margin-top:6px;" onclick="handleAdminLogin()">管理者はこちら</button>
-          ${savedAdminPass ? `<button class="link" style="font-size:12px; margin-top:4px;" onclick="localStorage.removeItem('assistRoumuAdminPass'); render();">保存したパスワードを削除する</button>` : ""}
+          <button class="link" style="font-size:12px; margin-top:4px;" onclick="handleAdminPasswordReset()">パスワードを忘れた場合</button>
         </div>
       </div>
     </div>
@@ -567,12 +591,25 @@ function saveOrClearLoginId(loginId, code3) {
   }
 }
 
-function saveOrClearAdminPass(pass) {
-  const remember = document.getElementById("rememberAdminPass");
+function saveOrClearAdminEmail(email) {
+  const remember = document.getElementById("rememberAdminEmail");
   if (remember && remember.checked) {
-    localStorage.setItem("assistRoumuAdminPass", pass);
+    localStorage.setItem("assistRoumuAdminEmail", email);
   } else {
-    localStorage.removeItem("assistRoumuAdminPass");
+    localStorage.removeItem("assistRoumuAdminEmail");
+  }
+}
+
+async function handleAdminPasswordReset() {
+  const el = document.getElementById("adminEmail");
+  const email = (el && el.value || "").trim();
+  if (!email) return alert("先に管理者メールアドレスを入力してください");
+  if (!firebaseReady) return alert("Firebaseの設定が完了していません");
+  try {
+    await firebase.auth().sendPasswordResetEmail(email);
+    alert("パスワード再設定用のメールを送信しました。メールをご確認ください。");
+  } catch (e) {
+    alert("送信できませんでした: " + e.message);
   }
 }
 
@@ -618,13 +655,38 @@ async function handleStaffLogin() {
 }
 
 async function handleAdminLogin() {
+  const email = (document.getElementById("adminEmail").value || "").trim();
   const pass = document.getElementById("adminPass").value;
-  // MVP: 共通パスワード方式（会計ソフトと同じ考え方）。運用開始後に変更してください。
-  const ADMIN_PASSWORD = "hm2026";
-  if (pass !== ADMIN_PASSWORD) return alert("パスワードが違います");
-  saveOrClearAdminPass(pass);
-  if (firebaseReady) await waitForAuth(3000);
-  state.currentUser = { role: "admin", name: "本社担当" };
+  if (!email || !pass) return alert("メールアドレスとパスワードを入力してください");
+
+  if (!firebaseReady) {
+    // Firebase未設定時の動作確認用
+    state.currentUser = { role: "admin", name: "本社担当" };
+    state.screen = "adminHome";
+    render();
+    return;
+  }
+
+  try {
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    const isAdmin = await verifyAdminClaim();
+    if (!isAdmin) {
+      await firebase.auth().signOut();
+      return alert("このアカウントには管理者権限がありません。本社にお問い合わせください。");
+    }
+    saveOrClearAdminEmail(email);
+    state.currentUser = { role: "admin", name: cred.user.email };
+  } catch (e) {
+    const msg = {
+      "auth/invalid-email": "メールアドレスの形式が正しくありません",
+      "auth/user-not-found": "メールアドレスまたはパスワードが正しくありません",
+      "auth/wrong-password": "メールアドレスまたはパスワードが正しくありません",
+      "auth/invalid-credential": "メールアドレスまたはパスワードが正しくありません",
+      "auth/too-many-requests": "試行回数が多すぎます。しばらく待ってからお試しください",
+      "auth/network-request-failed": "ネットワークに接続できませんでした"
+    }[e.code] || ("ログインできませんでした: " + e.message);
+    return alert(msg);
+  }
   state.screen = "adminHome";
   render();
   if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); }
@@ -632,8 +694,13 @@ async function handleAdminLogin() {
 }
 
 function logout() {
+  const wasAdmin = state.currentUser && state.currentUser.role === "admin";
   state.currentUser = null;
   state.screen = "login";
+  // 管理者だった場合はFirebase側もサインアウトする（匿名認証に自動で戻ります）
+  if (wasAdmin && firebaseReady) {
+    firebase.auth().signOut().catch(e => console.error("サインアウトエラー", e));
+  }
   render();
 }
 
@@ -2061,14 +2128,8 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px;">
           <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
-            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday", "notes"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
-        </div>
-
-        <div style="margin-top:14px; padding:14px; background:#fffaf0; border:1.5px solid #f0d98c; border-radius:12px;">
-          <label style="margin:0 0 6px; font-weight:700; color:var(--text);">備考・特記事項（社内メモ）</label>
-          <p class="muted" style="margin:0 0 8px; font-size:12px;">この方について、本社が自由に書き残せるメモ欄です（本人には表示されません）</p>
-          <textarea id="emp_notes" rows="5" style="width:100%; font-size:15px; padding:12px; border-radius:10px; border:1.5px solid var(--border); resize:vertical;" placeholder="例：〇〇現場は車での送迎が必要／扶養範囲内での勤務を希望　など">${(editing.notes ?? "").toString()}</textarea>
         </div>
 
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
@@ -2345,8 +2406,8 @@ const COMPANY_REP = "鈴木 広治";
 
 function toWareki(dateStr) {
   if (!dateStr) return "";
-  const d = parseFlexibleDate(dateStr);
-  if (!d) return dateStr;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
   const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
   let era, ey;
   if (y >= 2019 && !(y === 2019 && (m < 5))) { era = "令和"; ey = y - 2018; }
@@ -2357,12 +2418,12 @@ function toWareki(dateStr) {
   return `${era}　${ey}年　${m}月　${day}日`;
 }
 function addMonths(dateStr, months) {
-  const d = parseFlexibleDate(dateStr) || new Date();
+  const d = new Date(dateStr);
   d.setMonth(d.getMonth() + months);
   return d.toISOString().slice(0, 10);
 }
 function addDays(dateStr, days) {
-  const d = parseFlexibleDate(dateStr) || new Date();
+  const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
@@ -3282,10 +3343,7 @@ function renderAdminContractTab() {
   const emp = state.employees.find(e => e.id === empId) || {};
   const type = state.contractType || "雇用契約書";
 
-  if (!state.probationStart) {
-    const parsedHire = emp.hireDate ? parseFlexibleDate(emp.hireDate) : null;
-    state.probationStart = parsedHire ? parsedHire.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-  }
+  if (!state.probationStart) state.probationStart = emp.hireDate || new Date().toISOString().slice(0, 10);
   if (!state.probationEnd) state.probationEnd = addMonths(state.probationStart, 1);
 
   return `

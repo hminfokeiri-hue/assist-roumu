@@ -489,7 +489,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-04(45)";
+const APP_VERSION = "更新: 2026-07-22(46)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1895,11 +1895,19 @@ async function lookupPostalCode() {
   }
 }
 
+/* 有給の消化日数を集計する。
+   「有給休暇」だけを対象にし、却下されたものは数えない。
+   days が入っていない古い記録は 1日として扱う（半休は 0.5）。 */
+function usedPaidLeaveFor(empId) {
+  return (state.leaveRequests || [])
+    .filter(r => r.employeeId === empId && r.type === "有給休暇" && r.status !== "rejected")
+    .reduce((sum, r) => sum + (typeof r.days === "number" ? r.days : 1), 0);
+}
+
 function remainingLeaveFor(emp) {
   const balance = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
-  const used = (state.leaveRequests || []).filter(r => r.employeeId === emp.id && r.status !== "rejected").length;
-  const remaining = balance - used;
-  return remaining >= 0 ? remaining : 0;
+  const remaining = balance - usedPaidLeaveFor(emp.id);
+  return remaining >= 0 ? Math.round(remaining * 10) / 10 : 0;
 }
 
 function renderEmpAttendanceHistory(emp) {
@@ -1909,25 +1917,143 @@ function renderEmpAttendanceHistory(emp) {
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
   const statusLabel = { pending: "確認中", approved: "承認されました", rejected: "却下されました" };
+  const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const granted = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
+  const used = usedPaidLeaveFor(emp.id);
+  const today = new Date().toISOString().slice(0, 10);
 
   return `
     <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
       <p class="staff-title" style="font-size:15px; margin:0 0 10px;">過去の勤怠（休み・有給・忌引き・早退）</p>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+        <span class="status-pill status-approved">付与 ${granted}日</span>
+        <span class="status-pill status-pending">有給の消化 ${Math.round(used * 10) / 10}日</span>
+        <span class="status-pill status-approved">残り ${remainingLeaveFor(emp)}日</span>
+      </div>
+
+      <div style="padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa; margin-bottom:14px;">
+        <label style="margin:0 0 8px; font-weight:700;">過去の休み・有給を記録する</label>
+
+        <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
+          <div>
+            <label style="font-size:12px;">日付</label>
+            <input id="admLeaveDate_${emp.id}" type="date" max="${today}" value="${today}" style="font-size:13px; padding:8px;" />
+          </div>
+          <div>
+            <label style="font-size:12px;">区分</label>
+            <select id="admLeaveType_${emp.id}" style="font-size:13px; padding:8px;">
+              ${LEAVE_TYPES.map(t => `<option value="${esc(t)}" ${t === "有給休暇" ? "selected" : ""}>${esc(t)}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;">消化日数（有給休暇のみ）</label>
+            <select id="admLeaveDays_${emp.id}" style="font-size:13px; padding:8px;">
+              <option value="1">1日</option>
+              <option value="0.5">0.5日（半休）</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;">理由・メモ</label>
+            <input id="admLeaveReason_${emp.id}" type="text" placeholder="通院のため" style="font-size:13px; padding:8px;" />
+          </div>
+        </div>
+
+        <button class="secondary" style="font-size:13px; padding:10px; margin-top:10px;" onclick="addAdminLeaveRecord('${emp.id}')">この内容で記録する</button>
+        <p class="muted" style="font-size:11px; margin:8px 0 0;">会社側で入力した記録は「承認済み」として登録され、すぐに残日数へ反映されます。</p>
+      </div>
+
       <table>
-        <thead><tr><th>日付</th><th>区分</th><th>理由</th><th>状態</th></tr></thead>
+        <thead><tr><th>日付</th><th>区分</th><th>日数</th><th>理由</th><th>状態</th><th></th></tr></thead>
         <tbody>
-          ${records.map(r => `
+          ${records.map(r => {
+            const isPaid = r.type === "有給休暇";
+            const days = typeof r.days === "number" ? r.days : 1;
+            return `
             <tr>
-              <td>${r.date}</td>
-              <td>${r.type}</td>
-              <td>${r.reason || ""}</td>
-              <td><span class="status-pill status-${r.status}">${statusLabel[r.status] || r.status}</span></td>
+              <td>${esc(r.date)}</td>
+              <td>${esc(r.type)}${r.enteredBy === "admin" ? ` <span class="muted" style="font-size:10px;">(会社入力)</span>` : ""}</td>
+              <td>${isPaid ? days + "日" : "—"}</td>
+              <td>${esc(r.reason || "")}</td>
+              <td><span class="status-pill status-${esc(r.status)}">${statusLabel[r.status] || esc(r.status)}</span></td>
+              <td><button class="link" style="font-size:11px; color:var(--danger); padding:0;" onclick="deleteLeaveRecord('${r.id}', '${esc(r.date)}')">削除</button></td>
             </tr>
-          `).join("") || `<tr><td colspan="4" class="muted">記録はまだありません</td></tr>`}
+          `;}).join("") || `<tr><td colspan="6" class="muted">記録はまだありません</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+}
+
+/* 会社側から過去の休み・有給を登録する（管理者のみ） */
+async function addAdminLeaveRecord(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return alert("従業員が見つかりませんでした");
+
+  const date = (document.getElementById("admLeaveDate_" + empId) || {}).value || "";
+  const type = (document.getElementById("admLeaveType_" + empId) || {}).value || LEAVE_TYPES[0];
+  const daysRaw = (document.getElementById("admLeaveDays_" + empId) || {}).value || "1";
+  const reason = ((document.getElementById("admLeaveReason_" + empId) || {}).value || "").trim();
+
+  if (!date) return alert("日付を選んでください");
+
+  const days = type === "有給休暇" ? parseFloat(daysRaw) : 0;
+
+  // 同じ日に同じ区分の記録がないか確認する（二重登録の防止）
+  const dup = (state.leaveRequests || []).find(
+    r => r.employeeId === empId && r.date === date && r.type === type && r.status !== "rejected"
+  );
+  if (dup && !confirm(`${date} の「${type}」はすでに登録されています。それでも追加しますか？`)) return;
+
+  if (type === "有給休暇") {
+    const remaining = remainingLeaveFor(emp);
+    if (days > remaining && !confirm(`残り有給は ${remaining}日 です。${days}日を登録すると残日数を超えます。それでも登録しますか？`)) return;
+  }
+
+  const data = {
+    employeeId: empId,
+    employeeName: emp.name || "",
+    area: emp.area || "",
+    date,
+    type,
+    reason,
+    days,
+    status: "approved",
+    enteredBy: "admin",
+    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+
+  if (!firebaseReady) {
+    state.leaveRequests.unshift({ ...data, id: "demo-" + Date.now() });
+    return render();
+  }
+
+  try {
+    await db.collection("leaveRequests").add(data);
+    const r = document.getElementById("admLeaveReason_" + empId);
+    if (r) r.value = "";
+    render();
+  } catch (e) {
+    alert("登録できませんでした: " + e.message);
+  }
+}
+
+/* 記録を削除する（管理者のみ。セキュリティルール側でも管理者に限定しています） */
+async function deleteLeaveRecord(id, dateLabel) {
+  if (!confirm(`${dateLabel} の記録を削除します。よろしいですか？\nこの操作は元に戻せません。`)) return;
+
+  if (!firebaseReady) {
+    state.leaveRequests = state.leaveRequests.filter(r => r.id !== id);
+    return render();
+  }
+
+  try {
+    await db.collection("leaveRequests").doc(id).delete();
+    render();
+  } catch (e) {
+    alert("削除できませんでした: " + e.message);
+  }
 }
 
 function exportEmployeesToExcel() {

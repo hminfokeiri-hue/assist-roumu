@@ -524,9 +524,8 @@ function render() {
 function renderLogin() {
   const savedLoginId = localStorage.getItem("assistRoumuLoginId") || "";
   const savedCode3 = localStorage.getItem("assistRoumuLoginCode3") || "";
-  // 旧バージョンで保存された管理者パスワードが残っていれば消す（安全のため）
-  localStorage.removeItem("assistRoumuAdminPass");
   const savedAdminEmail = localStorage.getItem("assistRoumuAdminEmail") || "";
+  const savedAdminPass = localStorage.getItem("assistRoumuAdminPass") || "";
   appEl.innerHTML = `
     <div class="center-screen">
       <div class="card login-card">
@@ -549,12 +548,17 @@ function renderLogin() {
           <label style="font-size:12px;">管理者メールアドレス</label>
           <input id="adminEmail" type="email" inputmode="email" autocomplete="username" placeholder="admin@example.com" style="font-size:13px; padding:8px;" value="${savedAdminEmail}" />
           <label style="font-size:12px; margin-top:8px;">管理者パスワード</label>
-          <input id="adminPass" type="password" autocomplete="current-password" placeholder="パスワード" style="font-size:13px; padding:8px;" />
+          <input id="adminPass" type="password" autocomplete="current-password" placeholder="パスワード" style="font-size:13px; padding:8px;" value="${savedAdminPass}" />
           <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; font-weight:400;">
             <input id="rememberAdminEmail" type="checkbox" style="width:auto;" ${savedAdminEmail ? "checked" : ""} />
-            このパソコンにメールアドレスを保存する（パスワードは保存されません）
+            このパソコンにメールアドレスを保存する
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; font-weight:400;">
+            <input id="rememberAdminPass" type="checkbox" style="width:auto;" ${savedAdminPass ? "checked" : ""} />
+            このパソコンにパスワードも保存する（共有のパソコンではおすすめしません）
           </label>
           <button class="secondary" style="font-size:13px; padding:8px; margin-top:6px;" onclick="handleAdminLogin()">管理者はこちら</button>
+          ${savedAdminPass ? `<button class="link" style="font-size:12px; margin-top:4px;" onclick="if(confirm('このパソコンに保存された管理者パスワードを削除します。よろしいですか？')){localStorage.removeItem('assistRoumuAdminPass'); render();}">保存したパスワードを削除する</button>` : ""}
           <button class="link" style="font-size:12px; margin-top:4px;" onclick="handleAdminPasswordReset()">パスワードを忘れた場合</button>
         </div>
       </div>
@@ -591,12 +595,18 @@ function saveOrClearLoginId(loginId, code3) {
   }
 }
 
-function saveOrClearAdminEmail(email) {
-  const remember = document.getElementById("rememberAdminEmail");
-  if (remember && remember.checked) {
+function saveOrClearAdminEmail(email, pass) {
+  const rememberEmail = document.getElementById("rememberAdminEmail");
+  if (rememberEmail && rememberEmail.checked) {
     localStorage.setItem("assistRoumuAdminEmail", email);
   } else {
     localStorage.removeItem("assistRoumuAdminEmail");
+  }
+  const rememberPass = document.getElementById("rememberAdminPass");
+  if (rememberPass && rememberPass.checked) {
+    localStorage.setItem("assistRoumuAdminPass", pass);
+  } else {
+    localStorage.removeItem("assistRoumuAdminPass");
   }
 }
 
@@ -674,7 +684,7 @@ async function handleAdminLogin() {
       await firebase.auth().signOut();
       return alert("このアカウントには管理者権限がありません。本社にお問い合わせください。");
     }
-    saveOrClearAdminEmail(email);
+    saveOrClearAdminEmail(email, pass);
     state.currentUser = { role: "admin", name: cred.user.email };
   } catch (e) {
     const msg = {

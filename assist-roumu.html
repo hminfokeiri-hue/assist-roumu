@@ -489,7 +489,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-22(46)";
+const APP_VERSION = "更新: 2026-07-22(47)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -659,6 +659,7 @@ async function handleStaffLogin() {
     subscribeStaffOrders();
     subscribeStaffMessages();
     subscribeStaffPayslips();
+    subscribeStaffGroups(); // ホーム画面で未読バッジを出すため、ログイン時から購読しておく
   } catch (e) {
     alert("接続エラーが発生しました: " + e.message);
   }
@@ -707,6 +708,11 @@ function logout() {
   const wasAdmin = state.currentUser && state.currentUser.role === "admin";
   state.currentUser = null;
   state.screen = "login";
+  // 別の人がログインした時に前の人のグループが残らないようにする
+  groupsSubscribed = false;
+  state.groupChats = [];
+  state.groupMessages = [];
+  state.activeGroupId = null;
   // 管理者だった場合はFirebase側もサインアウトする（匿名認証に自動で戻ります）
   if (wasAdmin && firebaseReady) {
     firebase.auth().signOut().catch(e => console.error("サインアウトエラー", e));
@@ -737,7 +743,10 @@ function renderStaff() {
           </button>
           <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
           <button class="big-btn" onclick="state.screen='payslips'; render();"><span class="emoji">📄</span>給与明細</button>
-          <button class="big-btn" onclick="openGroupList()"><span class="emoji">👥</span>みんなとお話し</button>
+          <button class="big-btn" style="position:relative;" onclick="openGroupList()">
+            <span class="emoji">👥</span>みんなとお話し
+            ${groupUnreadCount() > 0 ? `<span class="chat-badge">${groupUnreadCount()}</span>` : ""}
+          </button>
         </div>
 
         <div class="card" style="margin-top:20px;">
@@ -1137,6 +1146,13 @@ function generateGroupCode() {
   return code;
 }
 
+// 未読があるグループの数（ホーム画面のバッジ用）
+let groupsSubscribed = false;
+
+function groupUnreadCount() {
+  return (state.groupChats || []).filter(groupHasUnread).length;
+}
+
 function openGroupList() {
   state.screen = "groups";
   state.groupScreen = "list";
@@ -1145,6 +1161,8 @@ function openGroupList() {
 }
 
 function subscribeStaffGroups() {
+  if (groupsSubscribed) return; // 二重購読を防ぐ
+  groupsSubscribed = true;
   if (!firebaseReady) {
     state.groupChats = state.groupChats || [];
     return render();
@@ -1164,12 +1182,71 @@ function renderGroupsScreen() {
   return renderGroupList();
 }
 
+/* --- グループ一覧の並び替え・未読判定のための共通処理 ---------------- */
+
+// Firestoreのタイムスタンプ・ISO文字列・未設定 のいずれでも「秒」に揃える
+function tsSeconds(v) {
+  if (!v) return 0;
+  if (typeof v === "object" && typeof v.seconds === "number") return v.seconds;
+  const t = new Date(v).getTime();
+  return isNaN(t) ? 0 : Math.floor(t / 1000);
+}
+
+// そのグループの最終更新時刻（メッセージがなければ作成時刻）
+function groupLastActivity(g) {
+  return tsSeconds(g.lastMessageAt) || tsSeconds(g.createdAt);
+}
+
+// 自分にとって未読かどうか
+function groupHasUnread(g) {
+  const me = state.currentUser && state.currentUser.id;
+  if (!me) return false;
+  const last = tsSeconds(g.lastMessageAt);
+  if (!last) return false;
+  if (g.lastMessageBy === me) return false;          // 自分が送ったものは未読にしない
+  return last > tsSeconds((g.lastRead || {})[me]);
+}
+
+// 「3分前」「昨日」のような、ざっくりした時刻表示
+function relativeTimeLabel(seconds) {
+  if (!seconds) return "";
+  const diff = Math.floor(Date.now() / 1000) - seconds;
+  if (diff < 60) return "たった今";
+  if (diff < 3600) return Math.floor(diff / 60) + "分前";
+  if (diff < 86400) return Math.floor(diff / 3600) + "時間前";
+  if (diff < 172800) return "昨日";
+  const d = new Date(seconds * 1000);
+  return (d.getMonth() + 1) + "/" + d.getDate();
+}
+
+// このグループを既読にする
+async function markGroupRead(groupId) {
+  const me = state.currentUser && state.currentUser.id;
+  if (!me || !groupId) return;
+
+  if (!firebaseReady) {
+    const g = (state.groupChats || []).find(x => x.id === groupId);
+    if (g) { g.lastRead = g.lastRead || {}; g.lastRead[me] = new Date().toISOString(); }
+    return;
+  }
+  try {
+    await db.collection("groupChats").doc(groupId).update({
+      ["lastRead." + me]: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) {
+    console.error("既読の記録に失敗", e);
+  }
+}
+
 function renderGroupList() {
-  const groups = state.groupChats || [];
+  const groups = (state.groupChats || []).slice()
+    .sort((a, b) => groupLastActivity(b) - groupLastActivity(a));
+  const unreadTotal = groups.filter(groupHasUnread).length;
+
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
-        <p class="staff-title" style="font-size:17px; margin:0;">みんなとお話し</p>
+        <p class="staff-title" style="font-size:17px; margin:0;">みんなとお話し${unreadTotal ? `<span class="chat-badge" style="position:static; margin-left:8px;">${unreadTotal}</span>` : ""}</p>
         <button class="link" onclick="state.screen='staffHome'; render();">とじる</button>
       </div>
       <p class="muted" style="margin:0 0 14px;">追加したメンバーだけで話せる、グループチャットです。</p>
@@ -1177,14 +1254,26 @@ function renderGroupList() {
         <button class="big-btn" onclick="state.groupScreen='create'; render();"><span class="emoji">➕</span>グループを作る</button>
         <button class="big-btn" onclick="state.groupScreen='join'; render();"><span class="emoji">🔑</span>コードで参加</button>
       </div>
-      ${groups.length ? groups.map(g => `
-        <div class="chat-thread-item" onclick="openGroupChat('${g.id}')">
-          <div class="row-between" style="margin:0;">
-            <span style="font-weight:700;">${escapeHtml(g.name || "グループ")}</span>
-            <span class="muted" style="font-size:12px;">${(g.members || []).length}人</span>
+      ${groups.length ? groups.map(g => {
+        const unread = groupHasUnread(g);
+        const when = relativeTimeLabel(groupLastActivity(g));
+        const preview = g.lastMessageText
+          ? `${g.lastMessageByName ? escapeHtml(g.lastMessageByName) + "：" : ""}${escapeHtml(g.lastMessageText)}`
+          : "まだメッセージはありません";
+        return `
+        <div class="chat-thread-item" style="${unread ? "background:#fff8f2; border-left:4px solid var(--primary, #e8843c);" : ""}" onclick="openGroupChat('${g.id}')">
+          <div class="row-between" style="margin:0; align-items:center;">
+            <span style="font-weight:${unread ? "800" : "700"};">
+              ${unread ? `<span style="color:var(--primary, #e8843c); margin-right:4px;">●</span>` : ""}${escapeHtml(g.name || "グループ")}
+            </span>
+            <span class="muted" style="font-size:11px; white-space:nowrap;">${when}</span>
+          </div>
+          <div class="row-between" style="margin:2px 0 0; align-items:center;">
+            <span class="muted" style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:78%; ${unread ? "font-weight:700; color:#333;" : ""}">${preview}</span>
+            <span class="muted" style="font-size:11px;">${(g.members || []).length}人</span>
           </div>
         </div>
-      `).join("") : `<p class="muted">まだ参加しているグループはありません</p>`}
+      `;}).join("") : `<p class="muted">まだ参加しているグループはありません</p>`}
     </div>
   `;
 }
@@ -1278,6 +1367,7 @@ function openGroupChat(groupId) {
   state.groupScreen = "chat";
   render();
   subscribeGroupMessages(groupId);
+  markGroupRead(groupId);
 }
 
 function subscribeGroupMessages(groupId) {
@@ -1295,6 +1385,8 @@ function subscribeGroupMessages(groupId) {
         return ta - tb;
       });
       state.groupMessages = rows;
+      // このグループを開いている間に届いたものは、その場で既読にする
+      if (state.groupScreen === "chat" && state.activeGroupId === groupId) markGroupRead(groupId);
       render();
     }, err => console.error("groupMessages購読エラー", err));
 }
@@ -1395,12 +1487,27 @@ async function sendGroupMessage() {
   if (!firebaseReady) {
     state.groupMessages = state.groupMessages || [];
     state.groupMessages.push({ ...data, id: "demo-" + Date.now() });
+    const g = (state.groupChats || []).find(x => x.id === state.activeGroupId);
+    if (g) {
+      g.lastMessageAt = new Date().toISOString();
+      g.lastMessageText = text || "写真を送りました";
+      g.lastMessageBy = state.currentUser.id;
+      g.lastMessageByName = state.currentUser.name || "";
+    }
     state.groupPendingPhoto = null;
     document.getElementById("groupChatTextInput").value = "";
     return render();
   }
   try {
     await db.collection("groupMessages").add(data);
+    // 一覧の並び替え・未読判定に使う情報を、グループ側にも残しておく
+    await db.collection("groupChats").doc(state.activeGroupId).update({
+      lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+      lastMessageText: (text || "写真を送りました").slice(0, 40),
+      lastMessageBy: state.currentUser.id,
+      lastMessageByName: state.currentUser.name || "",
+      ["lastRead." + state.currentUser.id]: firebase.firestore.FieldValue.serverTimestamp()
+    });
     state.groupPendingPhoto = null;
     render();
   } catch (e) {
@@ -4139,7 +4246,7 @@ function renderAdminChatTab() {
       <table>
         <thead><tr><th>グループ名</th><th>参加コード</th><th>人数</th><th>作成日</th><th></th></tr></thead>
         <tbody>
-          ${(state.allGroups || []).map(g => `
+          ${(state.allGroups || []).slice().sort((a, b) => groupLastActivity(b) - groupLastActivity(a)).map(g => `
             <tr>
               <td>${escapeHtml(g.name || "")}</td>
               <td>${g.code || ""}</td>

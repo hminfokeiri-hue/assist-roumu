@@ -489,7 +489,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-22(47)";
+const APP_VERSION = "更新: 2026-07-22(48)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4126,47 +4126,123 @@ function adminUnreadCount() {
   return state.messages.filter(m => m.senderRole === "staff" && !m.readByOffice).length;
 }
 
+/* --- 本社チャット：従業員リストの検索・並び替え --------------------- */
+
+function chatLastActivityFor(empId) {
+  const own = (state.messages || []).filter(m => m.employeeId === empId);
+  if (!own.length) return 0;
+  return Math.max(...own.map(m => (m.createdAt && m.createdAt.seconds) ? m.createdAt.seconds : 0));
+}
+
+function chatUnreadFor(empId) {
+  return (state.messages || []).filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByOffice).length;
+}
+
+// 検索と在籍/退職の絞り込みをかけ、最終更新の新しい順に並べる
+function computeChatEmployeeList() {
+  const showResigned = !!state.chatShowResigned;
+  const q = (state.chatSearchVal || "").trim().toLowerCase();
+
+  let list = (state.employees || []).filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned");
+
+  if (q) {
+    list = list.filter(e =>
+      [e.name, e.furigana, e.employeeCode, e.area, e.loginId]
+        .some(v => String(v ?? "").toLowerCase().includes(q))
+    );
+  }
+  return list.sort((a, b) => chatLastActivityFor(b.id) - chatLastActivityFor(a.id));
+}
+
+// 開いている会話は検索で切り替わらないよう、絞り込み前の一覧から決める
+function currentChatSelectedId() {
+  if (state.chatEmployeeId) return state.chatEmployeeId;
+  if (window.innerWidth <= 700) return null;
+  const showResigned = !!state.chatShowResigned;
+  const base = (state.employees || [])
+    .filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned")
+    .sort((a, b) => chatLastActivityFor(b.id) - chatLastActivityFor(a.id));
+  return base[0] ? base[0].id : null;
+}
+
+function renderChatThreadItems() {
+  const list = computeChatEmployeeList();
+  const selectedId = currentChatSelectedId();
+  const searching = !!(state.chatSearchVal || "").trim();
+
+  if (!list.length) {
+    return `<p class="muted" style="font-size:13px;">${
+      searching ? "見つかりませんでした" : (state.chatShowResigned ? "退職者はいません" : "従業員データがまだありません")
+    }</p>`;
+  }
+
+  return list.map(e => {
+    const unread = chatUnreadFor(e.id);
+    return `
+    <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
+      <div class="row-between" style="margin:0;">
+        <span>${escapeHtml(e.name || "(名前未登録)")}</span>
+        ${unread > 0 ? `<span class="chat-badge" style="position:static;">${unread}</span>` : ""}
+      </div>
+      <div class="muted" style="font-size:12px;">${escapeHtml(e.area || "")}</div>
+    </div>
+  `;}).join("");
+}
+
+// 入力欄そのものは作り直さない（日本語入力とフォーカスを保つため）
+function handleChatSearchInput(el) {
+  if (el.dataset.composing === "1") return; // 変換中は何もしない
+  state.chatSearchVal = el.value;
+  const box = document.getElementById("chatListItems");
+  if (box) box.innerHTML = renderChatThreadItems();
+  const count = document.getElementById("chatListCount");
+  if (count) count.textContent = computeChatEmployeeList().length + "人";
+}
+
+function clearChatSearch() {
+  state.chatSearchVal = "";
+  render();
+}
+
 function renderAdminChatTab() {
   const allEmployees = state.employees || [];
   const msgs = state.messages || [];
   const showResigned = !!state.chatShowResigned;
-  const employees = allEmployees.filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned");
   const resignedCount = allEmployees.filter(e => e.status === "resigned").length;
 
-  const lastActivityFor = (empId) => {
-    const own = msgs.filter(m => m.employeeId === empId);
-    if (!own.length) return 0;
-    return Math.max(...own.map(m => (m.createdAt && m.createdAt.seconds) ? m.createdAt.seconds : 0));
-  };
-  const sortedEmployees = employees.slice().sort((a, b) => lastActivityFor(b.id) - lastActivityFor(a.id));
+  const filteredCount = computeChatEmployeeList().length;
+  const searchVal = state.chatSearchVal || "";
 
   // スマホ幅では「一覧」か「会話」のどちらか片方だけを表示する（両方常に表示すると、一覧を全部スクロールしないと会話に辿り着けなくなるため）
   const isNarrow = window.innerWidth <= 700;
   const hasOpenedThread = !!state.chatEmployeeId;
-  const selectedId = state.chatEmployeeId || (!isNarrow && sortedEmployees[0] && sortedEmployees[0].id);
+  const selectedId = currentChatSelectedId();
   const thread = msgs.filter(m => m.employeeId === selectedId && !m.broadcastId);
   const broadcasts = groupBroadcasts(msgs);
   const areas = [...new Set(allEmployees.map(e => e.area).filter(Boolean))];
-
-  const unreadFor = (empId) => msgs.filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByOffice).length;
 
   const listPanel = `
     <div>
       <div class="row-between" style="margin-bottom:8px;">
         <p class="muted" style="margin:0;">${showResigned ? "退職者一覧" : "従業員一覧（更新順）"}</p>
+        <span class="muted" id="chatListCount" style="font-size:12px;">${filteredCount}人</span>
       </div>
+
+      <div style="position:relative; margin-bottom:8px;">
+        <input id="chatSearch" type="text" placeholder="名前で検索"
+          style="font-size:13px; padding:8px 28px 8px 8px; margin:0;"
+          value="${searchVal.replace(/"/g, '&quot;')}"
+          oninput="handleChatSearchInput(this)"
+          oncompositionstart="this.dataset.composing='1'"
+          oncompositionend="this.dataset.composing=''; handleChatSearchInput(this)" />
+        ${searchVal ? `<button class="link" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); padding:0; font-size:14px; line-height:1;" onclick="clearChatSearch()" title="検索をやめる">×</button>` : ""}
+      </div>
+
       <button style="width:100%; font-size:12px; padding:7px; margin-bottom:10px;" onclick="state.chatShowResigned=!state.chatShowResigned; state.chatEmployeeId=null; render();">
         ${showResigned ? "在籍者に戻る" : `退職者とのやりとりを見る（${resignedCount}）`}
       </button>
-      ${sortedEmployees.map(e => `
-        <div class="chat-thread-item ${e.id === selectedId ? "active" : ""}" onclick="openAdminThread('${e.id}')">
-          <div class="row-between" style="margin:0;">
-            <span>${e.name || "(名前未登録)"}</span>
-            ${unreadFor(e.id) > 0 ? `<span class="chat-badge" style="position:static;">${unreadFor(e.id)}</span>` : ""}
-          </div>
-          <div class="muted" style="font-size:12px;">${e.area || ""}</div>
-        </div>
-      `).join("") || `<p class="muted">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`}
+
+      <div id="chatListItems">${renderChatThreadItems()}</div>
     </div>
   `;
 

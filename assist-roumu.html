@@ -489,7 +489,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-23(51)";
+const APP_VERSION = "更新: 2026-07-24(52)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -776,7 +776,7 @@ function renderStaff() {
         <div class="card" style="margin-top:20px;">
           <div class="row-between">
             <div><p class="muted" style="margin:0;">今年度の残り有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${balance - usedOrPending >= 0 ? balance - usedOrPending : 0}日</p></div>
-            <div><p class="muted" style="margin:0;">申請中・承認済み</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
+            <div><p class="muted" style="margin:0;">申請中・決裁ずみ</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
         </div>
 
@@ -1599,14 +1599,22 @@ function renderLeaveHistory() {
     <div class="card">
       <p class="staff-title" style="font-size:16px;">これまでの申請</p>
       ${state.leaveRequests.map(r => `
-        <div class="req-item row-between">
-          <div>
-            <div>${r.date}（${r.type}）</div>
-            <div class="muted">${r.reason || ""}</div>
+        <div class="req-item">
+          <div class="row-between" style="margin:0;">
+            <div>
+              <div>${r.date}（${r.type}）</div>
+              <div class="muted">${r.reason || ""}</div>
+            </div>
+            <span class="status-pill status-${r.status}">${
+              r.status === "pending" ? "まだ確認中です" : r.status === "approved" ? "決裁" : "否決"
+            }</span>
           </div>
-          <span class="status-pill status-${r.status}">${
-            r.status === "pending" ? "まだ確認中です" : r.status === "approved" ? "承認されました" : "却下されました"
-          }</span>
+          ${r.status === "rejected" ? `
+            <div class="placeholder-note" style="margin:10px 0 0;">
+              この申請は否決になりました。理由をお聞きになりたい場合や、日にちを変えて出しなおしたい場合は、本社までお電話ください。
+              <a href="tel:0666547812" style="display:block; margin-top:8px; text-align:center; padding:11px; border:1.5px solid var(--success); border-radius:10px; color:var(--success); text-decoration:none; font-weight:700;">📞 本社に電話する（06-6654-7812）</a>
+            </div>
+          ` : ""}
         </div>
       `).join("")}
     </div>
@@ -1684,7 +1692,7 @@ function renderAdmin() {
     </header>
     <main>
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 承認待ち</div></div>
+        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
         <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
         <div class="stat-card"><div class="num">${adminUnreadCount()}</div><div class="label">未読メッセージ</div></div>
         <div class="stat-card"><div class="num">${state.employees.length || "-"}</div><div class="label">登録従業員数</div></div>
@@ -1738,6 +1746,10 @@ function setEnvelopePageSize(on, horizontal) {
 /* ---------- 本社側：発注リスト ---------- */
 function renderAdminOrderTab() {
   const orders = state.orders || [];
+  // 「受け取り完了」になったものは、下の別枠へ移して普段は隠しておく
+  const activeOrders = orders.filter(o => o.status !== "received");
+  const doneOrders = orders.filter(o => o.status === "received");
+  const showDone = !!state.showDoneOrders;
   const statusOptions = [
     ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
     ["arrived", "到着済み"], ["received", "受け取り完了"]
@@ -1788,12 +1800,29 @@ function renderAdminOrderTab() {
       <table>
         <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
         <tbody>
-          ${orders.map(o => renderAdminOrderRow(o, statusOptions)).join("") || `<tr><td colspan="7" class="muted">発注はまだありません</td></tr>`}
+          ${activeOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("") || `<tr><td colspan="7" class="muted">${doneOrders.length ? "対応中の発注はありません" : "発注はまだありません"}</td></tr>`}
         </tbody>
       </table>
       <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発注済み」まで見えます。</p>
-      <p class="muted" style="font-size:11px; margin-top:4px;">聞き間違いなどは「なおす」から直せます。削除も同じ画面からできます。</p>
+      <p class="muted" style="font-size:11px; margin-top:4px;">聞き間違いなどは「なおす」から直せます。削除も同じ画面からできます。「受け取り完了」にすると、下の完了ぶんへ移ります。</p>
     </div>
+
+    ${doneOrders.length ? `
+      <div class="card" style="background:#fafafa;">
+        <div class="row-between" style="margin:0;">
+          <p class="staff-title" style="font-size:15px; margin:0;">受け取り完了ぶん（${doneOrders.length}件）</p>
+          <button style="font-size:13px; padding:8px 14px;" onclick="state.showDoneOrders = !state.showDoneOrders; render();">${showDone ? "とじる" : "ひらく"}</button>
+        </div>
+        ${showDone ? `
+          <table style="margin-top:12px;">
+            <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
+            <tbody>
+              ${doneOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}
+            </tbody>
+          </table>
+        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでに受け取りが済んだ発注を確認できます。</p>`}
+      </div>
+    ` : ""}
 
     ${renderOrderEditModal()}
   `;
@@ -2023,7 +2052,7 @@ async function updateOrderStatus(id, status) {
 function renderAdminLeaveTab(pending) {
   return `
       <div class="card">
-        <p class="staff-title" style="font-size:16px;">承認待ちの休暇申請</p>
+        <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
         <table>
           <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>操作</th></tr></thead>
           <tbody>
@@ -2035,11 +2064,11 @@ function renderAdminLeaveTab(pending) {
                 <td>${r.type}</td>
                 <td>${r.reason || ""}</td>
                 <td>
-                  <button class="btn-approve" onclick="updateLeaveStatus('${r.id}','approved')">承認</button>
-                  <button class="btn-reject" onclick="updateLeaveStatus('${r.id}','rejected')">却下</button>
+                  <button class="btn-approve" onclick="updateLeaveStatus('${r.id}','approved')">決裁</button>
+                  <button class="btn-reject" onclick="updateLeaveStatus('${r.id}','rejected')">否決</button>
                 </td>
               </tr>
-            `).join("") || `<tr><td colspan="6" class="muted">現在、承認待ちの申請はありません</td></tr>`}
+            `).join("") || `<tr><td colspan="6" class="muted">現在、決裁待ちの申請はありません</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -2190,7 +2219,7 @@ async function lookupPostalCode() {
 }
 
 /* 有給の消化日数を集計する。
-   「有給休暇」だけを対象にし、却下されたものは数えない。
+   「有給休暇」だけを対象にし、否決されたものは数えない。
    days が入っていない古い記録は 1日として扱う（半休は 0.5）。 */
 function usedPaidLeaveFor(empId) {
   return (state.leaveRequests || [])
@@ -2210,7 +2239,7 @@ function renderEmpAttendanceHistory(emp) {
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  const statusLabel = { pending: "確認中", approved: "承認されました", rejected: "却下されました" };
+  const statusLabel = { pending: "確認中", approved: "決裁", rejected: "否決" };
   const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   const granted = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
@@ -2255,7 +2284,7 @@ function renderEmpAttendanceHistory(emp) {
         </div>
 
         <button class="secondary" style="font-size:13px; padding:10px; margin-top:10px;" onclick="addAdminLeaveRecord('${emp.id}')">この内容で記録する</button>
-        <p class="muted" style="font-size:11px; margin:8px 0 0;">会社側で入力した記録は「承認済み」として登録され、すぐに残日数へ反映されます。</p>
+        <p class="muted" style="font-size:11px; margin:8px 0 0;">会社側で入力した記録は「決裁」として登録され、すぐに残日数へ反映されます。</p>
       </div>
 
       <table>

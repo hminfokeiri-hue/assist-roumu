@@ -2139,7 +2139,7 @@ const EMP_FIELDS_SIMPLE = [
   ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
 ];
 // 保存時にまとめて読み取るための全項目一覧（住所欄は別扱い）
-const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...WEEKDAY_FIELDS, ...EMP_FIELDS_SIMPLE];
+const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...WEEKDAY_FIELDS, ...EMP_FIELDS_SIMPLE, ["companyMemo", "会社用メモ（社内用）"]];
 
 // 曜日ごとの勤務時間から「月・水・金」のような一覧表示用サマリーを作る（未入力時は旧shiftDaysにフォールバック）
 function shiftSummary(e) {
@@ -2629,6 +2629,12 @@ function renderAdminEmployeeTab() {
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
             ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
+        </div>
+
+        <div style="margin-top:14px; padding:14px; background:#fff8ec; border:1.5px solid #f0d79a; border-radius:12px;">
+          <label style="margin:0 0 4px; font-weight:700; color:#8a6d1e;">会社用メモ（社内用）</label>
+          <p class="muted" style="margin:0 0 8px; font-size:12px;">上の「備考」とは別の、会社側だけが見るメモ欄です。例：長期の病気休職、面談の記録、注意事項など。契約書・労働者名簿などの書類には表示されません。</p>
+          <textarea id="emp_companyMemo" rows="4" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical;" placeholder="例：2025年◯月〜◯月、病気のため長期休職。">${(editing.companyMemo ?? "").toString().replace(/</g, "&lt;")}</textarea>
         </div>
 
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>

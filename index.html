@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- この入口ページ自体を古いまま表示させないための設定 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>ホームメンテナンス｜アプリ入口</title>
+<style>
+  :root{
+    --orange:#E8873A;
+    --orange-dark:#C96A1E;
+    --sun-soft:#F7DDBF;
+    --bg:#FBF6ED;
+    --card:#ffffff;
+    --border:#EDE2CE;
+    --text:#3A3530;
+    --muted:#6B5F52;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0;
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:32px 20px 48px;
+  }
+  .logo{
+    width:64px;height:64px;border-radius:18px;
+    background:var(--orange);color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:32px;margin-bottom:16px;
+    box-shadow:0 4px 14px rgba(201,106,30,.25);
+  }
+  h1{font-size:20px;margin:0 0 4px;font-weight:700;}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 28px;text-align:center;}
+  .menu{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;}
+  .app{
+    display:flex;align-items:center;gap:14px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:18px 18px;
+    text-decoration:none;color:inherit;cursor:pointer;
+    box-shadow:0 2px 8px rgba(58,53,48,.05);
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .app:active{transform:scale(.98);box-shadow:0 1px 4px rgba(58,53,48,.08);}
+  .app .ico{
+    width:48px;height:48px;border-radius:12px;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    font-size:24px;background:var(--sun-soft);
+  }
+  .app .txt{flex:1;min-width:0;}
+  .app .name{font-size:16px;font-weight:700;}
+  .app .desc{font-size:12px;color:var(--muted);margin-top:2px;}
+  .app .arrow{color:var(--orange);font-size:20px;flex:none;}
+  .foot{margin-top:32px;font-size:12px;color:var(--muted);text-align:center;line-height:1.7;}
+</style>
+</head>
+<body>
+  <div class="logo">🌞</div>
+  <h1>株式会社ホームメンテナンス</h1>
+  <p class="sub">使いたいアプリを選んでください</p>
+
+  <nav class="menu">
+
+    <!-- アシスト労務 -->
+    <a class="app" data-url="https://hminfokeiri-hue.github.io/assist-roumu/assist-roumu.html">
+      <div class="ico">🗂️</div>
+      <div class="txt">
+        <div class="name">アシスト労務</div>
+        <div class="desc">勤怠・有給・給与明細・発注・連絡</div>
+      </div>
+      <div class="arrow">›</div>
+    </a>
+
+    <!-- 会計ソフト（★URLが決まったら下の data-url を差し替えてください） -->
+    <a class="app" data-url="#ここに会計ソフトのURLを入れる">
+      <div class="ico">📊</div>
+      <div class="txt">
+        <div class="name">会計ソフト</div>
+        <div class="desc">※URLを設定すると使えます</div>
+      </div>
+      <div class="arrow">›</div>
+    </a>
+
+  </nav>
+
+  <p class="foot">
+    このページはブックマーク／ショートカットに登録してお使いください。<br>
+    ボタンを押すと自動で最新版が開きます。<br>
+    株式会社ホームメンテナンス
+  </p>
+
+<script>
+  // ボタンを押すたびに、裏で「今の時刻」をURLに付け足して最新版を読み込む。
+  // これで ?v=番号 を手入力しなくても、毎回いつも最新のアプリが開く。
+  document.querySelectorAll('.app').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var base = el.getAttribute('data-url') || '';
+      if (!base || base.charAt(0) === '#') {
+        alert('このアプリのURLはまだ設定されていません。');
+        return;
+      }
+      var sep = base.indexOf('?') === -1 ? '?' : '&';
+      window.location.href = base + sep + 'v=' + Date.now();
+    });
+  });
+</script>
+</body>
+</html>

@@ -3934,7 +3934,7 @@ function renderAdminEnvelopeTab() {
     state.envelopeOffset = { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14, nameDrop: 10 };
   }
   if (!state.envelopeOffsetH) {
-    state.envelopeOffsetH = { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28, zipFontSize: 14 };
+    state.envelopeOffsetH = { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28, zipFontSize: 14, nameDrop: 10 };
   }
   const mode = state.envelopeMode || "vertical";
   const off = state.envelopeOffset;
@@ -4006,9 +4006,10 @@ function renderAdminEnvelopeTab() {
           <div><label style="font-size:11px;">郵便番号：文字の大きさ(pt)</label><input type="number" value="${offH.zipFontSize != null ? offH.zipFontSize : 14}" onchange="state.envelopeOffsetH.zipFontSize=parseFloat(this.value)||14; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${offH.addrTop}" onchange="state.envelopeOffsetH.addrTop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所・氏名：左からの位置(mm)</label><input type="number" value="${offH.addrLeft}" onchange="state.envelopeOffsetH.addrLeft=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">氏名を右にずらす量(mm)</label><input type="number" value="${offH.nameDrop != null ? offH.nameDrop : 10}" onchange="state.envelopeOffsetH.nameDrop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${offH.fontSize}" onchange="state.envelopeOffsetH.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${offH.nameFontSize}" onchange="state.envelopeOffsetH.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
-          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffsetH={zipTop:35,zipLeft:30,zipGap:2,addrTop:100,addrLeft:32,fontSize:18,nameFontSize:28,zipFontSize:14}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
+          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffsetH={zipTop:35,zipLeft:30,zipGap:2,addrTop:100,addrLeft:32,fontSize:18,nameFontSize:28,zipFontSize:14,nameDrop:10}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
         </div>
       </details>
       `}
@@ -4071,19 +4072,20 @@ function buildZipBoxesHtml(emp, zipGap, showBoxes, zipFontSize) {
 function renderEnvelopeSheet(emp) {
   const showBoxes = !!state.envelopeShowBoxes;
   const mode = state.envelopeMode || "vertical";
-  const FONT = "'Yu Gothic','Hiragino Kaku Gothic ProN','Noto Sans CJK JP','Noto Serif CJK JP',sans-serif";
+  const FONT = "'MS PGothic','ＭＳ Ｐゴシック',sans-serif";
 
   if (mode === "horizontal") {
-    const offH = state.envelopeOffsetH || { zipTop: 35, zipLeft: 30, zipGap: 2, zipFontSize: 14, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28 };
+    const offH = state.envelopeOffsetH || { zipTop: 35, zipLeft: 30, zipGap: 2, zipFontSize: 14, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28, nameDrop: 10 };
     const zipFontSizeH = offH.zipFontSize || 14;
     const zipBoxes = buildZipBoxesHtml(emp, offH.zipGap, showBoxes, zipFontSizeH);
+    const nameDropH = offH.nameDrop != null ? offH.nameDrop : 10;
     return `
       <div class="envelope-zip" style="position:absolute; top:${offH.zipTop}mm; left:${offH.zipLeft}mm; font-size:${zipFontSizeH}pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
         ${zipBoxes}
       </div>
       <div class="envelope-addr" style="position:absolute; top:${offH.addrTop}mm; left:${offH.addrLeft}mm; font-family:${FONT};">
         <p style="font-size:${offH.fontSize}pt; margin:0; line-height:1.7;">${emp.address || ""}</p>
-        <p style="font-size:${offH.nameFontSize}pt; margin:0; margin-block-start:6mm; font-weight:700; line-height:1.7;">${emp.name || ""}　様</p>
+        <p style="font-size:${offH.nameFontSize}pt; margin:0; margin-block-start:6mm; margin-left:${nameDropH}mm; font-weight:700; line-height:1.7;">${emp.name || ""}　様</p>
       </div>
     `;
   }

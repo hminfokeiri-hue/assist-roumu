@@ -2139,7 +2139,7 @@ const EMP_FIELDS_SIMPLE = [
   ["emergencyContact", "緊急連絡先"], ["notes", "備考"]
 ];
 // 保存時にまとめて読み取るための全項目一覧（住所欄は別扱い）
-const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...WEEKDAY_FIELDS, ...EMP_FIELDS_SIMPLE, ["companyMemo", "会社用メモ（社内用）"]];
+const EMP_FIELDS = [...EMP_FIELDS_TOP, ["postalCode", "郵便番号"], ["address", "住所"], ...EMP_FIELDS_HIGHLIGHT, ...WEEKDAY_FIELDS, ...EMP_FIELDS_SIMPLE];
 
 // 曜日ごとの勤務時間から「月・水・金」のような一覧表示用サマリーを作る（未入力時は旧shiftDaysにフォールバック）
 function shiftSummary(e) {
@@ -2629,12 +2629,6 @@ function renderAdminEmployeeTab() {
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
             ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
-        </div>
-
-        <div style="margin-top:14px; padding:14px; background:#fff8ec; border:1.5px solid #f0d79a; border-radius:12px;">
-          <label style="margin:0 0 4px; font-weight:700; color:#8a6d1e;">会社用メモ（社内用）</label>
-          <p class="muted" style="margin:0 0 8px; font-size:12px;">上の「備考」とは別の、会社側だけが見るメモ欄です。例：長期の病気休職、面談の記録、注意事項など。契約書・労働者名簿などの書類には表示されません。</p>
-          <textarea id="emp_companyMemo" rows="4" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical;" placeholder="例：2025年◯月〜◯月、病気のため長期休職。">${(editing.companyMemo ?? "").toString().replace(/</g, "&lt;")}</textarea>
         </div>
 
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
@@ -3937,7 +3931,7 @@ function renderAdminEnvelopeTab() {
   const empId = state.envelopeEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
   if (!state.envelopeOffset) {
-    state.envelopeOffset = { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14 };
+    state.envelopeOffset = { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14, nameDrop: 10 };
   }
   if (!state.envelopeOffsetH) {
     state.envelopeOffsetH = { zipTop: 35, zipLeft: 30, zipGap: 2, addrTop: 100, addrLeft: 32, fontSize: 18, nameFontSize: 28, zipFontSize: 14 };
@@ -3996,9 +3990,10 @@ function renderAdminEnvelopeTab() {
           <div><label style="font-size:11px;">住所・氏名：上からの位置(mm)</label><input type="number" value="${off.nameTop}" onchange="state.envelopeOffset.nameTop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所・氏名：右からの位置(mm)</label><input type="number" value="${off.nameRight}" onchange="state.envelopeOffset.nameRight=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所と氏名の間隔(mm)</label><input type="number" value="${off.nameColGap != null ? off.nameColGap : 13}" onchange="state.envelopeOffset.nameColGap=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
+          <div><label style="font-size:11px;">氏名を下げる量(mm)</label><input type="number" value="${off.nameDrop != null ? off.nameDrop : 10}" onchange="state.envelopeOffset.nameDrop=parseFloat(this.value)||0; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">住所の文字サイズ(pt)</label><input type="number" value="${off.fontSize}" onchange="state.envelopeOffset.fontSize=parseFloat(this.value)||15; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
           <div><label style="font-size:11px;">氏名の文字サイズ(pt)</label><input type="number" value="${off.nameFontSize}" onchange="state.envelopeOffset.nameFontSize=parseFloat(this.value)||22; refreshEnvelopeSheet(); saveEnvelopeSettings();" /></div>
-          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffset={top:12,right:8,nameTop:30,nameRight:62,fontSize:15,nameFontSize:22,zipGap:1.5,nameColGap:13,zipFontSize:14}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
+          <div style="align-self:end;"><button class="secondary" style="font-size:12px; padding:8px;" onclick="state.envelopeOffset={top:12,right:8,nameTop:30,nameRight:62,fontSize:15,nameFontSize:22,zipGap:1.5,nameColGap:13,zipFontSize:14,nameDrop:10}; saveEnvelopeSettings(); render();">初期値に戻す</button></div>
         </div>
       </details>
       ` : `
@@ -4096,10 +4091,11 @@ function renderEnvelopeSheet(emp) {
   // 長形3号・縦書き：writing-modeはブラウザ/プリンタによって印刷結果が化けることがあるため、
   // 横書きのテキストを90度回転させることで「縦に寝かせる」方式にしている（印刷の再現性が高い）。
   // 封筒の横幅は120mmなので、right指定と同じ感覚で使えるよう left = 120mm - 右からの位置 に変換している。
-  const off = state.envelopeOffset || { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14 };
+  const off = state.envelopeOffset || { top: 12, right: 8, nameTop: 30, nameRight: 62, fontSize: 15, nameFontSize: 22, zipGap: 1.5, nameColGap: 13, zipFontSize: 14, nameDrop: 10 };
   const zipFontSizeV = off.zipFontSize || 14;
   const zipBoxes = buildZipBoxesHtml(emp, off.zipGap, showBoxes, zipFontSizeV);
   const colGap = off.nameColGap != null ? off.nameColGap : 13;
+  const nameDrop = off.nameDrop != null ? off.nameDrop : 10;
   return `
     <div class="envelope-zip" style="position:absolute; top:${off.top}mm; right:${off.right}mm; font-size:${zipFontSizeV}pt; font-family:${FONT}; letter-spacing:0; white-space:nowrap;">
       ${zipBoxes}
@@ -4107,7 +4103,7 @@ function renderEnvelopeSheet(emp) {
     <div style="position:absolute; top:${off.nameTop}mm; left:calc(120mm - ${off.nameRight}mm); transform:rotate(90deg); transform-origin:top left; white-space:nowrap; font-family:${FONT};">
       <p style="font-size:${off.fontSize}pt; margin:0;">${emp.address || ""}</p>
     </div>
-    <div style="position:absolute; top:${off.nameTop}mm; left:calc(120mm - ${off.nameRight}mm - ${colGap}mm); transform:rotate(90deg); transform-origin:top left; white-space:nowrap; font-family:${FONT};">
+    <div style="position:absolute; top:calc(${off.nameTop}mm + ${nameDrop}mm); left:calc(120mm - ${off.nameRight}mm - ${colGap}mm); transform:rotate(90deg); transform-origin:top left; white-space:nowrap; font-family:${FONT};">
       <p style="font-size:${off.nameFontSize}pt; margin:0; font-weight:700;">${emp.name || ""}　様</p>
     </div>
   `;

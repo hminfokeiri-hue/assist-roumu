@@ -157,29 +157,17 @@
     APPS.forEach(function(app){
       var url = company.apps[app.key] || "";
       var ready = url !== "";
-      var a;
-      if(ready){
-        // Safari（新しいタブ）で開く。ホーム画面/アプリ内ブラウザから抜け出すため
-        a = document.createElement("a");
-        var sep = url.indexOf("?") === -1 ? "?" : "&";
-        a.href = url + sep + "v=" + Date.now();
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.className = "row";
-      } else {
-        a = document.createElement("div");
-        a.className = "row soon";
-      }
+      var a = document.createElement("div");
+      a.className = "row" + (ready ? "" : " soon");
       a.innerHTML =
         '<div class="ico">' + app.ico + '</div>' +
         '<div class="txt"><div class="name">' + app.name + '</div>' +
         '<div class="desc">' + (ready ? app.desc : "準備中（URL未設定）") + '</div></div>' +
         '<div class="arrow">›</div>';
-      if(!ready){
-        a.addEventListener("click", function(){
-          alert(app.name + " はまだ準備中です。URLが決まりしだい使えるようになります。");
-        });
-      }
+      a.addEventListener("click", function(){
+        if(ready){ openUrl(url); }
+        else{ alert(app.name + " はまだ準備中です。URLが決まりしだい使えるようになります。"); }
+      });
       menu.appendChild(a);
     });
   }

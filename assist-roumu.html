@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-30(54)";
+const APP_VERSION = "更新: 2026-07-24(53)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2627,14 +2627,8 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px;">
           <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
-            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday", "notes"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
-        </div>
-
-        <div style="margin-top:16px; padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fffdf8;">
-          <label style="margin:0 0 4px; font-weight:700;">備考（会社用メモ）</label>
-          <p class="muted" style="margin:0 0 8px; font-size:11px;">この欄はパートさんには表示されません。面談の記録・シフト希望・体調への配慮など、社内メモとして自由にお使いください。</p>
-          <textarea id="emp_notes" rows="5" style="width:100%; font-size:14px; padding:10px; resize:vertical; box-sizing:border-box;" placeholder="例：週明けは通院のため午後から希望。次回面談は10月ごろ。">${(editing.notes ?? "").toString().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</textarea>
         </div>
 
         <button class="primary" onclick="saveEmployee('${editing.id}')">保存する</button>
@@ -4239,13 +4233,13 @@ function renderShiyoKeiyaku(emp) {
     <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
     <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
     <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
-    <div style="margin-top:24px; font-size:14px; line-height:2;">
+    <div style="margin-top:24px; font-size:14px; line-height:2; text-align:right;">
       使用者（甲）<br/>
       　${COMPANY_ADDRESS}<br/>
       <div style="text-align:right;">${COMPANY_NAME}</div>
       　代表取締役　${COMPANY_REP}　　印
     </div>
-    <div style="margin-top:24px; font-size:14px; line-height:2;">
+    <div style="margin-top:24px; font-size:14px; line-height:2; text-align:right;">
       労働者（乙）<br/>
       　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}<br/>
       　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印

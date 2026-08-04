@@ -4216,30 +4216,28 @@ function renderShiyoKeiyaku(emp) {
   const end = state.probationEnd;
   const signDate = addDays(start, -1);
   return `
-    <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
-    <p style="font-size:14px; line-height:2;">
+    <p style="text-align:center; font-size:16px; font-weight:700; margin-bottom:24px;">試用契約書</p>
+    <p style="font-size:14px; line-height:1.8;">
       使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。
     </p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第1条</p>
-    <p style="font-size:14px; line-height:2;">
-      1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。<br/>
-      2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。<br/>
-      3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。<br/>
-      4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。
-    </p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第2条</p>
-    <p style="font-size:14px; line-height:2;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第3条</p>
-    <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
+    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第1条</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。</p>
+    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第2条</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; text-indent:1em;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
+    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第3条</p>
+    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; text-indent:1em;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
     <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
     <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
-    <div style="margin-top:24px; font-size:14px; line-height:2; text-align:right;">
+    <div style="margin-top:24px; font-size:14px; line-height:2;">
       使用者（甲）<br/>
       　${COMPANY_ADDRESS}<br/>
       <div style="text-align:right;">${COMPANY_NAME}</div>
       　代表取締役　${COMPANY_REP}　　印
     </div>
-    <div style="margin-top:24px; font-size:14px; line-height:2; text-align:right;">
+    <div style="margin-top:24px; font-size:14px; line-height:2;">
       労働者（乙）<br/>
       　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}<br/>
       　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印

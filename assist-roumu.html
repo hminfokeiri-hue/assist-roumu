@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-07-24(53)";
+const APP_VERSION = "更新: 2026-08-09(55)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -869,31 +869,56 @@ function changeQty(d) {
 
 function renderOrderHistory(onHome) {
   if (!state.orders || !state.orders.length) return "";
-  const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ" };
-  const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved" };
+  const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ", cancelled: "取消済み" };
+  const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved", cancelled: "status-pending" };
 
-  const active = state.orders.filter(o => o.status !== "received");
+  const me = state.currentUser.id;
+  const myWorkplace = (state.currentUser.workplace || "").trim();
+
+  const active = state.orders.filter(o => o.status !== "received" && o.status !== "cancelled");
   const received = state.orders.filter(o => o.status === "received");
+  const myCancelled = state.orders.filter(o => o.status === "cancelled" && o.employeeId === me);
 
-  const itemRow = (o, showReceiveBtn) => `
+  const itemRow = (o) => {
+    const isMine = o.employeeId === me;
+    const who = isMine ? "" : `<span class="muted" style="font-size:12px;">${escapeHtml(o.employeeName || "同じ現場の人")}さん</span><br>`;
+    const canReceive = isMine && (o.status === "ordered" || o.status === "arrived");
+    const canCancel = isMine && (o.status === "pending" || o.status === "arranging");
+    const doneDate = (o.status === "received" && fmtYmd(o.receivedAt)) ? `<br><span class="muted" style="font-size:12px;">完了日：${fmtYmd(o.receivedAt)}</span>` : "";
+    return `
     <div class="row-between" style="margin-bottom:8px;">
-      <div>${o.item}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${o.place || ""}</span></div>
+      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
       <div style="text-align:right;">
-        <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>
-        ${showReceiveBtn && (o.status === "ordered" || o.status === "arrived") ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
+        <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>${doneDate}
+        ${canReceive ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
+        ${canCancel ? `<br><button style="margin-top:6px; font-size:13px; padding:6px 12px; color:var(--danger); border:1.5px solid var(--danger); background:#fff; border-radius:8px;" onclick="cancelMyOrder('${o.id}')">まちがえたので取り消す</button>` : ""}
       </div>
     </div>
   `;
+  };
+
+  const activeTitle = myWorkplace ? `${escapeHtml(myWorkplace)} のたのみもの` : "たのんだもの";
 
   return `
     <div style="${onHome ? "" : "margin-top:18px; border-top:1px solid var(--border); padding-top:12px;"}">
-      <p class="${onHome ? "staff-title" : "muted"}" style="${onHome ? "font-size:16px;" : ""} margin:0 0 8px;">たのんだもの</p>
-      ${active.length ? active.map(o => itemRow(o, true)).join("") : `<p class="muted" style="margin:0 0 8px;">今たのんでいるものはありません</p>`}
+      <p class="${onHome ? "staff-title" : "muted"}" style="${onHome ? "font-size:16px;" : ""} margin:0 0 8px;">${activeTitle}</p>
+      ${active.length ? active.map(o => itemRow(o)).join("") : `<p class="muted" style="margin:0 0 8px;">今たのんでいるものはありません</p>`}
     </div>
     ${received.length ? `
       <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:12px;">
         <p class="muted" style="margin:0 0 8px;">とどきましたリスト</p>
-        ${received.map(o => itemRow(o, false)).join("")}
+        ${received.map(o => itemRow(o)).join("")}
+      </div>
+    ` : ""}
+    ${myCancelled.length ? `
+      <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:12px;">
+        <p class="muted" style="margin:0 0 8px;">取り消したもの</p>
+        ${myCancelled.map(o => `
+          <div class="row-between" style="margin-bottom:8px; opacity:0.7;">
+            <div>${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
+            <span class="status-pill" style="background:#eee; color:#888;">取消済み${fmtYmd(o.cancelledAt) ? "・" + fmtYmd(o.cancelledAt) : ""}</span>
+          </div>
+        `).join("")}
       </div>
     ` : ""}
   `;
@@ -917,6 +942,7 @@ async function submitOrder() {
     employeeId: state.currentUser.id,
     employeeName: state.currentUser.name,
     area: state.currentUser.area || "",
+    workplace: state.currentUser.workplace || "",
     place, item, qty,
     status: "pending",
     createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
@@ -945,32 +971,90 @@ async function submitOrder() {
 async function markReceived(id) {
   if (!firebaseReady) {
     const o = state.orders.find(x => x.id === id);
-    if (o) o.status = "received";
+    if (o) { o.status = "received"; o.receivedAt = new Date().toISOString(); }
     return render();
   }
   try {
-    await db.collection("orders").doc(id).update({ status: "received" });
+    await db.collection("orders").doc(id).update({
+      status: "received",
+      receivedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   } catch (e) {
     alert("更新エラー: " + e.message);
   }
 }
 
+// パートさんが自分の発注を「まちがえた」として取り消す（削除ではなく取消済みにする）
+async function cancelMyOrder(id) {
+  const o = (state.orders || []).find(x => x.id === id);
+  if (!o) return;
+  if (o.employeeId !== state.currentUser.id) return; // 自分の発注だけ取り消せる
+  if (!(o.status === "pending" || o.status === "arranging")) {
+    return alert("この発注はすでに本社が手配を始めているため、アプリからは取り消せません。お手数ですが本社（06-6654-7812）にお電話ください。");
+  }
+  if (!confirm(`「${o.item}　${o.qty}こ」の発注を取り消します。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    o.status = "cancelled";
+    o.cancelledAt = new Date().toISOString();
+    o.cancelledBy = state.currentUser.name || "";
+    return render();
+  }
+  try {
+    await db.collection("orders").doc(id).update({
+      status: "cancelled",
+      cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cancelledBy: state.currentUser.name || ""
+    });
+  } catch (e) {
+    alert("取り消しできませんでした: " + e.message);
+  }
+}
+
+let staffOrdersUnsub = [];
 function subscribeStaffOrders() {
   if (!firebaseReady) return;
-  db.collection("orders")
-    .where("employeeId", "==", state.currentUser.id)
-    .onSnapshot(snap => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => {
-        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
-        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
-        return tb - ta;
-      });
-      state.orders = rows;
-      render();
-    }, err => {
-      console.error("orders購読エラー", err);
+  // 前のログインの購読が残らないよう、いったん解除する
+  staffOrdersUnsub.forEach(fn => { try { fn(); } catch (e) {} });
+  staffOrdersUnsub = [];
+
+  const me = state.currentUser.id;
+  const myWorkplace = (state.currentUser.workplace || "").trim();
+
+  const mineMap = {};  // 自分が出した発注
+  const siteMap = {};  // 同じ就業場所（現場）の発注
+
+  const apply = () => {
+    // 同僚ぶんを土台にして、自分ぶんで上書き（重複は自分の情報を優先）
+    const merged = { ...siteMap, ...mineMap };
+    const rows = Object.values(merged);
+    rows.sort((a, b) => {
+      const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+      const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+      return tb - ta;
     });
+    state.orders = rows;
+    render();
+  };
+
+  // (1) 自分の発注（現場が未登録の人でも必ず自分ぶんは見える）
+  staffOrdersUnsub.push(
+    db.collection("orders").where("employeeId", "==", me).onSnapshot(snap => {
+      Object.keys(mineMap).forEach(k => delete mineMap[k]);
+      snap.docs.forEach(d => { mineMap[d.id] = { id: d.id, ...d.data() }; });
+      apply();
+    }, err => console.error("orders(自分)購読エラー", err))
+  );
+
+  // (2) 同じ就業場所の発注（自分に現場が登録されている場合のみ）
+  if (myWorkplace) {
+    staffOrdersUnsub.push(
+      db.collection("orders").where("workplace", "==", myWorkplace).onSnapshot(snap => {
+        Object.keys(siteMap).forEach(k => delete siteMap[k]);
+        snap.docs.forEach(d => { siteMap[d.id] = { id: d.id, ...d.data() }; });
+        apply();
+      }, err => console.error("orders(現場)購読エラー", err))
+    );
+  }
 }
 
 /* =========================================================
@@ -1749,14 +1833,16 @@ function setEnvelopePageSize(on, horizontal) {
 /* ---------- 本社側：発注リスト ---------- */
 function renderAdminOrderTab() {
   const orders = state.orders || [];
-  // 「受け取り完了」になったものは、下の別枠へ移して普段は隠しておく
-  const activeOrders = orders.filter(o => o.status !== "received");
+  // 「受け取り完了」「取り消し」になったものは、下の別枠へ移して普段は隠しておく
+  const activeOrders = orders.filter(o => o.status !== "received" && o.status !== "cancelled");
   const doneOrders = orders.filter(o => o.status === "received");
+  const cancelledOrders = orders.filter(o => o.status === "cancelled");
   const showDone = !!state.showDoneOrders;
+  const showCancelled = !!state.showCancelledOrders;
   const isNarrow = window.innerWidth <= 700; // スマホでは表をやめてカード表示にする
   const statusOptions = [
     ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
-    ["arrived", "到着済み"], ["received", "受け取り完了"]
+    ["arrived", "到着済み"], ["received", "受け取り完了"], ["cancelled", "取り消し"]
   ];
   const showForm = !!state.showPhoneOrderForm;
   const selectedItem = state.phoneOrderItem || ITEM_MASTER[0];
@@ -1820,18 +1906,68 @@ function renderAdminOrderTab() {
           <button style="font-size:13px; padding:8px 14px;" onclick="state.showDoneOrders = !state.showDoneOrders; render();">${showDone ? "とじる" : "ひらく"}</button>
         </div>
         ${showDone ? `
+          <input id="doneOrderSearch" type="text" placeholder="品目・場所・申請者で検索" value="${(state.doneOrderSearch || "").replace(/"/g, '&quot;')}" oninput="handleDoneOrderSearch(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleDoneOrderSearch(this)" style="margin-top:12px;" />
+          <div id="doneOrderListBody">${renderDoneOrderList(isNarrow, statusOptions)}</div>
+        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでに受け取りが済んだ発注を確認できます。検索や完了日もそこで見られます。</p>`}
+      </div>
+    ` : ""}
+
+    ${cancelledOrders.length ? `
+      <div class="card" style="background:#fafafa;">
+        <div class="row-between" style="margin:0;">
+          <p class="staff-title" style="font-size:15px; margin:0;">取り消されたぶん（${cancelledOrders.length}件）</p>
+          <button style="font-size:13px; padding:8px 14px;" onclick="state.showCancelledOrders = !state.showCancelledOrders; render();">${showCancelled ? "とじる" : "ひらく"}</button>
+        </div>
+        ${showCancelled ? `
+          <p class="muted" style="font-size:12px; margin:10px 0 0;">パートさんが「まちがえた」として取り消した発注です。もし戻す必要があれば、状態を「未確認」に変えれば元に戻せます。</p>
           ${isNarrow
-            ? `<div style="margin-top:12px;">${doneOrders.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
+            ? `<div style="margin-top:12px;">${cancelledOrders.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
             : `<table style="margin-top:12px;">
                 <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
-                <tbody>${doneOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
+                <tbody>${cancelledOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
               </table>`}
-        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでに受け取りが済んだ発注を確認できます。</p>`}
+        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、取り消された発注を確認できます。</p>`}
       </div>
     ` : ""}
 
     ${renderOrderEditModal()}
   `;
+}
+function filterDoneOrders() {
+  const done = (state.orders || []).filter(o => o.status === "received");
+  const q = (state.doneOrderSearch || "").trim().toLowerCase();
+  if (!q) return done;
+  return done.filter(o =>
+    [o.item, o.place, o.employeeName].some(f => (f || "").toLowerCase().includes(q))
+  );
+}
+
+// 完了ぶんの一覧本体（完了日つき）を描く
+function renderDoneOrderList(isNarrow, statusOptions) {
+  const list = filterDoneOrders();
+  if (!list.length) {
+    return `<p class="muted" style="font-size:12px; margin:12px 0 0;">見つかりませんでした</p>`;
+  }
+  return isNarrow
+    ? `<div style="margin-top:12px;">${list.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
+    : `<table style="margin-top:12px;">
+        <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>完了日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
+        <tbody>${list.map(o => renderAdminOrderRow(o, statusOptions, true)).join("")}</tbody>
+      </table>`;
+}
+
+// 検索入力：入力欄を作り直さず、一覧部分だけ差し替える（日本語変換中は反応しない）
+function handleDoneOrderSearch(el) {
+  if (el.dataset.composing === "1") return;
+  state.doneOrderSearch = el.value;
+  const body = document.getElementById("doneOrderListBody");
+  if (!body) return;
+  const isNarrow = window.innerWidth <= 700;
+  const statusOptions = [
+    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
+    ["arrived", "到着済み"], ["received", "受け取り完了"], ["cancelled", "取り消し"]
+  ];
+  body.innerHTML = renderDoneOrderList(isNarrow, statusOptions);
 }
 
 async function submitPhoneOrder() {
@@ -1911,6 +2047,7 @@ function renderAdminOrderCard(o, statusOptions) {
       <div style="margin-top:8px; font-size:15px;">
         ${escapeHtml(o.item || "")}<span style="font-weight:700; margin-left:6px;">×${o.qty}</span>
       </div>
+      ${(o.status === "received" && fmtYmd(o.receivedAt)) ? `<div class="muted" style="font-size:12px; margin-top:6px;">完了日：${fmtYmd(o.receivedAt)}</div>` : ""}
 
       <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
         <select style="flex:1; min-width:0; font-size:14px; padding:9px; margin:0;" onchange="updateOrderStatus('${o.id}', this.value)">
@@ -1923,13 +2060,14 @@ function renderAdminOrderCard(o, statusOptions) {
 }
 
 /* --- 発注リストの1行を描く（編集は別画面のダイアログで行う） ---------- */
-function renderAdminOrderRow(o, statusOptions) {
+function renderAdminOrderRow(o, statusOptions, withDone) {
   return `
     <tr>
       <td>${escapeHtml(o.employeeName || "")}${o.byPhone ? '<br><span class="muted" style="font-size:11px;">（電話）</span>' : ""}<br><span class="muted" style="font-size:12px;">${escapeHtml(o.area || "")}</span></td>
       <td>${escapeHtml(o.place || "")}</td>
       <td>${escapeHtml(o.item || "")}</td>
       <td>${o.qty}</td>
+      ${withDone ? `<td class="muted" style="font-size:12px; white-space:nowrap;">${fmtYmd(o.receivedAt) || "―"}</td>` : ""}
       <td>
         <select onchange="updateOrderStatus('${o.id}', this.value)" style="font-size:13px; padding:4px 8px;">
           ${statusOptions.map(([v, l]) => `<option value="${v}" ${o.status === v ? "selected" : ""}>${l}</option>`).join("")}
@@ -2077,13 +2215,18 @@ async function deleteOrder(id) {
 
 async function updateOrderStatus(id, status) {
   const handler = state.currentUser.name || "本社担当";
+  const cur = (state.orders || []).find(x => x.id === id);
+  // 初めて「受け取り完了」にした時だけ完了日を記録（すでに記録済みなら上書きしない）
+  const needReceivedAt = status === "received" && !(cur && cur.receivedAt);
   if (!firebaseReady) {
     const o = state.orders.find(x => x.id === id);
-    if (o) { o.status = status; o.handledBy = handler; }
+    if (o) { o.status = status; o.handledBy = handler; if (needReceivedAt) o.receivedAt = new Date().toISOString(); }
     return render();
   }
   try {
-    await db.collection("orders").doc(id).update({ status, handledBy: handler });
+    const patch = { status, handledBy: handler };
+    if (needReceivedAt) patch.receivedAt = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection("orders").doc(id).update(patch);
   } catch (e) {
     alert("更新エラー: " + e.message);
   }
@@ -2122,7 +2265,8 @@ const EMP_FIELDS_TOP = [
 ];
 const EMP_FIELDS_HIGHLIGHT = [
   ["area", "エリア"], ["workplace", "就業場所（現場）"],
-  ["hireDate", "入社日（雇用開始日）"]
+  ["hireDate", "入社日（雇用開始日）"],
+  ["probationEnd", "試用期間終了日（未入力なら入社日＋1か月）"]
 ];
 const WEEKDAY_FIELDS = [
   ["shiftMon", "月"], ["shiftTue", "火"], ["shiftWed", "水"], ["shiftThu", "木"],
@@ -2225,6 +2369,36 @@ function calcAge(birthDateStr) {
   const m = today.getMonth() - b.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
   return age;
+}
+
+// 試用期間の終了日を求める：手入力の「試用期間終了日」があればそれを、無ければ「入社日＋1か月」を使う
+function probationEndFor(e) {
+  if (e && e.probationEnd) return e.probationEnd;
+  if (e && e.hireDate) return addMonths(e.hireDate, 1);
+  return "";
+}
+// 今日がまだ試用期間の終了日以前かどうか（＝試用期間中か）
+function isInProbation(e) {
+  if (!e || e.status === "resigned") return false;
+  const end = probationEndFor(e);
+  if (!end) return false;
+  const endD = parseFlexibleDate(end);
+  if (!endD || isNaN(endD)) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  endD.setHours(0, 0, 0, 0);
+  return today <= endD;
+}
+// Firestoreの時刻・ISO文字列・Date のいずれでも「YYYY-MM-DD」に整える（無ければ空文字）
+function fmtYmd(ts) {
+  if (!ts) return "";
+  let d;
+  if (ts.seconds) d = new Date(ts.seconds * 1000);
+  else if (ts instanceof Date) d = ts;
+  else if (typeof ts === "string") d = new Date(ts);
+  else return "";
+  if (isNaN(d)) return "";
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // 郵便番号と住所が「560-0041 豊中市…」のように結合されている旧データを表示用に分割する
@@ -2492,6 +2666,7 @@ function renderEmpTableRows() {
         <div style="display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;">
           <span style="font-weight:700; font-size:16px;">${e.name || "(名前未登録)"}</span>
           ${age !== null ? `<span class="status-pill status-pending" style="font-size:11px; padding:2px 8px;">満${age}歳</span>` : ""}
+          ${isInProbation(e) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中</span>` : ""}
           ${!e.employeeCode ? `<span style="color:var(--danger); font-weight:600; font-size:12px;">⚠️未設定</span>` : ""}
         </div>
         <div class="muted" style="font-size:12px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${metaParts.join(" ・ ")}</div>
@@ -2540,6 +2715,7 @@ function renderAdminEmployeeTab() {
           <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
           <div>
             ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
+            ${isInProbation(editing) ? `<span class="status-pill" style="margin-right:8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中（〜${probationEndFor(editing)}）</span>` : ""}
             ${age !== null ? `<span class="status-pill status-pending" style="margin-right:8px;">満${age}歳</span>` : ""}
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
           </div>
@@ -4216,19 +4392,21 @@ function renderShiyoKeiyaku(emp) {
   const end = state.probationEnd;
   const signDate = addDays(start, -1);
   return `
-    <p style="text-align:center; font-size:16px; font-weight:700; margin-bottom:24px;">試用契約書</p>
-    <p style="font-size:14px; line-height:1.8;">
+    <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
+    <p style="font-size:14px; line-height:2;">
       使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。
     </p>
-    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第1条</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; padding-left:1.5em; text-indent:-1.5em;">4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。</p>
-    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第2条</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; text-indent:1em;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
-    <p style="font-size:14px; font-weight:700; margin:16px 0 0;">第3条</p>
-    <p style="font-size:14px; line-height:1.8; margin:2px 0 0; text-indent:1em;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第1条</p>
+    <p style="font-size:14px; line-height:2;">
+      1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。<br/>
+      2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。<br/>
+      3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。<br/>
+      4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。
+    </p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第2条</p>
+    <p style="font-size:14px; line-height:2;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
+    <p style="font-size:14px; font-weight:700; margin-top:20px;">第3条</p>
+    <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
     <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
     <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
     <div style="margin-top:24px; font-size:14px; line-height:2;">

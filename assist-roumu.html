@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-09(56)";
+const APP_VERSION = "更新: 2026-08-09(57)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1837,6 +1837,12 @@ function renderAdminOrderTab() {
   const activeOrders = orders.filter(o => o.status !== "received" && o.status !== "cancelled");
   const doneOrders = orders.filter(o => o.status === "received");
   const cancelledOrders = orders.filter(o => o.status === "cancelled");
+  const orderFilter = state.orderFilter || "all"; // 発注リストの状態しぼりこみ
+  const shownActive = orderFilter === "all" ? activeOrders : activeOrders.filter(o => o.status === orderFilter);
+  const orderFilterDefs = [
+    ["all", "すべて"], ["pending", "未確認"], ["arranging", "手配中"],
+    ["ordered", "発注済み"], ["arrived", "到着済み"]
+  ];
   const showDone = !!state.showDoneOrders;
   const showCancelled = !!state.showCancelledOrders;
   const isNarrow = window.innerWidth <= 700; // スマホでは表をやめてカード表示にする
@@ -1887,14 +1893,22 @@ function renderAdminOrderTab() {
         </div>
       ` : ""}
 
-      ${activeOrders.length
+      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+        ${orderFilterDefs.map(([key, label]) => {
+          const cnt = key === "all" ? activeOrders.length : activeOrders.filter(o => o.status === key).length;
+          const on = orderFilter === key;
+          return `<button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${on ? "var(--blue)" : "var(--border)"}; background:${on ? "var(--blue)" : "#fff"}; color:${on ? "#fff" : "var(--text)"};" onclick="state.orderFilter='${key}'; render();">${label}（${cnt}）</button>`;
+        }).join("")}
+      </div>
+
+      ${shownActive.length
         ? (isNarrow
-            ? activeOrders.map(o => renderAdminOrderCard(o, statusOptions)).join("")
+            ? shownActive.map(o => renderAdminOrderCard(o, statusOptions)).join("")
             : `<table>
                 <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
-                <tbody>${activeOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
+                <tbody>${shownActive.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
               </table>`)
-        : `<p class="muted">${doneOrders.length ? "対応中の発注はありません" : "発注はまだありません"}</p>`}
+        : `<p class="muted">${activeOrders.length ? "この状態の発注はありません" : (doneOrders.length ? "対応中の発注はありません" : "発注はまだありません")}</p>`}
       <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発注済み」まで見えます。</p>
       <p class="muted" style="font-size:11px; margin-top:4px;">聞き間違いなどは「なおす」から直せます。削除も同じ画面からできます。「受け取り完了」にすると、下の完了ぶんへ移ります。</p>
     </div>

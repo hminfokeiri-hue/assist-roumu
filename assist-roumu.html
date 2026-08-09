@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-09(55)";
+const APP_VERSION = "更新: 2026-08-09(56)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2644,6 +2644,16 @@ function computeEmpList() {
       if (ageB === null) return -1;
       return ageB - ageA; // 年上が先
     }
+    if (sortKey === "hire") {
+      const dir = (state.empHireDir === "asc") ? 1 : -1; // 既定は降順（新しい入社日が上）
+      const dA = parseFlexibleDate(a.hireDate), dB = parseFlexibleDate(b.hireDate);
+      const tA = (dA && !isNaN(dA)) ? dA.getTime() : null;
+      const tB = (dB && !isNaN(dB)) ? dB.getTime() : null;
+      if (tA === null && tB === null) return 0;
+      if (tA === null) return 1;  // 入社日が未入力の人は常に末尾
+      if (tB === null) return -1;
+      return (tA - tB) * dir;
+    }
     return (a.employeeCode || "").localeCompare(b.employeeCode || "", "ja", { numeric: true });
   });
   return list;
@@ -2659,6 +2669,7 @@ function renderEmpTableRows() {
     const age = calcAge(e.birthDate);
     const shift = shiftSummary(e);
     const metaParts = [e.employeeCode || "管理番号未設定", e.area || ""].filter(Boolean);
+    if ((state.empSortKey || "code") === "hire" && e.hireDate) metaParts.push("入社 " + e.hireDate);
     if (shift) metaParts.push(shift);
     return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
@@ -2869,6 +2880,7 @@ function renderAdminEmployeeTab() {
         <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "code" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "code" ? "var(--blue)" : "#fff"}; color:${sortKey === "code" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='code'; render();">管理番号順</button>
         <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "name" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "name" ? "var(--blue)" : "#fff"}; color:${sortKey === "name" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='name'; render();">氏名順</button>
         <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "age" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "age" ? "var(--blue)" : "#fff"}; color:${sortKey === "age" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='age'; render();">年齢順</button>
+        <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "hire" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "hire" ? "var(--blue)" : "#fff"}; color:${sortKey === "hire" ? "#fff" : "var(--text)"};" onclick="if(state.empSortKey==='hire'){state.empHireDir=(state.empHireDir==='asc'?'desc':'asc');}else{state.empSortKey='hire'; state.empHireDir=state.empHireDir||'desc';} render();">入社日順${sortKey === "hire" ? (state.empHireDir === "asc" ? " ↑古い順" : " ↓新しい順") : ""}</button>
       </div>
       <div id="empTableBody">
         ${renderEmpTableRows()}

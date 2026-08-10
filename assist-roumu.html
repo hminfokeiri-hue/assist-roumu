@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-10(60)";
+const APP_VERSION = "更新: 2026-08-10(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4327,7 +4327,8 @@ function renderEnvelopeSheet(emp) {
 function renderKoyoKeiyaku(emp) {
   const yen = emp.baseWage ? emp.baseWage : "";
   // 原本に合わせ、基本給の右側に手当などを手書きできる空欄の行を並べる（1行=空の枠2つ）
-  const emptyWageRow = `<tr><td style="height:24px;"></td><td></td></tr>`;
+  // 印刷時にセルの高さが自動でつぶれないよう、中に高さを持つ空divを入れて行の高さを保つ
+  const emptyWageRow = `<tr><td><div style="height:22px;"></div></td><td></td></tr>`;
   return `
     <p style="text-align:center; font-size:18px; font-weight:700; letter-spacing:3px; margin-bottom:12px;">雇 用 契 約 書</p>
 
@@ -4365,13 +4366,13 @@ function renderKoyoKeiyaku(emp) {
       <tr>
         <td class="c-label" style="text-align:center;" rowspan="2">従事する<br>業務の種類</td>
         <td rowspan="2" style="vertical-align:middle;">${emp.jobType || ""}</td>
-        <td style="height:24px;"></td><td></td>
+        <td><div style="height:22px;"></div></td><td></td>
       </tr>
       ${emptyWageRow}
       <tr>
         <td class="c-label" style="text-align:center;" rowspan="3">就業時間</td>
         <td rowspan="3" style="vertical-align:middle;">${emp.workHours || ""}</td>
-        <td style="height:24px;"></td><td></td>
+        <td><div style="height:22px;"></div></td><td></td>
       </tr>
       ${emptyWageRow}
       ${emptyWageRow}
@@ -4414,19 +4415,19 @@ function renderKoyoKeiyaku(emp) {
         <td colspan="3">${emp.contactPerson || ""}</td>
       </tr>
       <tr>
-        <td class="c-label" style="text-align:center; height:80px;">備考</td>
-        <td colspan="3" style="white-space:pre-wrap; vertical-align:top;">${emp.notes || ""}</td>
+        <td class="c-label" style="text-align:center; vertical-align:middle;">備考</td>
+        <td colspan="3" style="white-space:pre-wrap; vertical-align:top;"><div style="min-height:120px;">${emp.notes || ""}</div></td>
       </tr>
     </table>
 
     <p style="margin-top:10px; font-size:13px;">上記以外の労働条件等については当社就業規則によります。</p>
     <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:24px;">${toWareki(emp.hireDate)}</p>
-    <div style="margin-top:24px; font-size:14px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px; margin-bottom:52px;">
+    <div style="margin-top:20px; font-size:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px; margin-bottom:22px;">
         <span>会　社</span>
         <span>印</span>
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px; margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px;">
         <span>従業員</span>
         <span>印</span>
       </div>

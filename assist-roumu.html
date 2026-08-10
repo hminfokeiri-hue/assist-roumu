@@ -4422,15 +4422,14 @@ function renderKoyoKeiyaku(emp) {
 
     <p style="margin-top:10px; font-size:13px;">上記以外の労働条件等については当社就業規則によります。</p>
     <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:24px;">${toWareki(emp.hireDate)}</p>
-    <div style="margin-top:20px; font-size:14px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px; margin-bottom:22px;">
-        <span>会　社</span>
-        <span>印</span>
-      </div>
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 30px 0 44px;">
-        <span>従業員</span>
-        <span>印</span>
-      </div>
+    <div style="margin-top:20px; font-size:14px; line-height:2;">
+      <div style="padding-left:48%;">会　社</div>
+      <div>&nbsp;</div>
+      <div style="text-align:right; padding-right:40px;">印</div>
+      <div>&nbsp;</div>
+      <div style="padding-left:48%;">従業員</div>
+      <div>&nbsp;</div>
+      <div style="text-align:right; padding-right:40px;">印</div>
     </div>
   `;
 }
@@ -4441,6 +4440,8 @@ function renderShiyoKeiyaku(emp) {
   const signDate = addDays(start, -1);
   return `
     <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
+    <div style="font-size:14px; line-height:2;">&nbsp;</div>
+    <div style="font-size:14px; line-height:2;">&nbsp;</div>
     <p style="font-size:14px; line-height:2;">
       使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。
     </p>
@@ -4456,17 +4457,18 @@ function renderShiyoKeiyaku(emp) {
     <p style="font-size:14px; font-weight:700; margin-top:20px;">第3条</p>
     <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
     <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
+    <div style="font-size:14px; line-height:2;">&nbsp;</div>
     <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
-    <div style="margin-top:24px; font-size:14px; line-height:2;">
-      使用者（甲）<br/>
-      　${COMPANY_ADDRESS}<br/>
-      <div style="text-align:right;">${COMPANY_NAME}</div>
-      　代表取締役　${COMPANY_REP}　　印
+    <div style="margin-top:24px; font-size:14px; line-height:2; padding-left:calc(40% + 98px);">
+      <div>使用者（甲）</div>
+      <div>　${COMPANY_ADDRESS}</div>
+      <div>${COMPANY_NAME}</div>
+      <div>　代表取締役　${COMPANY_REP}　　印</div>
     </div>
-    <div style="margin-top:24px; font-size:14px; line-height:2;">
-      労働者（乙）<br/>
-      　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}<br/>
-      　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印
+    <div style="margin-top:24px; font-size:14px; line-height:2; padding-left:calc(40% + 98px);">
+      <div>労働者（乙）</div>
+      <div>　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}</div>
+      <div>　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印</div>
     </div>
   `;
 }

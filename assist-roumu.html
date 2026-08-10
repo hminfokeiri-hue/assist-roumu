@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-10(58)";
+const APP_VERSION = "更新: 2026-08-10(59)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2828,13 +2828,19 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px;">
           <p class="muted" style="margin:0 0 8px; font-size:12px;">雇用契約に関するその他の情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 12px;">
-            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
+            ${EMP_FIELDS_SIMPLE.filter(([key]) => !["weeklyDays", "workHours", "holiday", "notes"].includes(key)).map(([key, label]) => fieldInput(key, label, { small: true, tight: true })).join("")}
           </div>
+        </div>
+
+        <div style="margin-top:14px; padding:14px; background:#f4f9f6; border:1.5px solid #cfe8db; border-radius:12px;">
+          <label style="margin:0 0 4px; font-weight:700; color:#2f7d5b;">備考（書類に印刷されます）</label>
+          <p class="muted" style="margin:0 0 8px; font-size:12px;">労働者名簿などの書類に印刷される欄です。書類に載せてよい内容だけを書いてください。社内だけで持っておきたい内容は、下の「会社用メモ」へ移してください。</p>
+          <textarea id="emp_notes" rows="4" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical;" placeholder="例：労働保険加入、試用期間あり">${(editing.notes ?? "").toString().replace(/</g, "&lt;")}</textarea>
         </div>
 
         <div style="margin-top:14px; padding:14px; background:#fff8ec; border:1.5px solid #f0d79a; border-radius:12px;">
           <label style="margin:0 0 4px; font-weight:700; color:#8a6d1e;">会社用メモ（社内用）</label>
-          <p class="muted" style="margin:0 0 8px; font-size:12px;">上の「備考」とは別の、会社側だけが見るメモ欄です。例：長期の病気休職、面談の記録、注意事項など。契約書・労働者名簿などの書類には表示されません。</p>
+          <p class="muted" style="margin:0 0 8px; font-size:12px;">会社側だけが見るメモ欄です。例：長期の病気休職、面談の記録、注意事項など。契約書・労働者名簿などの書類には表示されません。</p>
           <textarea id="emp_companyMemo" rows="4" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical;" placeholder="例：2025年◯月〜◯月、病気のため長期休職。">${(editing.companyMemo ?? "").toString().replace(/</g, "&lt;")}</textarea>
         </div>
 

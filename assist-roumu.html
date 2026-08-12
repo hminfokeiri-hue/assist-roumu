@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-10(3)";
+const APP_VERSION = "更新: 2026-08-12(4)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2367,7 +2367,15 @@ function parseFlexibleDate(str) {
     if (!isNaN(d)) return d;
   }
 
-  // 西暦（1990-05-01, 1990/05/01 など、Dateがそのまま解釈できる形式）
+  // 西暦の数字だけの形式（2026-7-7 / 2026/07/07 / 2026.7.7 など）。
+  // iOSのSafariはゼロ埋めされていない日付文字列を読めないため、数値に分解して確実に組み立てる。
+  const ymd = s.match(/^(\d{4})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/);
+  if (ymd) {
+    const d = new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10));
+    if (!isNaN(d)) return d;
+  }
+
+  // 上記以外で、Dateがそのまま解釈できる形式
   const d2 = new Date(s);
   if (!isNaN(d2)) return d2;
 
@@ -3130,15 +3138,22 @@ function toWareki(dateStr) {
   if (ey === 1) ey = "元";
   return `${era}　${ey}年　${m}月　${day}日`;
 }
+// 日付文字列に月／日を足す。iOSでも落ちないよう、堅牢に日付を解釈し、
+// 読めない日付のときは空文字を返す（Invalid Date に toISOString して例外で落ちるのを防ぐ）。
+// タイムゾーンずれを避けるため、ローカルの年月日から手で組み立てる。
+function pad2(n) { return String(n).padStart(2, "0"); }
+function formatYmd(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 function addMonths(dateStr, months) {
-  const d = new Date(dateStr);
-  d.setMonth(d.getMonth() + months);
-  return d.toISOString().slice(0, 10);
+  const base = parseFlexibleDate(dateStr);
+  if (!base || isNaN(base)) return "";
+  const d = new Date(base.getFullYear(), base.getMonth() + months, base.getDate());
+  return isNaN(d) ? "" : formatYmd(d);
 }
 function addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const base = parseFlexibleDate(dateStr);
+  if (!base || isNaN(base)) return "";
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
+  return isNaN(d) ? "" : formatYmd(d);
 }
 
 function computeContractEmpOptions() {

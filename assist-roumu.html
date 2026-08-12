@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-12(4)";
+const APP_VERSION = "更新: 2026-08-12(5)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3157,13 +3157,15 @@ function addDays(dateStr, days) {
 }
 
 function computeContractEmpOptions() {
-  const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
+  const empId = state.contractEmpId || "";
   const q = (state.contractEmpSearchVal || "").toLowerCase();
   const filtered = !q ? state.employees : state.employees.filter(e =>
     [e.name, e.furigana, e.employeeCode].some(f => (f || "").toLowerCase().includes(q))
   );
-  return filtered.map(e => `<option value="${e.id}" ${e.id === empId ? "selected" : ""}>${e.name || e.id}</option>`).join("")
-    || `<option value="">該当する従業員がいません</option>`;
+  // 先頭に「選んでください」を置き、既定で人名が選ばれないようにする
+  const placeholder = `<option value="" ${empId ? "" : "selected"}>従業員を選んでください</option>`;
+  const opts = filtered.map(e => `<option value="${e.id}" ${e.id === empId ? "selected" : ""}>${e.name || e.id}</option>`).join("");
+  return placeholder + (opts || `<option value="" disabled>該当する従業員がいません</option>`);
 }
 
 function updateContractEmpSelect() {
@@ -3185,10 +3187,12 @@ function handleContractSearchInput(el) {
 function refreshContractSheet() {
   const sheet = document.getElementById("contractSheet");
   if (!sheet) return;
-  const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
+  const empId = state.contractEmpId || "";
   const emp = state.employees.find(e => e.id === empId) || {};
   const type = state.contractType || "雇用契約書";
-  sheet.innerHTML = type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp);
+  sheet.innerHTML = !empId
+    ? `<p class="muted no-print" style="text-align:center; padding:40px 0; font-size:14px;">上の「従業員を選ぶ」から従業員を選ぶと、ここに書類が表示されます。</p>`
+    : (type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp));
 }
 
 /* ---------- 給与明細（PDFアップロード／ダウンロード） ---------- */
@@ -4067,11 +4071,12 @@ function renderStaffPayslips() {
 }
 
 function renderAdminContractTab() {
-  const empId = state.contractEmpId || (state.employees[0] && state.employees[0].id);
+  const empId = state.contractEmpId || "";
   const emp = state.employees.find(e => e.id === empId) || {};
   const type = state.contractType || "雇用契約書";
 
-  if (!state.probationStart) state.probationStart = emp.hireDate || new Date().toISOString().slice(0, 10);
+  // 試用期間は本日の日付を初期値にする（開始日・終了日とも、下の入力欄で自由に変更できる）
+  if (!state.probationStart) state.probationStart = new Date().toISOString().slice(0, 10);
   if (!state.probationEnd) state.probationEnd = addMonths(state.probationStart, 1);
 
   return `
@@ -4109,7 +4114,7 @@ function renderAdminContractTab() {
     </div>
 
     <div class="card contract-preview${type === "労働者名簿" ? " roster-print" : ""}" id="contractSheet">
-      ${type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp)}
+      ${!empId ? `<p class="muted no-print" style="text-align:center; padding:40px 0; font-size:14px;">上の「従業員を選ぶ」から従業員を選ぶと、ここに書類が表示されます。</p>` : (type === "雇用契約書" ? renderKoyoKeiyaku(emp) : type === "試用契約書" ? renderShiyoKeiyaku(emp) : renderRoshaMeibo(emp))}
     </div>
   `;
 }
@@ -4454,6 +4459,7 @@ function renderShiyoKeiyaku(emp) {
   const end = state.probationEnd;
   const signDate = addDays(start, -1);
   return `
+    <div style="padding:4mm 14mm;">
     <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
     <div style="font-size:14px; line-height:2;">&nbsp;</div>
     <div style="font-size:14px; line-height:2;">&nbsp;</div>
@@ -4485,6 +4491,7 @@ function renderShiyoKeiyaku(emp) {
       <div>　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}</div>
       <div>　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印</div>
     </div>
+    </div>
   `;
 }
 
@@ -4492,7 +4499,7 @@ function digitBoxes(value, count) {
   const chars = (value || "").toString().replace(/[^\d]/g, "").split("");
   let html = '<span style="display:inline-flex; gap:3px; vertical-align:middle;">';
   for (let i = 0; i < count; i++) {
-    html += `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:26px; border:1px solid var(--border); border-radius:2px; font-size:13px; font-weight:600;">${chars[i] || ""}</span>`;
+    html += `<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:26px; border:1.4px solid #4A4238; border-radius:2px; font-size:13px; font-weight:600;">${chars[i] || ""}</span>`;
   }
   html += "</span>";
   return html;

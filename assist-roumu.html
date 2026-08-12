@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-12(5)";
+const APP_VERSION = "更新: 2026-08-12(7)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -749,7 +749,7 @@ function logout() {
 
 /* ---------- パートさん側：ホーム ---------- */
 function renderStaff() {
-  const balance = calcAnnualGrant(state.currentUser.hireDate, state.currentUser.weeklyDays);
+  const bal = leaveBalance(state.currentUser);
   const usedOrPending = state.leaveRequests.filter(r => r.status !== "rejected").length;
 
   appEl.innerHTML = `
@@ -778,7 +778,7 @@ function renderStaff() {
 
         <div class="card" style="margin-top:20px;">
           <div class="row-between">
-            <div><p class="muted" style="margin:0;">今年度の残り有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${balance - usedOrPending >= 0 ? balance - usedOrPending : 0}日</p></div>
+            <div><p class="muted" style="margin:0;">残り有給（繰越ふくむ）</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.remaining}日</p></div>
             <div><p class="muted" style="margin:0;">申請中・決裁ずみ</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
         </div>
@@ -1905,7 +1905,7 @@ function renderAdminOrderTab() {
         ? (isNarrow
             ? shownActive.map(o => renderAdminOrderCard(o, statusOptions)).join("")
             : `<table>
-                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
+                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
                 <tbody>${shownActive.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
               </table>`)
         : `<p class="muted">${activeOrders.length ? "この状態の発注はありません" : (doneOrders.length ? "対応中の発注はありません" : "発注はまだありません")}</p>`}
@@ -1937,7 +1937,7 @@ function renderAdminOrderTab() {
           ${isNarrow
             ? `<div style="margin-top:12px;">${cancelledOrders.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
             : `<table style="margin-top:12px;">
-                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>状態</th><th>処理者</th><th></th></tr></thead>
+                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
                 <tbody>${cancelledOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
               </table>`}
         ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、取り消された発注を確認できます。</p>`}
@@ -1965,7 +1965,7 @@ function renderDoneOrderList(isNarrow, statusOptions) {
   return isNarrow
     ? `<div style="margin-top:12px;">${list.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
     : `<table style="margin-top:12px;">
-        <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>完了日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
+        <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>完了日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
         <tbody>${list.map(o => renderAdminOrderRow(o, statusOptions, true)).join("")}</tbody>
       </table>`;
 }
@@ -2061,6 +2061,7 @@ function renderAdminOrderCard(o, statusOptions) {
       <div style="margin-top:8px; font-size:15px;">
         ${escapeHtml(o.item || "")}<span style="font-weight:700; margin-left:6px;">×${o.qty}</span>
       </div>
+      <div class="muted" style="font-size:12px; margin-top:6px;">注文日：${fmtYmd(o.createdAt) || "―"}</div>
       ${(o.status === "received" && fmtYmd(o.receivedAt)) ? `<div class="muted" style="font-size:12px; margin-top:6px;">完了日：${fmtYmd(o.receivedAt)}</div>` : ""}
 
       <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
@@ -2081,6 +2082,7 @@ function renderAdminOrderRow(o, statusOptions, withDone) {
       <td>${escapeHtml(o.place || "")}</td>
       <td>${escapeHtml(o.item || "")}</td>
       <td>${o.qty}</td>
+      <td class="muted" style="font-size:12px; white-space:nowrap;">${fmtYmd(o.createdAt) || "―"}</td>
       ${withDone ? `<td class="muted" style="font-size:12px; white-space:nowrap;">${fmtYmd(o.receivedAt) || "―"}</td>` : ""}
       <td>
         <select onchange="updateOrderStatus('${o.id}', this.value)" style="font-size:13px; padding:4px 8px;">
@@ -2246,8 +2248,64 @@ async function updateOrderStatus(id, status) {
   }
 }
 
+// 「YYYY-MM-DD」の日付を「8月15日（金）」＋あと何日か、に整える
+function leaveDateLabel(dateStr) {
+  const d = parseFlexibleDate(dateStr);
+  if (!d || isNaN(d)) return { label: dateStr || "", urgency: "", soon: false };
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  const label = `${d.getMonth() + 1}月${d.getDate()}日（${wd}）`;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  let urgency = "";
+  if (days === 0) urgency = "今日";
+  else if (days === 1) urgency = "明日";
+  else if (days <= 7) urgency = `あと${days}日`;
+  return { label, urgency, soon: days <= 1 };
+}
+
+// これから先（今日以降）の休み・有給の予定を、日付順でまとめて表示する
+function renderUpcomingLeaveCard() {
+  const todayStr = formatYmd(new Date());
+  const list = (state.leaveRequests || [])
+    .filter(r => r.status !== "rejected" && r.date && r.date >= todayStr)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const typeColor = { "有給休暇": "#2f855a", "欠勤（無給）": "#b7791f", "遅刻・早退": "#b7791f", "忌引き": "#4a5568" };
+
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:12px;">
+        <p class="staff-title" style="font-size:16px; margin:0;">これからのお休み予定（日付順）</p>
+        <span class="muted" style="font-size:13px;">${list.length}件</span>
+      </div>
+      ${list.length ? list.map(r => {
+        const { label, urgency, soon } = leaveDateLabel(r.date);
+        const statusPill = r.status === "approved"
+          ? `<span class="status-pill status-approved">決裁済み</span>`
+          : `<span class="status-pill status-pending">確認中</span>`;
+        return `
+          <div class="req-item" style="${soon ? "background:#FCF1E2; border-radius:8px; padding:12px;" : ""}">
+            <div class="row-between" style="margin:0; align-items:flex-start; gap:10px;">
+              <div style="min-width:0;">
+                <div style="font-weight:700;">${escapeHtml(label)}${urgency ? `<span style="color:var(--danger); font-size:12px; margin-left:8px;">${urgency}</span>` : ""}</div>
+                <div style="margin-top:3px;">${escapeHtml(r.employeeName || "")}<span class="muted" style="margin-left:8px; font-size:13px;">${escapeHtml(r.area || "")}</span></div>
+                <div class="muted" style="font-size:13px; margin-top:2px;"><span style="color:${typeColor[r.type] || "var(--text)"}; font-weight:600;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
+              </div>
+              <div style="flex-shrink:0; text-align:right;">${statusPill}</div>
+            </div>
+          </div>
+        `;
+      }).join("") : `<p class="muted" style="margin:0;">これから先の休み・有給の予定はありません</p>`}
+      <p class="muted" style="font-size:11px; margin-top:10px;">否決したものと、日付が過ぎたものは出しません。「確認中」はまだ決裁待ちです（下の一覧から決裁できます）。</p>
+    </div>
+  `;
+}
+
 function renderAdminLeaveTab(pending) {
   return `
+      ${renderUpcomingLeaveCard()}
       <div class="card">
         <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
         <table>
@@ -2463,10 +2521,50 @@ function usedPaidLeaveFor(empId) {
     .reduce((sum, r) => sum + (typeof r.days === "number" ? r.days : 1), 0);
 }
 
+/* 有給の残高を「前年からの繰越」も含めて計算する。
+   ・法律どおり、有給は付与から2年で時効。よって今もっている有給は
+     「今年の付与」＋「前年の付与のうち使い残したぶん（＝繰越）」だけ。
+     2年より前に付与されたぶんは時効で消滅するので数えない。
+   ・付与日は「入社日＋6か月」から1年ごと。
+   ・消化は「有給休暇」で否決でないものを、付与日を境に前年ぶん／今年ぶんに振り分ける。
+   返り値: { grantNow, grantPrev, carryOver, usedPrev, usedCurr, remaining, hasData, notYet } */
+function leaveBalance(emp) {
+  const empty = { grantNow: 0, grantPrev: 0, carryOver: 0, usedPrev: 0, usedCurr: 0, remaining: 0, hasData: false, notYet: false };
+  if (!emp || !emp.hireDate || !emp.weeklyDays) return empty;
+  const months = monthsBetween(emp.hireDate, new Date());
+  if (months < 6) return { ...empty, hasData: true, notYet: true }; // まだ初回付与前（6か月未満）
+
+  const table = GRANT_TABLE[emp.weeklyDays] || GRANT_TABLE[4];
+  const grantAt = (k) => table[Math.max(0, Math.min(Math.min(k, 7) - 1, table.length - 1))];
+  const k = Math.floor((months - 6) / 12) + 1; // 何回目の付与か（1回目, 2回目, …）
+  const grantNow = grantAt(k);
+  const grantPrev = k >= 2 ? grantAt(k - 1) : 0;
+  const lastGrantDate = addMonths(emp.hireDate, 6 + (k - 1) * 12);
+  const prevGrantDate = k >= 2 ? addMonths(emp.hireDate, 6 + (k - 2) * 12) : "";
+
+  const paid = (state.leaveRequests || []).filter(r =>
+    r.employeeId === emp.id && r.type === "有給休暇" && r.status !== "rejected");
+  const dayOf = r => (typeof r.days === "number" ? r.days : 1);
+  let usedPrev = 0, usedCurr = 0;
+  paid.forEach(r => {
+    const d = r.date || "";
+    if (d && d >= lastGrantDate) usedCurr += dayOf(r);                                  // 今年ぶんの消化
+    else if (prevGrantDate && d >= prevGrantDate && d < lastGrantDate) usedPrev += dayOf(r); // 前年ぶんの消化
+    // prevGrantDate より前の消化は、時効で消えた付与に対応するので数えない
+  });
+
+  const carryOver = Math.max(0, Math.min(grantPrev - usedPrev, grantPrev)); // 繰越は前年の付与が上限
+  const remaining = Math.max(0, carryOver + grantNow - usedCurr);
+  const r1 = n => Math.round(n * 10) / 10;
+  return {
+    grantNow: r1(grantNow), grantPrev: r1(grantPrev), carryOver: r1(carryOver),
+    usedPrev: r1(usedPrev), usedCurr: r1(usedCurr), remaining: r1(remaining),
+    hasData: true, notYet: false
+  };
+}
+
 function remainingLeaveFor(emp) {
-  const balance = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
-  const remaining = balance - usedPaidLeaveFor(emp.id);
-  return remaining >= 0 ? Math.round(remaining * 10) / 10 : 0;
+  return leaveBalance(emp).remaining;
 }
 
 function renderEmpAttendanceHistory(emp) {
@@ -2478,19 +2576,24 @@ function renderEmpAttendanceHistory(emp) {
   const statusLabel = { pending: "確認中", approved: "決裁", rejected: "否決" };
   const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  const granted = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
-  const used = usedPaidLeaveFor(emp.id);
+  const bal = leaveBalance(emp);
   const today = new Date().toISOString().slice(0, 10);
 
   return `
     <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
       <p class="staff-title" style="font-size:15px; margin:0 0 10px;">過去の勤怠（休み・有給・忌引き・早退）</p>
 
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-        <span class="status-pill status-approved">付与 ${granted}日</span>
-        <span class="status-pill status-pending">有給の消化 ${Math.round(used * 10) / 10}日</span>
-        <span class="status-pill status-approved">残り ${remainingLeaveFor(emp)}日</span>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+        ${bal.notYet
+          ? `<span class="status-pill status-pending">まだ付与前（入社6か月未満）</span>`
+          : `
+            <span class="status-pill status-approved">今年の付与 ${bal.grantNow}日</span>
+            <span class="status-pill status-approved">前年からの繰越 ${bal.carryOver}日</span>
+            <span class="status-pill status-pending">今年の消化 ${bal.usedCurr}日</span>
+            <span class="status-pill status-approved" style="font-weight:700;">残り ${bal.remaining}日</span>
+          `}
       </div>
+      ${bal.notYet ? "" : `<p class="muted" style="font-size:11px; margin:0 0 12px;">残り＝今年の付与（${bal.grantNow}日）＋前年からの繰越（${bal.carryOver}日）−今年の消化（${bal.usedCurr}日）。繰越は前年の付与のうち使い残したぶんで、2年より前のぶんは時効で消えています。</p>`}
 
       <div style="padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa; margin-bottom:14px;">
         <label style="margin:0 0 8px; font-weight:700;">過去の休み・有給を記録する</label>

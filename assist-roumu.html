@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-12(7)";
+const APP_VERSION = "更新: 2026-08-12(9)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -885,9 +885,10 @@ function renderOrderHistory(onHome) {
     const canReceive = isMine && (o.status === "ordered" || o.status === "arrived");
     const canCancel = isMine && (o.status === "pending" || o.status === "arranging");
     const doneDate = (o.status === "received" && fmtYmd(o.receivedAt)) ? `<br><span class="muted" style="font-size:12px;">完了日：${fmtYmd(o.receivedAt)}</span>` : "";
+    const orderDate = fmtYmd(o.createdAt) ? `<br><span class="muted" style="font-size:12px;">注文日：${fmtYmd(o.createdAt)}</span>` : "";
     return `
     <div class="row-between" style="margin-bottom:8px;">
-      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
+      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span>${orderDate}</div>
       <div style="text-align:right;">
         <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>${doneDate}
         ${canReceive ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
@@ -2336,7 +2337,9 @@ const EMP_FIELDS_TOP = [
   ["gender", "性別"], ["birthDate", "生年月日"]
 ];
 const EMP_FIELDS_HIGHLIGHT = [
-  ["area", "エリア"], ["workplace", "就業場所（現場）"],
+  ["area", "エリア"],
+  ["workplace", "就業場所（会社用メモ）"],
+  ["workplaceContract", "就業場所（雇用契約書に記載）"],
   ["hireDate", "入社日（雇用開始日）"],
   ["probationEnd", "試用期間終了日（未入力なら入社日＋1か月）"]
 ];
@@ -2898,12 +2901,17 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px; padding:14px; background:#f4f9f6; border:1.5px solid #cfe8db; border-radius:12px;">
           <p class="muted" style="margin:0 0 8px; font-size:13px;">勤務の基本情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
-            ${EMP_FIELDS_HIGHLIGHT.map(([key, label]) => `
+            ${EMP_FIELDS_HIGHLIGHT.map(([key, label]) => {
+              // workplaceContract（契約書用）は未入力のあいだ、会社用メモの就業場所を初期表示する
+              const raw = editing[key] ?? (key === "workplaceContract" ? editing.workplace : "") ?? "";
+              const val = raw.toString().replace(/"/g, '&quot;');
+              return `
               <div>
                 <label style="margin:4px 0 4px; font-weight:700;">${label}</label>
-                <input id="emp_${key}" type="text" style="font-size:16px; padding:12px;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
+                <input id="emp_${key}" type="text" style="font-size:16px; padding:12px;" value="${val}" />
               </div>
-            `).join("")}
+            `;
+            }).join("")}
           </div>
 
           <p class="muted" style="margin:16px 0 8px; font-size:13px;">シフト（曜日ごとの勤務時間）</p>

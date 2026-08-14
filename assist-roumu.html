@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-12(9)";
+const APP_VERSION = "更新: 2026-08-12(10)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -925,6 +925,49 @@ function renderOrderHistory(onHome) {
   `;
 }
 
+/* ---------- 現場（納品先）の突き合わせ用ヘルパー ----------
+   発注の納品先と、従業員の担当現場（就業場所メモ）を「現場キー」にそろえて突き合わせる。
+   ・normalizeSite: 全角半角・空白・先頭の都道府県をそろえる（大阪府堺警察署 → 堺警察署）
+   ・SITE_ALIASES: 略称などの言い換え表。取りこぼしが出た現場だけ1行ずつ足す（例 "堺署": "堺警察署"）
+   ・parseAssignedSiteKeys: 「A、B／C」のように複数現場が書かれたメモを現場キーの配列に分解する
+*/
+const SITE_ALIASES = {
+  // "堺署": "堺警察署",   ← 同じ現場なのに別表示で拾えないときは、ここに1行ずつ追加する
+};
+
+function normalizeSite(str) {
+  if (!str) return "";
+  let s = str.toString();
+  // 全角の英数記号を半角にそろえる
+  s = s.replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 空白（半角・全角）を除去
+  s = s.replace(/[\s\u3000]/g, "");
+  // 先頭の都道府県を除去（大阪府堺警察署 → 堺警察署）
+  s = s.replace(/^(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/, "");
+  return s;
+}
+
+// 別名表を「正規化後のキー」で引けるよう変換しておく
+const SITE_ALIAS_NORM = {};
+Object.keys(SITE_ALIASES).forEach(k => { SITE_ALIAS_NORM[normalizeSite(k)] = normalizeSite(SITE_ALIASES[k]); });
+
+function siteKey(raw) {
+  const n = normalizeSite(raw);
+  if (!n) return "";
+  return SITE_ALIAS_NORM[n] || n;
+}
+
+// 「大阪府堺警察署、その他…／◯◯署」のような文字列を現場キーの配列にする
+function parseAssignedSiteKeys(str) {
+  if (!str) return [];
+  const keys = [];
+  str.toString().split(/[、,，/／\n]+/).forEach(t => {
+    const k = siteKey(t);
+    if (k && !keys.includes(k)) keys.push(k);
+  });
+  return keys;
+}
+
 async function submitOrder() {
   const readField = (id, key) => {
     const el = document.getElementById(id);
@@ -945,6 +988,7 @@ async function submitOrder() {
     area: state.currentUser.area || "",
     workplace: state.currentUser.workplace || "",
     place, item, qty,
+    placeKeys: parseAssignedSiteKeys(place),
     status: "pending",
     createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
   };
@@ -1022,11 +1066,12 @@ function subscribeStaffOrders() {
   const myWorkplace = (state.currentUser.workplace || "").trim();
 
   const mineMap = {};  // 自分が出した発注
-  const siteMap = {};  // 同じ就業場所（現場）の発注
+  const siteMap = {};  // 同じ就業場所（現場）の発注（従来：メモ完全一致）
+  const siteKeyMap = {};  // 納品先が自分の担当現場に含まれる発注（現場キー突き合わせ）
 
   const apply = () => {
     // 同僚ぶんを土台にして、自分ぶんで上書き（重複は自分の情報を優先）
-    const merged = { ...siteMap, ...mineMap };
+    const merged = { ...siteMap, ...siteKeyMap, ...mineMap };
     const rows = Object.values(merged);
     rows.sort((a, b) => {
       const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
@@ -1046,7 +1091,7 @@ function subscribeStaffOrders() {
     }, err => console.error("orders(自分)購読エラー", err))
   );
 
-  // (2) 同じ就業場所の発注（自分に現場が登録されている場合のみ）
+  // (2) 同じ就業場所の発注（従来どおり：メモが完全一致する場合。後方互換のため残す）
   if (myWorkplace) {
     staffOrdersUnsub.push(
       db.collection("orders").where("workplace", "==", myWorkplace).onSnapshot(snap => {
@@ -1054,6 +1099,18 @@ function subscribeStaffOrders() {
         snap.docs.forEach(d => { siteMap[d.id] = { id: d.id, ...d.data() }; });
         apply();
       }, err => console.error("orders(現場)購読エラー", err))
+    );
+  }
+
+  // (3) 納品先が自分の担当現場に含まれる発注（現場キーで突き合わせ・言い換え/表記ゆれ対応）
+  const myKeys = parseAssignedSiteKeys(state.currentUser.workplace).slice(0, 10); // array-contains-anyは最大10件
+  if (myKeys.length) {
+    staffOrdersUnsub.push(
+      db.collection("orders").where("placeKeys", "array-contains-any", myKeys).onSnapshot(snap => {
+        Object.keys(siteKeyMap).forEach(k => delete siteKeyMap[k]);
+        snap.docs.forEach(d => { siteKeyMap[d.id] = { id: d.id, ...d.data() }; });
+        apply();
+      }, err => console.error("orders(現場キー)購読エラー", err))
     );
   }
 }
@@ -2018,6 +2075,7 @@ async function submitPhoneOrder() {
     employeeName: name,
     area: "",
     place, item, qty,
+    placeKeys: parseAssignedSiteKeys(place),
     status: "pending",
     byPhone: true,
     handledBy: state.currentUser.name || "本社担当",

@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-12(10)";
+const APP_VERSION = "更新: 2026-08-14(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -510,7 +510,9 @@ const state = {
   activeGroupId: null,
   groupMessages: [],
   groupPendingPhoto: null,
-  allGroups: []
+  allGroups: [],
+  medicalCertificates: [],
+  pendingMedCert: null
 };
 
 const appEl = document.getElementById("app");
@@ -3036,6 +3038,8 @@ function renderAdminEmployeeTab() {
           `
         }
 
+        ${renderMedCertSection(editing)}
+
         ${renderEmpAttendanceHistory(editing)}
       </div>
     `;
@@ -4280,6 +4284,9 @@ function renderAdminContractTab() {
       ` : ""}
       <button class="primary" onclick="window.print()">印刷する</button>
       <button class="secondary" onclick="savePreviewAsPdf('contractSheet','${type}_${(emp && emp.name) || ""}.pdf', this)">PDFとして保存する</button>
+      ${empId && type === "試用契約書" ? `<button class="secondary" onclick="downloadShiyoKeiyakuWord(state.employees.find(e=>e.id===state.contractEmpId)||{})">Wordファイルとして保存する</button>` : ""}
+      ${empId && type === "雇用契約書" ? `<button class="secondary" onclick="downloadKoyoKeiyakuExcel(state.employees.find(e=>e.id===state.contractEmpId)||{})">Excelファイルとして保存する</button>` : ""}
+      ${empId && type === "労働者名簿" ? `<button class="secondary" onclick="downloadRoshaMeiboExcel(state.employees.find(e=>e.id===state.contractEmpId)||{})">Excelファイルとして保存する</button>` : ""}
     </div>
 
     <div class="card contract-preview${type === "労働者名簿" ? " roster-print" : ""}" id="contractSheet">
@@ -4720,6 +4727,270 @@ function renderRoshaMeibo(emp) {
   `;
 }
 
+/* ---------- 書類のダウンロード（Word／Excel） ---------- */
+function xmlEsc(s) {
+  return (s == null ? "" : String(s))
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+// paras: [{ text, bold, align:'left'|'center'|'right'|'both', size(pt), spacingAfter(twips) }]
+// text 内の "\n" は改行として扱う
+function buildDocxBlob(paras) {
+  const body = paras.map(p => {
+    const sz = Math.round((p.size || 10.5) * 2);
+    const jc = p.align ? `<w:jc w:val="${p.align}"/>` : "";
+    const spacing = p.spacingAfter != null ? `<w:spacing w:after="${p.spacingAfter}"/>` : "";
+    const lines = String(p.text == null ? "" : p.text).split("\n");
+    const runs = lines.map((ln, i) => {
+      const brk = i < lines.length - 1 ? "<w:br/>" : "";
+      const b = p.bold ? "<w:b/>" : "";
+      return `<w:r><w:rPr>${b}<w:rFonts w:ascii="Yu Gothic" w:eastAsia="Yu Gothic" w:hAnsi="Yu Gothic"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${xmlEsc(ln)}</w:t>${brk}</w:r>`;
+    }).join("");
+    return `<w:p><w:pPr>${jc}${spacing}</w:pPr>${runs}</w:p>`;
+  }).join("");
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}` +
+    `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+    `<Default Extension="xml" ContentType="application/xml"/>` +
+    `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", contentTypes);
+  zip.folder("_rels").file(".rels", rels);
+  zip.folder("word").file("document.xml", documentXml);
+  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+
+async function downloadShiyoKeiyakuWord(emp) {
+  emp = emp || {};
+  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
+  const start = state.probationStart;
+  const end = state.probationEnd;
+  const signDate = addDays(start, -1);
+  const P = (text, opt) => Object.assign({ text, size: 10.5 }, opt || {});
+  const paras = [
+    P("試用契約書", { bold: true, align: "center", size: 20, spacingAfter: 480 }),
+    P(`使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。`, { spacingAfter: 240 }),
+    P("第1条", { bold: true, spacingAfter: 60 }),
+    P("1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。\n" +
+      "2　試用期間は、" + toWareki(start) + "から" + toWareki(end) + "までの１か月間とする。\n" +
+      "3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。\n" +
+      "4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。", { spacingAfter: 240 }),
+    P("第2条", { bold: true, spacingAfter: 60 }),
+    P("乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。", { spacingAfter: 240 }),
+    P("第3条", { bold: true, spacingAfter: 60 }),
+    P("乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。", { spacingAfter: 240 }),
+    P("以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。", { spacingAfter: 360 }),
+    P(toWareki(signDate), { spacingAfter: 360 }),
+    P("使用者（甲）", { align: "right" }),
+    P("　" + COMPANY_ADDRESS, { align: "right" }),
+    P(COMPANY_NAME, { align: "right" }),
+    P("　代表取締役　" + COMPANY_REP + "　　印", { align: "right", spacingAfter: 360 }),
+    P("労働者（乙）", { align: "right" }),
+    P("　住所：" + (emp.address || "　　　　　　　　　　　　　　　"), { align: "right" }),
+    P("　氏名：" + (emp.name || "　　　　　　　　　　　　") + "　　印", { align: "right" })
+  ];
+  try {
+    const blob = await buildDocxBlob(paras);
+    downloadBlob(blob, `試用契約書_${emp.name || ""}.docx`);
+  } catch (e) {
+    alert("Wordファイルの作成に失敗しました: " + e.message);
+  }
+}
+
+function downloadKoyoKeiyakuExcel(emp) {
+  emp = emp || {};
+  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
+  const rows = [
+    ["雇用契約書"],
+    [],
+    ["フリガナ", emp.furigana || "", "性別", emp.gender || ""],
+    ["氏名", emp.name || "", "生年月日", emp.birthDate ? toWareki(emp.birthDate) : ""],
+    ["現住所", emp.address || "", "", ""],
+    [],
+    ["雇用期間", toWareki(emp.hireDate) + (emp.contractEnd ? "　〜　" + toWareki(emp.contractEnd) + "　まで" : "　（期間の定めなし）"), "", ""],
+    ["基本給", emp.baseWage ? emp.baseWage + " 円" : "", "", ""],
+    ["従事する業務の種類", emp.jobType || "", "", ""],
+    ["就業時間", emp.workHours || "", "", ""],
+    ["休日", emp.holiday || "", "", ""],
+    ["賃金締切日", emp.payCutoffDay || "", "賃金支払日", emp.payDay || ""],
+    ["支払時の控除", emp.deduction || "", "", ""],
+    ["就業場所", emp.workplace || "", "", ""],
+    ["昇給の有無", emp.raiseYN || "", "賞与の有無", emp.bonusYN || ""],
+    ["退職手当の有無", emp.retirementYN || "", "継続雇用の有無", emp.continuedYN || ""],
+    ["相談窓口担当者", emp.contactPerson || "", "", ""],
+    ["備考", emp.notes || "", "", ""],
+    [],
+    ["上記以外の労働条件等については当社就業規則によります。"],
+    ["契約日", toWareki(emp.hireDate)]
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 22 }, { wch: 40 }, { wch: 14 }, { wch: 24 }];
+  const full = r => ({ s: { r, c: 1 }, e: { r, c: 3 } });
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    full(4), full(6), full(7), full(8), full(9), full(10), full(12), full(13), full(16), full(17),
+    { s: { r: 19, c: 0 }, e: { r: 19, c: 3 } }
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "雇用契約書");
+  XLSX.writeFile(wb, `雇用契約書_${emp.name || ""}.xlsx`);
+}
+
+function downloadRoshaMeiboExcel(emp) {
+  emp = emp || {};
+  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
+  const rows = [
+    ["労働者名簿"],
+    [],
+    ["フリガナ", emp.furigana || "", "性別", emp.gender || ""],
+    ["氏名", emp.name || "", "", ""],
+    ["生年月日", emp.birthDate ? toWareki(emp.birthDate) : "", "", ""],
+    ["現住所", (emp.postalCode ? "〒" + emp.postalCode + "　" : "") + (emp.address || ""), "", ""],
+    ["連絡先（自宅）", emp.homePhone || "", "連絡先（携帯）", emp.phone || ""],
+    ["給与振込先", "ゆうちょ銀行　記号 " + (emp.yuchoKigo || "") + "　番号 " + (emp.yuchoBango || ""), "", ""],
+    ["雇入年月日", emp.hireDate ? toWareki(emp.hireDate) : "", "", ""],
+    ["従事する業務の種類", emp.jobType || "", "", ""],
+    ["備考", emp.notes || "", "", ""],
+    ["解雇・退職または死亡（年月日）", (emp.status === "resigned" && emp.resignedDate) ? toWareki(emp.resignedDate) : "", "", ""],
+    ["解雇・退職または死亡（事由）", emp.resignReason || "", "", ""]
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 26 }, { wch: 40 }, { wch: 16 }, { wch: 24 }];
+  const full = r => ({ s: { r, c: 1 }, e: { r, c: 3 } });
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    full(3), full(4), full(5), full(7), full(8), full(9), full(10), full(11), full(12)
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "労働者名簿");
+  XLSX.writeFile(wb, `労働者名簿_${emp.name || ""}.xlsx`);
+}
+
+/* ---------- 診断書（PDFアップロード／閲覧） ---------- */
+function renderMedCertSection(emp) {
+  const list = (state.medicalCertificates || [])
+    .filter(c => c.employeeId === emp.id)
+    .sort((a, b) => (b.certDate || "").localeCompare(a.certDate || ""));
+  return `
+    <div style="margin-top:14px; padding:14px; background:#eef4fb; border:1.5px solid #c3d7ee; border-radius:12px;">
+      <label style="margin:0 0 4px; font-weight:700; color:#2c5b8f;">診断書（PDF）</label>
+      <p class="muted" style="margin:0 0 8px; font-size:12px;">診断書のPDFをアップロードして保管できます。1ファイル650KBまで（大きいときは白黒・低解像度で出力し直してください）。会社側だけが見られます。</p>
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; margin-bottom:8px;">
+        <div><label style="font-size:12px;">診断日（任意）</label><input type="date" id="medcert_date_${emp.id}" /></div>
+        <div><label style="font-size:12px;">メモ（任意）</label><input type="text" id="medcert_note_${emp.id}" placeholder="例：〇〇のため △月まで通院" /></div>
+      </div>
+      <input type="file" accept="application/pdf" id="medcert_file_${emp.id}" onchange="handleMedCertFileSelect(event, '${emp.id}')" />
+      <div id="medcert_preview_${emp.id}"></div>
+      ${list.length ? `
+        <table style="margin-top:12px;">
+          <thead><tr><th style="width:120px;">診断日</th><th>メモ</th><th></th></tr></thead>
+          <tbody>
+            ${list.map(c => `
+              <tr>
+                <td>${c.certDate || "―"}</td>
+                <td>${(c.note || "").toString().replace(/</g, "&lt;")}<br><span class="muted" style="font-size:11px;">${(c.fileName || "診断書.pdf")}</span></td>
+                <td style="white-space:nowrap;">
+                  <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="viewMedCert('${c.id}')">見る</button>
+                  <button class="link" style="color:var(--danger); font-size:12px;" onclick="deleteMedCert('${c.id}')">削除</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<p class="muted" style="margin-top:10px; font-size:12px;">まだ診断書は登録されていません。</p>`}
+    </div>
+  `;
+}
+
+function handleMedCertFileSelect(evt, empId) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  if (file.type !== "application/pdf") { alert("PDFファイルを選んでください"); evt.target.value = ""; return; }
+  if (file.size > 650 * 1024) { alert("ファイルが大きすぎます（650KBまで）。白黒・低解像度で出力し直してから、もう一度お試しください。"); evt.target.value = ""; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.pendingMedCert = { empId, base64: reader.result, fileName: file.name };
+    const holder = document.getElementById("medcert_preview_" + empId);
+    if (holder) holder.innerHTML = `
+      <p style="margin:8px 0;">「${file.name}」を読み込みました。</p>
+      <button class="primary" style="width:auto; padding:10px 18px;" onclick="uploadMedCert('${empId}')">この診断書を登録する</button>
+    `;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadMedCert(empId) {
+  const emp = state.employees.find(e => e.id === empId) || {};
+  if (!state.pendingMedCert || state.pendingMedCert.empId !== empId) return alert("ファイルをもう一度選んでください");
+  const certDate = (document.getElementById("medcert_date_" + empId) || {}).value || "";
+  const note = (document.getElementById("medcert_note_" + empId) || {}).value || "";
+  const data = {
+    employeeId: empId,
+    employeeName: emp.name || "",
+    certDate,
+    note,
+    fileName: state.pendingMedCert.fileName,
+    pdfBase64: state.pendingMedCert.base64,
+    uploadedAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+  };
+  if (!firebaseReady) {
+    state.medicalCertificates = state.medicalCertificates || [];
+    state.medicalCertificates.push(Object.assign({ id: "local_" + Date.now() }, data));
+    state.pendingMedCert = null;
+    alert("（お試し表示のため実際の保存はされません）");
+    return render();
+  }
+  try {
+    await db.collection("medicalCertificates").add(data);
+    state.pendingMedCert = null;
+    alert("診断書を登録しました");
+    render();
+  } catch (e) {
+    alert("登録エラー: " + e.message);
+  }
+}
+
+function viewMedCert(id) {
+  const c = (state.medicalCertificates || []).find(x => x.id === id);
+  if (!c || !c.pdfBase64) return alert("ファイルが見つかりません");
+  try {
+    const b64 = c.pdfBase64.indexOf(",") >= 0 ? c.pdfBase64.split(",")[1] : c.pdfBase64;
+    const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    window.open(c.pdfBase64, "_blank");
+  }
+}
+
+async function deleteMedCert(id) {
+  if (!confirm("この診断書を削除します。よろしいですか？")) return;
+  if (!firebaseReady) {
+    state.medicalCertificates = (state.medicalCertificates || []).filter(c => c.id !== id);
+    return render();
+  }
+  try {
+    await db.collection("medicalCertificates").doc(id).delete();
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
 async function updateLeaveStatus(id, status) {
   if (!firebaseReady) {
     const r = state.leaveRequests.find(x => x.id === id);
@@ -4752,6 +5023,10 @@ function subscribeAllLeaveRequests() {
     render();
     cleanupOldPayslips(rows);
   }, err => console.error("payslips(admin)購読エラー", err));
+  db.collection("medicalCertificates").onSnapshot(snap => {
+    state.medicalCertificates = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("medicalCertificates購読エラー", err));
 }
 
 function subscribeAllMessages() {

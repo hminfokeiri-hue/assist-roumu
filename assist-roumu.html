@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-14(1)";
+const APP_VERSION = "更新: 2026-08-14(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -900,7 +900,7 @@ function renderOrderHistory(onHome) {
   `;
   };
 
-  const activeTitle = myWorkplace ? `${escapeHtml(myWorkplace)} のたのみもの` : "たのんだもの";
+  const activeTitle = "たのんだもの";
 
   return `
     <div style="${onHome ? "" : "margin-top:18px; border-top:1px solid var(--border); padding-top:12px;"}">
@@ -1065,56 +1065,20 @@ function subscribeStaffOrders() {
   staffOrdersUnsub = [];
 
   const me = state.currentUser.id;
-  const myWorkplace = (state.currentUser.workplace || "").trim();
 
-  const mineMap = {};  // 自分が出した発注
-  const siteMap = {};  // 同じ就業場所（現場）の発注（従来：メモ完全一致）
-  const siteKeyMap = {};  // 納品先が自分の担当現場に含まれる発注（現場キー突き合わせ）
-
-  const apply = () => {
-    // 同僚ぶんを土台にして、自分ぶんで上書き（重複は自分の情報を優先）
-    const merged = { ...siteMap, ...siteKeyMap, ...mineMap };
-    const rows = Object.values(merged);
-    rows.sort((a, b) => {
-      const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
-      const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
-      return tb - ta;
-    });
-    state.orders = rows;
-    render();
-  };
-
-  // (1) 自分の発注（現場が未登録の人でも必ず自分ぶんは見える）
+  // 従業員側は「自分が出した発注」だけを表示する（他の人の発注は表示しない）
   staffOrdersUnsub.push(
     db.collection("orders").where("employeeId", "==", me).onSnapshot(snap => {
-      Object.keys(mineMap).forEach(k => delete mineMap[k]);
-      snap.docs.forEach(d => { mineMap[d.id] = { id: d.id, ...d.data() }; });
-      apply();
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+        return tb - ta;
+      });
+      state.orders = rows;
+      render();
     }, err => console.error("orders(自分)購読エラー", err))
   );
-
-  // (2) 同じ就業場所の発注（従来どおり：メモが完全一致する場合。後方互換のため残す）
-  if (myWorkplace) {
-    staffOrdersUnsub.push(
-      db.collection("orders").where("workplace", "==", myWorkplace).onSnapshot(snap => {
-        Object.keys(siteMap).forEach(k => delete siteMap[k]);
-        snap.docs.forEach(d => { siteMap[d.id] = { id: d.id, ...d.data() }; });
-        apply();
-      }, err => console.error("orders(現場)購読エラー", err))
-    );
-  }
-
-  // (3) 納品先が自分の担当現場に含まれる発注（現場キーで突き合わせ・言い換え/表記ゆれ対応）
-  const myKeys = parseAssignedSiteKeys(state.currentUser.workplace).slice(0, 10); // array-contains-anyは最大10件
-  if (myKeys.length) {
-    staffOrdersUnsub.push(
-      db.collection("orders").where("placeKeys", "array-contains-any", myKeys).onSnapshot(snap => {
-        Object.keys(siteKeyMap).forEach(k => delete siteKeyMap[k]);
-        snap.docs.forEach(d => { siteKeyMap[d.id] = { id: d.id, ...d.data() }; });
-        apply();
-      }, err => console.error("orders(現場キー)購読エラー", err))
-    );
-  }
 }
 
 /* =========================================================

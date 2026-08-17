@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-14(2)";
+const APP_VERSION = "更新: 2026-08-17(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -510,9 +510,7 @@ const state = {
   activeGroupId: null,
   groupMessages: [],
   groupPendingPhoto: null,
-  allGroups: [],
-  medicalCertificates: [],
-  pendingMedCert: null
+  allGroups: []
 };
 
 const appEl = document.getElementById("app");
@@ -887,10 +885,9 @@ function renderOrderHistory(onHome) {
     const canReceive = isMine && (o.status === "ordered" || o.status === "arrived");
     const canCancel = isMine && (o.status === "pending" || o.status === "arranging");
     const doneDate = (o.status === "received" && fmtYmd(o.receivedAt)) ? `<br><span class="muted" style="font-size:12px;">完了日：${fmtYmd(o.receivedAt)}</span>` : "";
-    const orderDate = fmtYmd(o.createdAt) ? `<br><span class="muted" style="font-size:12px;">注文日：${fmtYmd(o.createdAt)}</span>` : "";
     return `
     <div class="row-between" style="margin-bottom:8px;">
-      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span>${orderDate}</div>
+      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
       <div style="text-align:right;">
         <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>${doneDate}
         ${canReceive ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
@@ -900,7 +897,7 @@ function renderOrderHistory(onHome) {
   `;
   };
 
-  const activeTitle = "たのんだもの";
+  const activeTitle = myWorkplace ? `${escapeHtml(myWorkplace)} のたのみもの` : "たのんだもの";
 
   return `
     <div style="${onHome ? "" : "margin-top:18px; border-top:1px solid var(--border); padding-top:12px;"}">
@@ -927,49 +924,6 @@ function renderOrderHistory(onHome) {
   `;
 }
 
-/* ---------- 現場（納品先）の突き合わせ用ヘルパー ----------
-   発注の納品先と、従業員の担当現場（就業場所メモ）を「現場キー」にそろえて突き合わせる。
-   ・normalizeSite: 全角半角・空白・先頭の都道府県をそろえる（大阪府堺警察署 → 堺警察署）
-   ・SITE_ALIASES: 略称などの言い換え表。取りこぼしが出た現場だけ1行ずつ足す（例 "堺署": "堺警察署"）
-   ・parseAssignedSiteKeys: 「A、B／C」のように複数現場が書かれたメモを現場キーの配列に分解する
-*/
-const SITE_ALIASES = {
-  // "堺署": "堺警察署",   ← 同じ現場なのに別表示で拾えないときは、ここに1行ずつ追加する
-};
-
-function normalizeSite(str) {
-  if (!str) return "";
-  let s = str.toString();
-  // 全角の英数記号を半角にそろえる
-  s = s.replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-  // 空白（半角・全角）を除去
-  s = s.replace(/[\s\u3000]/g, "");
-  // 先頭の都道府県を除去（大阪府堺警察署 → 堺警察署）
-  s = s.replace(/^(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/, "");
-  return s;
-}
-
-// 別名表を「正規化後のキー」で引けるよう変換しておく
-const SITE_ALIAS_NORM = {};
-Object.keys(SITE_ALIASES).forEach(k => { SITE_ALIAS_NORM[normalizeSite(k)] = normalizeSite(SITE_ALIASES[k]); });
-
-function siteKey(raw) {
-  const n = normalizeSite(raw);
-  if (!n) return "";
-  return SITE_ALIAS_NORM[n] || n;
-}
-
-// 「大阪府堺警察署、その他…／◯◯署」のような文字列を現場キーの配列にする
-function parseAssignedSiteKeys(str) {
-  if (!str) return [];
-  const keys = [];
-  str.toString().split(/[、,，/／\n]+/).forEach(t => {
-    const k = siteKey(t);
-    if (k && !keys.includes(k)) keys.push(k);
-  });
-  return keys;
-}
-
 async function submitOrder() {
   const readField = (id, key) => {
     const el = document.getElementById(id);
@@ -990,7 +944,6 @@ async function submitOrder() {
     area: state.currentUser.area || "",
     workplace: state.currentUser.workplace || "",
     place, item, qty,
-    placeKeys: parseAssignedSiteKeys(place),
     status: "pending",
     createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
   };
@@ -1065,20 +1018,43 @@ function subscribeStaffOrders() {
   staffOrdersUnsub = [];
 
   const me = state.currentUser.id;
+  const myWorkplace = (state.currentUser.workplace || "").trim();
 
-  // 従業員側は「自分が出した発注」だけを表示する（他の人の発注は表示しない）
+  const mineMap = {};  // 自分が出した発注
+  const siteMap = {};  // 同じ就業場所（現場）の発注
+
+  const apply = () => {
+    // 同僚ぶんを土台にして、自分ぶんで上書き（重複は自分の情報を優先）
+    const merged = { ...siteMap, ...mineMap };
+    const rows = Object.values(merged);
+    rows.sort((a, b) => {
+      const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+      const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+      return tb - ta;
+    });
+    state.orders = rows;
+    render();
+  };
+
+  // (1) 自分の発注（現場が未登録の人でも必ず自分ぶんは見える）
   staffOrdersUnsub.push(
     db.collection("orders").where("employeeId", "==", me).onSnapshot(snap => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => {
-        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
-        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
-        return tb - ta;
-      });
-      state.orders = rows;
-      render();
+      Object.keys(mineMap).forEach(k => delete mineMap[k]);
+      snap.docs.forEach(d => { mineMap[d.id] = { id: d.id, ...d.data() }; });
+      apply();
     }, err => console.error("orders(自分)購読エラー", err))
   );
+
+  // (2) 同じ就業場所の発注（自分に現場が登録されている場合のみ）
+  if (myWorkplace) {
+    staffOrdersUnsub.push(
+      db.collection("orders").where("workplace", "==", myWorkplace).onSnapshot(snap => {
+        Object.keys(siteMap).forEach(k => delete siteMap[k]);
+        snap.docs.forEach(d => { siteMap[d.id] = { id: d.id, ...d.data() }; });
+        apply();
+      }, err => console.error("orders(現場)購読エラー", err))
+    );
+  }
 }
 
 /* =========================================================
@@ -1806,7 +1782,7 @@ function renderAdmin() {
         <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
         <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
         <div class="stat-card"><div class="num">${adminUnreadCount()}</div><div class="label">未読メッセージ</div></div>
-        <div class="stat-card"><div class="num">${state.employees.length || "-"}</div><div class="label">登録従業員数</div></div>
+        <div class="stat-card"><div class="num">${state.employees.filter(e => e.status !== "resigned").length || "-"}</div><div class="label">従業員在籍数</div></div>
       </div>
 
       <div class="tabbar">
@@ -1867,7 +1843,10 @@ function renderAdminOrderTab() {
     ["all", "すべて"], ["pending", "未確認"], ["arranging", "手配中"],
     ["ordered", "発注済み"], ["arrived", "到着済み"]
   ];
+  const doneRecent = doneOrders.filter(o => isRecentDone(o));   // 直近3週間に受け取り完了したぶん
+  const doneOld = doneOrders.filter(o => !isRecentDone(o));     // それより前に受け取り完了したぶん
   const showDone = !!state.showDoneOrders;
+  const showOldDone = !!state.showOldDoneOrders;
   const showCancelled = !!state.showCancelledOrders;
   const isNarrow = window.innerWidth <= 700; // スマホでは表をやめてカード表示にする
   const statusOptions = [
@@ -1940,13 +1919,30 @@ function renderAdminOrderTab() {
     ${doneOrders.length ? `
       <div class="card" style="background:#fafafa;">
         <div class="row-between" style="margin:0;">
-          <p class="staff-title" style="font-size:15px; margin:0;">受け取り完了ぶん（${doneOrders.length}件）</p>
+          <p class="staff-title" style="font-size:15px; margin:0;">受け取り完了ぶん（直近3週間・${doneRecent.length}件）</p>
           <button style="font-size:13px; padding:8px 14px;" onclick="state.showDoneOrders = !state.showDoneOrders; render();">${showDone ? "とじる" : "ひらく"}</button>
         </div>
         ${showDone ? `
-          <input id="doneOrderSearch" type="text" placeholder="品目・場所・申請者で検索" value="${(state.doneOrderSearch || "").replace(/"/g, '&quot;')}" oninput="handleDoneOrderSearch(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleDoneOrderSearch(this)" style="margin-top:12px;" />
-          <div id="doneOrderListBody">${renderDoneOrderList(isNarrow, statusOptions)}</div>
-        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでに受け取りが済んだ発注を確認できます。検索や完了日もそこで見られます。</p>`}
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+            <input id="doneOrderSearch" type="text" placeholder="品目・場所・申請者で検索" value="${(state.doneOrderSearch || "").replace(/"/g, '&quot;')}" oninput="handleDoneOrderSearch(this,'recent')" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleDoneOrderSearch(this,'recent')" style="flex:1; min-width:200px; margin:0;" />
+            <button style="font-size:13px; padding:10px 14px; flex-shrink:0;" onclick="exportDoneOrdersToExcel('recent')">エクセルに書き出す</button>
+          </div>
+          <div id="doneOrderListBody">${renderDoneOrderList(isNarrow, statusOptions, "recent")}</div>
+
+          <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:14px;">
+            <div class="row-between" style="margin:0;">
+              <p class="staff-title" style="font-size:14px; margin:0;">3週間より前の完了ぶん（${doneOld.length}件）</p>
+              <button style="font-size:13px; padding:8px 14px;" onclick="state.showOldDoneOrders = !state.showOldDoneOrders; render();">${showOldDone ? "とじる" : "ひらく"}</button>
+            </div>
+            ${showOldDone ? `
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+                <input id="oldDoneOrderSearch" type="text" placeholder="品目・場所・申請者で検索" value="${(state.oldDoneOrderSearch || "").replace(/"/g, '&quot;')}" oninput="handleDoneOrderSearch(this,'old')" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handleDoneOrderSearch(this,'old')" style="flex:1; min-width:200px; margin:0;" />
+                <button style="font-size:13px; padding:10px 14px; flex-shrink:0;" onclick="exportDoneOrdersToExcel('old')">エクセルに書き出す</button>
+              </div>
+              <div id="oldDoneOrderListBody">${renderDoneOrderList(isNarrow, statusOptions, "old")}</div>
+            ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、3週間より前に受け取りが済んだ発注を、検索して確認できます。</p>`}
+          </div>
+        ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、直近3週間に受け取りが済んだ発注を確認できます。それより前のぶんも、その中にまとめて入っています。</p>`}
       </div>
     ` : ""}
 
@@ -1971,41 +1967,94 @@ function renderAdminOrderTab() {
     ${renderOrderEditModal()}
   `;
 }
-function filterDoneOrders() {
+
+/* 「受け取り完了ぶん」を、直近3週間と、それより前とに分けるための共通処理 */
+const DONE_RECENT_DAYS = 21; // 3週間
+
+// 受け取り完了日が直近3週間以内かどうか。
+// 完了日が記録されていない古い記録は、「3週間より前」のほうに入れる。
+function isRecentDone(o) {
+  const sec = tsSeconds(o.receivedAt);
+  if (!sec) return false;
+  return (Date.now() / 1000 - sec) <= DONE_RECENT_DAYS * 86400;
+}
+
+// scope は "recent"（直近3週間）か "old"（3週間より前）
+function doneOrderSearchValue(scope) {
+  return (scope === "old" ? state.oldDoneOrderSearch : state.doneOrderSearch) || "";
+}
+
+function filterDoneOrders(scope) {
   const done = (state.orders || []).filter(o => o.status === "received");
-  const q = (state.doneOrderSearch || "").trim().toLowerCase();
-  if (!q) return done;
-  return done.filter(o =>
-    [o.item, o.place, o.employeeName].some(f => (f || "").toLowerCase().includes(q))
+  const list = done
+    .filter(o => scope === "old" ? !isRecentDone(o) : isRecentDone(o))
+    .slice()
+    .sort((a, b) => tsSeconds(b.receivedAt) - tsSeconds(a.receivedAt)); // 完了日の新しい順
+  const q = doneOrderSearchValue(scope).trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(o =>
+    [o.item, o.place, o.employeeName, o.area].some(f => (f || "").toLowerCase().includes(q))
   );
 }
 
 // 完了ぶんの一覧本体（完了日つき）を描く
-function renderDoneOrderList(isNarrow, statusOptions) {
-  const list = filterDoneOrders();
+function renderDoneOrderList(isNarrow, statusOptions, scope) {
+  const list = filterDoneOrders(scope);
   if (!list.length) {
-    return `<p class="muted" style="font-size:12px; margin:12px 0 0;">見つかりませんでした</p>`;
+    return `<p class="muted" style="font-size:12px; margin:12px 0 0;">${doneOrderSearchValue(scope).trim() ? "見つかりませんでした" : "該当する発注はありません"}</p>`;
   }
-  return isNarrow
-    ? `<div style="margin-top:12px;">${list.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
-    : `<table style="margin-top:12px;">
+  return `<p class="muted" style="font-size:12px; margin:12px 0 4px;">${list.length}件</p>` + (isNarrow
+    ? `<div>${list.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
+    : `<table>
         <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>完了日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
         <tbody>${list.map(o => renderAdminOrderRow(o, statusOptions, true)).join("")}</tbody>
-      </table>`;
+      </table>`);
 }
 
 // 検索入力：入力欄を作り直さず、一覧部分だけ差し替える（日本語変換中は反応しない）
-function handleDoneOrderSearch(el) {
+function handleDoneOrderSearch(el, scope) {
   if (el.dataset.composing === "1") return;
-  state.doneOrderSearch = el.value;
-  const body = document.getElementById("doneOrderListBody");
+  const which = scope === "old" ? "old" : "recent";
+  if (which === "old") state.oldDoneOrderSearch = el.value;
+  else state.doneOrderSearch = el.value;
+  const body = document.getElementById(which === "old" ? "oldDoneOrderListBody" : "doneOrderListBody");
   if (!body) return;
   const isNarrow = window.innerWidth <= 700;
   const statusOptions = [
     ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
     ["arrived", "到着済み"], ["received", "受け取り完了"], ["cancelled", "取り消し"]
   ];
-  body.innerHTML = renderDoneOrderList(isNarrow, statusOptions);
+  body.innerHTML = renderDoneOrderList(isNarrow, statusOptions, which);
+}
+
+// 受け取り完了ぶんをエクセル（.xlsx）に書き出す。
+// 検索欄に文字が入っているときは、その絞り込み結果だけを書き出す。
+function exportDoneOrdersToExcel(scope) {
+  const list = filterDoneOrders(scope);
+  if (!list.length) return alert("書き出すデータがありません");
+  const statusLabel = { pending: "未確認", arranging: "手配中", ordered: "発注済み", arrived: "到着済み", received: "受け取り完了", cancelled: "取り消し" };
+  const rows = list.map(o => ({
+    "申請者": o.employeeName || "",
+    "エリア": o.area || "",
+    "発注場所": o.place || "",
+    "品目": o.item || "",
+    "数量": o.qty || "",
+    "注文日": fmtYmd(o.createdAt),
+    "完了日": fmtYmd(o.receivedAt),
+    "状態": statusLabel[o.status] || o.status || "",
+    "処理者": o.handledBy || "",
+    "電話注文": o.byPhone ? "はい" : ""
+  }));
+  const sheetName = scope === "old" ? "3週間より前" : "直近3週間";
+  try {
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `発注リスト_受け取り完了_${sheetName}_${dateStr}.xlsx`);
+  } catch (e) {
+    alert("書き出しに失敗しました: " + e.message);
+  }
 }
 
 async function submitPhoneOrder() {
@@ -2041,7 +2090,6 @@ async function submitPhoneOrder() {
     employeeName: name,
     area: "",
     place, item, qty,
-    placeKeys: parseAssignedSiteKeys(place),
     status: "pending",
     byPhone: true,
     handledBy: state.currentUser.name || "本社担当",
@@ -2361,9 +2409,7 @@ const EMP_FIELDS_TOP = [
   ["gender", "性別"], ["birthDate", "生年月日"]
 ];
 const EMP_FIELDS_HIGHLIGHT = [
-  ["area", "エリア"],
-  ["workplace", "就業場所（会社用メモ）"],
-  ["workplaceContract", "就業場所（雇用契約書に記載）"],
+  ["area", "エリア"], ["workplace", "就業場所（現場）"],
   ["hireDate", "入社日（雇用開始日）"],
   ["probationEnd", "試用期間終了日（未入力なら入社日＋1か月）"]
 ];
@@ -2814,10 +2860,13 @@ function computeEmpList() {
 function renderEmpTableRows() {
   const list = computeEmpList();
   const showResigned = !!state.showResignedList;
+  // 退職者一覧・在籍者一覧を開いたときに、合計人数がひと目で分かるようにする
+  const total = state.employees.filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned").length;
+  const summary = `<p class="muted" style="font-size:12.5px; margin:0 0 8px;">${showResigned ? "退職者" : "在籍者"} 合計 <b style="font-size:16px; color:var(--text);">${total}名</b>${list.length !== total ? `　／　絞り込み後 ${list.length}名` : ""}</p>`;
   if (!list.length) {
-    return `<p class="muted" style="padding:16px 4px;">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`;
+    return summary + `<p class="muted" style="padding:16px 4px;">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`;
   }
-  return list.map(e => {
+  return summary + list.map(e => {
     const age = calcAge(e.birthDate);
     const shift = shiftSummary(e);
     const metaParts = [e.employeeCode || "管理番号未設定", e.area || ""].filter(Boolean);
@@ -2925,17 +2974,12 @@ function renderAdminEmployeeTab() {
         <div style="margin-top:14px; padding:14px; background:#f4f9f6; border:1.5px solid #cfe8db; border-radius:12px;">
           <p class="muted" style="margin:0 0 8px; font-size:13px;">勤務の基本情報</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
-            ${EMP_FIELDS_HIGHLIGHT.map(([key, label]) => {
-              // workplaceContract（契約書用）は未入力のあいだ、会社用メモの就業場所を初期表示する
-              const raw = editing[key] ?? (key === "workplaceContract" ? editing.workplace : "") ?? "";
-              const val = raw.toString().replace(/"/g, '&quot;');
-              return `
+            ${EMP_FIELDS_HIGHLIGHT.map(([key, label]) => `
               <div>
                 <label style="margin:4px 0 4px; font-weight:700;">${label}</label>
-                <input id="emp_${key}" type="text" style="font-size:16px; padding:12px;" value="${val}" />
+                <input id="emp_${key}" type="text" style="font-size:16px; padding:12px;" value="${(editing[key] ?? "").toString().replace(/"/g, '&quot;')}" />
               </div>
-            `;
-            }).join("")}
+            `).join("")}
           </div>
 
           <p class="muted" style="margin:16px 0 8px; font-size:13px;">シフト（曜日ごとの勤務時間）</p>
@@ -3002,8 +3046,6 @@ function renderAdminEmployeeTab() {
           `
         }
 
-        ${renderMedCertSection(editing)}
-
         ${renderEmpAttendanceHistory(editing)}
       </div>
     `;
@@ -3022,7 +3064,7 @@ function renderAdminEmployeeTab() {
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:14px;">
-        <p class="staff-title" style="font-size:16px; margin:0;">${showResigned ? "退職者一覧（管理者のみ閲覧可）" : "従業員一覧"}</p>
+        <p class="staff-title" style="font-size:16px; margin:0;">${showResigned ? `退職者一覧（管理者のみ閲覧可）　合計 ${resignedAll.length}名` : `従業員一覧　在籍 ${activeAll.length}名`}</p>
         <div>
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>` : ""}
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px; margin-right:8px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>` : ""}
@@ -4248,9 +4290,6 @@ function renderAdminContractTab() {
       ` : ""}
       <button class="primary" onclick="window.print()">印刷する</button>
       <button class="secondary" onclick="savePreviewAsPdf('contractSheet','${type}_${(emp && emp.name) || ""}.pdf', this)">PDFとして保存する</button>
-      ${empId && type === "試用契約書" ? `<button class="secondary" onclick="downloadShiyoKeiyakuWord(state.employees.find(e=>e.id===state.contractEmpId)||{})">Wordファイルとして保存する</button>` : ""}
-      ${empId && type === "雇用契約書" ? `<button class="secondary" onclick="downloadKoyoKeiyakuExcel(state.employees.find(e=>e.id===state.contractEmpId)||{})">Excelファイルとして保存する</button>` : ""}
-      ${empId && type === "労働者名簿" ? `<button class="secondary" onclick="downloadRoshaMeiboExcel(state.employees.find(e=>e.id===state.contractEmpId)||{})">Excelファイルとして保存する</button>` : ""}
     </div>
 
     <div class="card contract-preview${type === "労働者名簿" ? " roster-print" : ""}" id="contractSheet">
@@ -4483,7 +4522,6 @@ function renderEnvelopeSheet(emp) {
 
 
 
-
 function renderKoyoKeiyaku(emp) {
   const yen = emp.baseWage ? emp.baseWage : "";
   // 原本に合わせ、基本給の右側に手当などを手書きできる空欄の行を並べる（1行=空の枠2つ）
@@ -4691,270 +4729,6 @@ function renderRoshaMeibo(emp) {
   `;
 }
 
-/* ---------- 書類のダウンロード（Word／Excel） ---------- */
-function xmlEsc(s) {
-  return (s == null ? "" : String(s))
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-// paras: [{ text, bold, align:'left'|'center'|'right'|'both', size(pt), spacingAfter(twips) }]
-// text 内の "\n" は改行として扱う
-function buildDocxBlob(paras) {
-  const body = paras.map(p => {
-    const sz = Math.round((p.size || 10.5) * 2);
-    const jc = p.align ? `<w:jc w:val="${p.align}"/>` : "";
-    const spacing = p.spacingAfter != null ? `<w:spacing w:after="${p.spacingAfter}"/>` : "";
-    const lines = String(p.text == null ? "" : p.text).split("\n");
-    const runs = lines.map((ln, i) => {
-      const brk = i < lines.length - 1 ? "<w:br/>" : "";
-      const b = p.bold ? "<w:b/>" : "";
-      return `<w:r><w:rPr>${b}<w:rFonts w:ascii="Yu Gothic" w:eastAsia="Yu Gothic" w:hAnsi="Yu Gothic"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${xmlEsc(ln)}</w:t>${brk}</w:r>`;
-    }).join("");
-    return `<w:p><w:pPr>${jc}${spacing}</w:pPr>${runs}</w:p>`;
-  }).join("");
-  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}` +
-    `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
-    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
-    `<Default Extension="xml" ContentType="application/xml"/>` +
-    `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
-  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const zip = new JSZip();
-  zip.file("[Content_Types].xml", contentTypes);
-  zip.folder("_rels").file(".rels", rels);
-  zip.folder("word").file("document.xml", documentXml);
-  return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-}
-
-async function downloadShiyoKeiyakuWord(emp) {
-  emp = emp || {};
-  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
-  const start = state.probationStart;
-  const end = state.probationEnd;
-  const signDate = addDays(start, -1);
-  const P = (text, opt) => Object.assign({ text, size: 10.5 }, opt || {});
-  const paras = [
-    P("試用契約書", { bold: true, align: "center", size: 20, spacingAfter: 480 }),
-    P(`使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。`, { spacingAfter: 240 }),
-    P("第1条", { bold: true, spacingAfter: 60 }),
-    P("1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。\n" +
-      "2　試用期間は、" + toWareki(start) + "から" + toWareki(end) + "までの１か月間とする。\n" +
-      "3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。\n" +
-      "4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。", { spacingAfter: 240 }),
-    P("第2条", { bold: true, spacingAfter: 60 }),
-    P("乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。", { spacingAfter: 240 }),
-    P("第3条", { bold: true, spacingAfter: 60 }),
-    P("乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。", { spacingAfter: 240 }),
-    P("以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。", { spacingAfter: 360 }),
-    P(toWareki(signDate), { spacingAfter: 360 }),
-    P("使用者（甲）", { align: "right" }),
-    P("　" + COMPANY_ADDRESS, { align: "right" }),
-    P(COMPANY_NAME, { align: "right" }),
-    P("　代表取締役　" + COMPANY_REP + "　　印", { align: "right", spacingAfter: 360 }),
-    P("労働者（乙）", { align: "right" }),
-    P("　住所：" + (emp.address || "　　　　　　　　　　　　　　　"), { align: "right" }),
-    P("　氏名：" + (emp.name || "　　　　　　　　　　　　") + "　　印", { align: "right" })
-  ];
-  try {
-    const blob = await buildDocxBlob(paras);
-    downloadBlob(blob, `試用契約書_${emp.name || ""}.docx`);
-  } catch (e) {
-    alert("Wordファイルの作成に失敗しました: " + e.message);
-  }
-}
-
-function downloadKoyoKeiyakuExcel(emp) {
-  emp = emp || {};
-  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
-  const rows = [
-    ["雇用契約書"],
-    [],
-    ["フリガナ", emp.furigana || "", "性別", emp.gender || ""],
-    ["氏名", emp.name || "", "生年月日", emp.birthDate ? toWareki(emp.birthDate) : ""],
-    ["現住所", emp.address || "", "", ""],
-    [],
-    ["雇用期間", toWareki(emp.hireDate) + (emp.contractEnd ? "　〜　" + toWareki(emp.contractEnd) + "　まで" : "　（期間の定めなし）"), "", ""],
-    ["基本給", emp.baseWage ? emp.baseWage + " 円" : "", "", ""],
-    ["従事する業務の種類", emp.jobType || "", "", ""],
-    ["就業時間", emp.workHours || "", "", ""],
-    ["休日", emp.holiday || "", "", ""],
-    ["賃金締切日", emp.payCutoffDay || "", "賃金支払日", emp.payDay || ""],
-    ["支払時の控除", emp.deduction || "", "", ""],
-    ["就業場所", emp.workplace || "", "", ""],
-    ["昇給の有無", emp.raiseYN || "", "賞与の有無", emp.bonusYN || ""],
-    ["退職手当の有無", emp.retirementYN || "", "継続雇用の有無", emp.continuedYN || ""],
-    ["相談窓口担当者", emp.contactPerson || "", "", ""],
-    ["備考", emp.notes || "", "", ""],
-    [],
-    ["上記以外の労働条件等については当社就業規則によります。"],
-    ["契約日", toWareki(emp.hireDate)]
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 22 }, { wch: 40 }, { wch: 14 }, { wch: 24 }];
-  const full = r => ({ s: { r, c: 1 }, e: { r, c: 3 } });
-  ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-    full(4), full(6), full(7), full(8), full(9), full(10), full(12), full(13), full(16), full(17),
-    { s: { r: 19, c: 0 }, e: { r: 19, c: 3 } }
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "雇用契約書");
-  XLSX.writeFile(wb, `雇用契約書_${emp.name || ""}.xlsx`);
-}
-
-function downloadRoshaMeiboExcel(emp) {
-  emp = emp || {};
-  if (!emp.id) return alert("先に上の欄から従業員を選んでください。");
-  const rows = [
-    ["労働者名簿"],
-    [],
-    ["フリガナ", emp.furigana || "", "性別", emp.gender || ""],
-    ["氏名", emp.name || "", "", ""],
-    ["生年月日", emp.birthDate ? toWareki(emp.birthDate) : "", "", ""],
-    ["現住所", (emp.postalCode ? "〒" + emp.postalCode + "　" : "") + (emp.address || ""), "", ""],
-    ["連絡先（自宅）", emp.homePhone || "", "連絡先（携帯）", emp.phone || ""],
-    ["給与振込先", "ゆうちょ銀行　記号 " + (emp.yuchoKigo || "") + "　番号 " + (emp.yuchoBango || ""), "", ""],
-    ["雇入年月日", emp.hireDate ? toWareki(emp.hireDate) : "", "", ""],
-    ["従事する業務の種類", emp.jobType || "", "", ""],
-    ["備考", emp.notes || "", "", ""],
-    ["解雇・退職または死亡（年月日）", (emp.status === "resigned" && emp.resignedDate) ? toWareki(emp.resignedDate) : "", "", ""],
-    ["解雇・退職または死亡（事由）", emp.resignReason || "", "", ""]
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 26 }, { wch: 40 }, { wch: 16 }, { wch: 24 }];
-  const full = r => ({ s: { r, c: 1 }, e: { r, c: 3 } });
-  ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-    full(3), full(4), full(5), full(7), full(8), full(9), full(10), full(11), full(12)
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "労働者名簿");
-  XLSX.writeFile(wb, `労働者名簿_${emp.name || ""}.xlsx`);
-}
-
-/* ---------- 診断書（PDFアップロード／閲覧） ---------- */
-function renderMedCertSection(emp) {
-  const list = (state.medicalCertificates || [])
-    .filter(c => c.employeeId === emp.id)
-    .sort((a, b) => (b.certDate || "").localeCompare(a.certDate || ""));
-  return `
-    <div style="margin-top:14px; padding:14px; background:#eef4fb; border:1.5px solid #c3d7ee; border-radius:12px;">
-      <label style="margin:0 0 4px; font-weight:700; color:#2c5b8f;">診断書（PDF）</label>
-      <p class="muted" style="margin:0 0 8px; font-size:12px;">診断書のPDFをアップロードして保管できます。1ファイル650KBまで（大きいときは白黒・低解像度で出力し直してください）。会社側だけが見られます。</p>
-      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; margin-bottom:8px;">
-        <div><label style="font-size:12px;">診断日（任意）</label><input type="date" id="medcert_date_${emp.id}" /></div>
-        <div><label style="font-size:12px;">メモ（任意）</label><input type="text" id="medcert_note_${emp.id}" placeholder="例：〇〇のため △月まで通院" /></div>
-      </div>
-      <input type="file" accept="application/pdf" id="medcert_file_${emp.id}" onchange="handleMedCertFileSelect(event, '${emp.id}')" />
-      <div id="medcert_preview_${emp.id}"></div>
-      ${list.length ? `
-        <table style="margin-top:12px;">
-          <thead><tr><th style="width:120px;">診断日</th><th>メモ</th><th></th></tr></thead>
-          <tbody>
-            ${list.map(c => `
-              <tr>
-                <td>${c.certDate || "―"}</td>
-                <td>${(c.note || "").toString().replace(/</g, "&lt;")}<br><span class="muted" style="font-size:11px;">${(c.fileName || "診断書.pdf")}</span></td>
-                <td style="white-space:nowrap;">
-                  <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="viewMedCert('${c.id}')">見る</button>
-                  <button class="link" style="color:var(--danger); font-size:12px;" onclick="deleteMedCert('${c.id}')">削除</button>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      ` : `<p class="muted" style="margin-top:10px; font-size:12px;">まだ診断書は登録されていません。</p>`}
-    </div>
-  `;
-}
-
-function handleMedCertFileSelect(evt, empId) {
-  const file = evt.target.files[0];
-  if (!file) return;
-  if (file.type !== "application/pdf") { alert("PDFファイルを選んでください"); evt.target.value = ""; return; }
-  if (file.size > 650 * 1024) { alert("ファイルが大きすぎます（650KBまで）。白黒・低解像度で出力し直してから、もう一度お試しください。"); evt.target.value = ""; return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    state.pendingMedCert = { empId, base64: reader.result, fileName: file.name };
-    const holder = document.getElementById("medcert_preview_" + empId);
-    if (holder) holder.innerHTML = `
-      <p style="margin:8px 0;">「${file.name}」を読み込みました。</p>
-      <button class="primary" style="width:auto; padding:10px 18px;" onclick="uploadMedCert('${empId}')">この診断書を登録する</button>
-    `;
-  };
-  reader.readAsDataURL(file);
-}
-
-async function uploadMedCert(empId) {
-  const emp = state.employees.find(e => e.id === empId) || {};
-  if (!state.pendingMedCert || state.pendingMedCert.empId !== empId) return alert("ファイルをもう一度選んでください");
-  const certDate = (document.getElementById("medcert_date_" + empId) || {}).value || "";
-  const note = (document.getElementById("medcert_note_" + empId) || {}).value || "";
-  const data = {
-    employeeId: empId,
-    employeeName: emp.name || "",
-    certDate,
-    note,
-    fileName: state.pendingMedCert.fileName,
-    pdfBase64: state.pendingMedCert.base64,
-    uploadedAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
-  };
-  if (!firebaseReady) {
-    state.medicalCertificates = state.medicalCertificates || [];
-    state.medicalCertificates.push(Object.assign({ id: "local_" + Date.now() }, data));
-    state.pendingMedCert = null;
-    alert("（お試し表示のため実際の保存はされません）");
-    return render();
-  }
-  try {
-    await db.collection("medicalCertificates").add(data);
-    state.pendingMedCert = null;
-    alert("診断書を登録しました");
-    render();
-  } catch (e) {
-    alert("登録エラー: " + e.message);
-  }
-}
-
-function viewMedCert(id) {
-  const c = (state.medicalCertificates || []).find(x => x.id === id);
-  if (!c || !c.pdfBase64) return alert("ファイルが見つかりません");
-  try {
-    const b64 = c.pdfBase64.indexOf(",") >= 0 ? c.pdfBase64.split(",")[1] : c.pdfBase64;
-    const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (e) {
-    window.open(c.pdfBase64, "_blank");
-  }
-}
-
-async function deleteMedCert(id) {
-  if (!confirm("この診断書を削除します。よろしいですか？")) return;
-  if (!firebaseReady) {
-    state.medicalCertificates = (state.medicalCertificates || []).filter(c => c.id !== id);
-    return render();
-  }
-  try {
-    await db.collection("medicalCertificates").doc(id).delete();
-  } catch (e) {
-    alert("削除エラー: " + e.message);
-  }
-}
-
 async function updateLeaveStatus(id, status) {
   if (!firebaseReady) {
     const r = state.leaveRequests.find(x => x.id === id);
@@ -4987,10 +4761,6 @@ function subscribeAllLeaveRequests() {
     render();
     cleanupOldPayslips(rows);
   }, err => console.error("payslips(admin)購読エラー", err));
-  db.collection("medicalCertificates").onSnapshot(snap => {
-    state.medicalCertificates = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  }, err => console.error("medicalCertificates購読エラー", err));
 }
 
 function subscribeAllMessages() {

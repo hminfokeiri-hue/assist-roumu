@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-17(1)";
+const APP_VERSION = "更新: 2026-08-19(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -750,7 +750,7 @@ function logout() {
 /* ---------- パートさん側：ホーム ---------- */
 function renderStaff() {
   const bal = leaveBalance(state.currentUser);
-  const usedOrPending = state.leaveRequests.filter(r => r.status !== "rejected").length;
+  const usedOrPending = state.leaveRequests.filter(r => r.status !== "rejected" && r.status !== "cancelled").length;
 
   appEl.innerHTML = `
     <header class="topbar">
@@ -1686,16 +1686,30 @@ function renderLeaveHistory() {
     <div class="card">
       <p class="staff-title" style="font-size:16px;">これまでの申請</p>
       ${state.leaveRequests.map(r => `
-        <div class="req-item">
+        <div class="req-item"${r.status === "cancelled" ? ' style="opacity:0.6;"' : ""}>
           <div class="row-between" style="margin:0;">
             <div>
               <div>${r.date}（${r.type}）</div>
               <div class="muted">${r.reason || ""}</div>
             </div>
-            <span class="status-pill status-${r.status}">${
-              r.status === "pending" ? "まだ確認中です" : r.status === "approved" ? "決裁" : "否決"
-            }</span>
+            ${r.status === "cancelled"
+              ? `<span class="status-pill" style="background:#eee; color:#888;">取り消しました${fmtYmd(r.cancelledAt) ? "・" + fmtYmd(r.cancelledAt) : ""}</span>`
+              : r.status === "cancelRequested"
+              ? `<span class="status-pill" style="background:#fdf0d5; color:var(--warning);">取り消しをお願い中</span>`
+              : `<span class="status-pill status-${r.status}">${
+                  r.status === "pending" ? "まだ確認中です" : r.status === "approved" ? "決裁" : "否決"
+                }</span>`}
           </div>
+          ${r.status === "pending" ? `
+            <div style="text-align:right; margin-top:8px;">
+              <button style="font-size:13px; padding:6px 12px; color:var(--danger); border:1.5px solid var(--danger); background:#fff; border-radius:8px;" onclick="requestCancelLeave('${r.id}')">日にちをまちがえたので取り消したい</button>
+            </div>
+          ` : ""}
+          ${r.status === "cancelRequested" ? `
+            <div class="placeholder-note" style="margin:10px 0 0;">
+              取り消しのお願いを本社に送りました。本社が確認すると取り消しが確定します。少しお待ちください。
+            </div>
+          ` : ""}
           ${r.status === "rejected" ? `
             <div class="placeholder-note" style="margin:10px 0 0;">
               この申請は否決になりました。理由をお聞きになりたい場合や、日にちを変えて出しなおしたい場合は、本社までお電話ください。
@@ -1750,6 +1764,71 @@ async function submitLeaveRequest() {
   }
 }
 
+// パートさんが自分の休み申請について「日にちをまちがえたので取り消したい」と本社にお願いする。
+// ここでは取り消しを確定せず、状態を「取り消し依頼中(cancelRequested)」にして本社に届ける。
+async function requestCancelLeave(id) {
+  const r = (state.leaveRequests || []).find(x => x.id === id);
+  if (!r) return;
+  if (r.employeeId !== state.currentUser.id) return; // 自分の申請だけお願いできる
+  if (r.status !== "pending") {
+    return alert("この申請はすでに本社が確認したため、アプリからは取り消しをお願いできません。お手数ですが本社（06-6654-7812）にお電話ください。");
+  }
+  if (!confirm(`${r.date}（${r.type}）の申請について、取り消しを本社にお願いします。よろしいですか？\n\n本社が確認すると取り消しが確定します。そのあと、正しい日にちであらためて申請してください。`)) return;
+  if (!firebaseReady) {
+    r.status = "cancelRequested";
+    r.cancelRequestedAt = new Date().toISOString();
+    r.cancelRequestedBy = state.currentUser.name || "";
+    return render();
+  }
+  try {
+    await db.collection("leaveRequests").doc(id).update({
+      status: "cancelRequested",
+      cancelRequestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cancelRequestedBy: state.currentUser.name || ""
+    });
+  } catch (e) {
+    alert("取り消しのお願いを送れませんでした: " + e.message);
+  }
+}
+
+// 本社が取り消し依頼を「承認」して取り消しを確定する
+async function approveCancelLeave(id) {
+  const r = (state.leaveRequests || []).find(x => x.id === id);
+  if (!r) return;
+  if (!confirm(`${r.employeeName || ""}さんの ${r.date}（${r.type}）の申請を取り消します。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    r.status = "cancelled";
+    r.cancelledAt = new Date().toISOString();
+    r.cancelledBy = "本社";
+    return render();
+  }
+  try {
+    await db.collection("leaveRequests").doc(id).update({
+      status: "cancelled",
+      cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cancelledBy: "本社"
+    });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
+// 本社が取り消し依頼を「戻す」＝取り消しをやめて、元の確認中(pending)に戻す
+async function denyCancelLeave(id) {
+  const r = (state.leaveRequests || []).find(x => x.id === id);
+  if (!r) return;
+  if (!confirm(`${r.employeeName || ""}さんの ${r.date}（${r.type}）の取り消し依頼を取り下げ、「確認中」に戻します。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    r.status = "pending";
+    return render();
+  }
+  try {
+    await db.collection("leaveRequests").doc(id).update({ status: "pending" });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
 function subscribeStaffLeaveRequests() {
   if (!firebaseReady) return;
   db.collection("leaveRequests")
@@ -1771,6 +1850,7 @@ function subscribeStaffLeaveRequests() {
 /* ---------- 本社側：ダッシュボード ---------- */
 function renderAdmin() {
   const pending = state.leaveRequests.filter(r => r.status === "pending");
+  const cancelReqs = state.leaveRequests.filter(r => r.status === "cancelRequested");
 
   appEl.innerHTML = `
     <header class="topbar">
@@ -1787,7 +1867,7 @@ function renderAdmin() {
 
       <div class="tabbar">
         <button class="${state.adminTab === "order" ? "active" : ""}" onclick="state.adminTab='order'; render();">発注リスト</button>
-        <button class="${state.adminTab === "leave" ? "active" : ""}" onclick="state.adminTab='leave'; render();">休暇管理</button>
+        <button class="${state.adminTab === "leave" ? "active" : ""}" onclick="state.adminTab='leave'; render();">休暇管理${cancelReqs.length > 0 ? ` <span style="color:var(--danger);">(取消依頼${cancelReqs.length})</span>` : ""}</button>
         <button class="${state.adminTab === "chat" ? "active" : ""}" onclick="state.adminTab='chat'; render();">チャット${adminUnreadCount() > 0 ? ` (${adminUnreadCount()})` : ""}</button>
         <button class="${state.adminTab === "emp" ? "active" : ""}" onclick="state.adminTab='emp'; state.editingEmpId=null; render();">従業員管理</button>
         <button class="${state.adminTab === "envelope" ? "active" : ""}" onclick="state.adminTab='envelope'; render();">封筒印刷</button>
@@ -2341,7 +2421,7 @@ function leaveDateLabel(dateStr) {
 function renderUpcomingLeaveCard() {
   const todayStr = formatYmd(new Date());
   const list = (state.leaveRequests || [])
-    .filter(r => r.status !== "rejected" && r.date && r.date >= todayStr)
+    .filter(r => r.status !== "rejected" && r.status !== "cancelled" && r.date && r.date >= todayStr)
     .slice()
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
@@ -2357,6 +2437,8 @@ function renderUpcomingLeaveCard() {
         const { label, urgency, soon } = leaveDateLabel(r.date);
         const statusPill = r.status === "approved"
           ? `<span class="status-pill status-approved">決裁済み</span>`
+          : r.status === "cancelRequested"
+          ? `<span class="status-pill status-rejected">取り消し依頼あり</span>`
           : `<span class="status-pill status-pending">確認中</span>`;
         return `
           <div class="req-item" style="${soon ? "background:#FCF1E2; border-radius:8px; padding:12px;" : ""}">
@@ -2377,7 +2459,32 @@ function renderUpcomingLeaveCard() {
 }
 
 function renderAdminLeaveTab(pending) {
+  const cancelReqs = (state.leaveRequests || []).filter(r => r.status === "cancelRequested");
   return `
+      ${cancelReqs.length ? `
+      <div class="card" style="border:2px solid var(--danger);">
+        <p class="staff-title" style="font-size:16px; color:var(--danger);">取り消しの依頼（パートさんが日にちのまちがいなどで取り消しを希望しています）</p>
+        <table>
+          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>操作</th></tr></thead>
+          <tbody>
+            ${cancelReqs.map(r => `
+              <tr>
+                <td>${r.employeeName || ""}</td>
+                <td>${r.area || ""}</td>
+                <td>${r.date}</td>
+                <td>${r.type}</td>
+                <td>${r.reason || ""}</td>
+                <td>
+                  <button class="btn-approve" onclick="approveCancelLeave('${r.id}')">取り消しを承認</button>
+                  <button class="btn-reject" onclick="denyCancelLeave('${r.id}')">確認中に戻す</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <p class="muted" style="font-size:11px; margin-top:10px;">「取り消しを承認」でその申請は取り消し済みになります。「確認中に戻す」でお願いを取り下げ、元の決裁待ちに戻します。</p>
+      </div>
+      ` : ""}
       ${renderUpcomingLeaveCard()}
       <div class="card">
         <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
@@ -2590,7 +2697,7 @@ async function lookupPostalCode() {
    days が入っていない古い記録は 1日として扱う（半休は 0.5）。 */
 function usedPaidLeaveFor(empId) {
   return (state.leaveRequests || [])
-    .filter(r => r.employeeId === empId && r.type === "有給休暇" && r.status !== "rejected")
+    .filter(r => r.employeeId === empId && r.type === "有給休暇" && r.status !== "rejected" && r.status !== "cancelled")
     .reduce((sum, r) => sum + (typeof r.days === "number" ? r.days : 1), 0);
 }
 
@@ -2616,7 +2723,7 @@ function leaveBalance(emp) {
   const prevGrantDate = k >= 2 ? addMonths(emp.hireDate, 6 + (k - 2) * 12) : "";
 
   const paid = (state.leaveRequests || []).filter(r =>
-    r.employeeId === emp.id && r.type === "有給休暇" && r.status !== "rejected");
+    r.employeeId === emp.id && r.type === "有給休暇" && r.status !== "rejected" && r.status !== "cancelled");
   const dayOf = r => (typeof r.days === "number" ? r.days : 1);
   let usedPrev = 0, usedCurr = 0;
   paid.forEach(r => {
@@ -2646,7 +2753,7 @@ function renderEmpAttendanceHistory(emp) {
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  const statusLabel = { pending: "確認中", approved: "決裁", rejected: "否決" };
+  const statusLabel = { pending: "確認中", approved: "決裁", rejected: "否決", cancelled: "取り消し", cancelRequested: "取り消し依頼中" };
   const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   const bal = leaveBalance(emp);
@@ -2737,7 +2844,7 @@ async function addAdminLeaveRecord(empId) {
 
   // 同じ日に同じ区分の記録がないか確認する（二重登録の防止）
   const dup = (state.leaveRequests || []).find(
-    r => r.employeeId === empId && r.date === date && r.type === type && r.status !== "rejected"
+    r => r.employeeId === empId && r.date === date && r.type === type && r.status !== "rejected" && r.status !== "cancelled"
   );
   if (dup && !confirm(`${date} の「${type}」はすでに登録されています。それでも追加しますか？`)) return;
 

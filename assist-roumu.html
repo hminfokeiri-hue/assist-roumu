@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-19(2)";
+const APP_VERSION = "更新: 2026-08-20(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -510,7 +510,9 @@ const state = {
   activeGroupId: null,
   groupMessages: [],
   groupPendingPhoto: null,
-  allGroups: []
+  allGroups: [],
+  adminGroupId: null,        // 本社が内容確認中のグループID（null=一覧表示）
+  adminGroupMessages: []     // そのグループのトーク内容（本社の閲覧用）
 };
 
 const appEl = document.getElementById("app");
@@ -1890,6 +1892,8 @@ function renderAdmin() {
   if (state.adminTab === "chat") {
     const box = document.getElementById("chatScroll");
     if (box) box.scrollTop = box.scrollHeight;
+    const gbox = document.getElementById("adminGroupScroll");
+    if (gbox) gbox.scrollTop = gbox.scrollHeight;
   }
   setEnvelopePageSize(state.adminTab === "envelope", state.envelopeMode === "horizontal");
 }
@@ -4910,6 +4914,44 @@ async function adminDeleteGroup(groupId, name) {
   }
 }
 
+/* --- 本社によるグループ内容の閲覧（読み取り専用のモニタリング） ------------
+   代表取締役の指示により、従業員同士のグループチャットの内容を本社が確認できる。
+   閲覧のみで、本社からの書き込みはできない。開いたグループのメッセージだけを
+   その都度購読し、別グループを開くときは前の購読を解除する。 */
+let adminGroupMsgUnsub = null;
+
+function openAdminGroupChat(groupId) {
+  state.adminGroupId = groupId;
+  state.adminGroupMessages = [];
+  render();
+  subscribeAdminGroupMessages(groupId);
+}
+
+function closeAdminGroupChat() {
+  if (adminGroupMsgUnsub) { try { adminGroupMsgUnsub(); } catch (e) {} adminGroupMsgUnsub = null; }
+  state.adminGroupId = null;
+  state.adminGroupMessages = [];
+  render();
+}
+
+function subscribeAdminGroupMessages(groupId) {
+  // 別グループを見ていたら購読を解除（リスナーの多重登録を防ぐ）
+  if (adminGroupMsgUnsub) { try { adminGroupMsgUnsub(); } catch (e) {} adminGroupMsgUnsub = null; }
+  if (!firebaseReady) return render();
+  adminGroupMsgUnsub = db.collection("groupMessages")
+    .where("groupId", "==", groupId)
+    .onSnapshot(snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+        const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+        return ta - tb;
+      });
+      state.adminGroupMessages = rows;
+      render();
+    }, err => console.error("groupMessages(admin)購読エラー", err));
+}
+
 function adminUnreadCount() {
   if (!state.messages) return 0;
   return state.messages.filter(m => m.senderRole === "staff" && !m.readByOffice).length;
@@ -5105,21 +5147,50 @@ function renderAdminChatTab() {
       ` : ""}
     </div>
 
+    ${renderAdminGroupSection()}
+  `;
+}
+
+// 本社によるグループチャットの確認欄。一覧表示と、読み取り専用のトーク内容表示を切り替える。
+function renderAdminGroupSection() {
+  const groups = (state.allGroups || []).slice().sort((a, b) => groupLastActivity(b) - groupLastActivity(a));
+
+  // どれかのグループを開いているとき → 読み取り専用でトーク内容を表示
+  if (state.adminGroupId) {
+    const g = groups.find(x => x.id === state.adminGroupId) || {};
+    const msgs = state.adminGroupMessages || [];
+    return `
+      <div class="card">
+        <div class="row-between" style="margin-bottom:4px;">
+          <p class="staff-title" style="font-size:16px; margin:0;">${escapeHtml(g.name || "グループ")}<span class="muted" style="font-size:12px; font-weight:400;">（本社確認・閲覧のみ）</span></p>
+          <button class="link" onclick="closeAdminGroupChat()">← 一覧にもどる</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">参加コード：${g.code || ""}　／　メンバー：${(g.members || []).length}人　／　本社からの書き込みはできません（内容の確認のみ）</p>
+        <div class="chat-scroll" id="adminGroupScroll" style="height:60vh;">
+          ${msgs.length ? msgs.map(m => renderChatBubble(m, false)).join("") : `<p class="muted">まだメッセージはありません</p>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // 一覧表示（各グループに「内容を見る」ボタン）
+  return `
     <div class="card">
       <p class="staff-title" style="font-size:16px;">グループチャット一覧（本社確認用）</p>
-      <p class="muted" style="font-size:12px; margin-top:-6px;">従業員同士の「みんなとお話し」グループの一覧です。トーク内容は本社側からは見えません。存在するグループの確認と、削除だけができます。</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">従業員同士の「みんなとお話し」グループの一覧です。各グループの「内容を見る」から、やりとりを確認できます（閲覧のみ／本社からの書き込みはできません）。<br><span style="color:var(--danger);">※この閲覧機能は、従業員へ事前に周知したうえでご利用ください（就業規則・利用ルールへの明示を推奨）。</span></p>
       <table>
-        <thead><tr><th>グループ名</th><th>参加コード</th><th>人数</th><th>作成日</th><th></th></tr></thead>
+        <thead><tr><th>グループ名</th><th>参加コード</th><th>人数</th><th>作成日</th><th></th><th></th></tr></thead>
         <tbody>
-          ${(state.allGroups || []).slice().sort((a, b) => groupLastActivity(b) - groupLastActivity(a)).map(g => `
+          ${groups.map(g => `
             <tr>
               <td>${escapeHtml(g.name || "")}</td>
               <td>${g.code || ""}</td>
               <td>${(g.members || []).length}人</td>
               <td class="muted" style="font-size:12px;">${g.createdAt && g.createdAt.seconds ? new Date(g.createdAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
+              <td><button style="font-size:12px; padding:6px 10px;" onclick="openAdminGroupChat('${g.id}')">内容を見る</button></td>
               <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="adminDeleteGroup('${g.id}', '${(g.name || "").replace(/'/g, "\\'")}')">削除</button></td>
             </tr>
-          `).join("") || `<tr><td colspan="5" class="muted">グループチャットはまだありません</td></tr>`}
+          `).join("") || `<tr><td colspan="6" class="muted">グループチャットはまだありません</td></tr>`}
         </tbody>
       </table>
     </div>

@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-20(1)";
+const APP_VERSION = "更新: 2026-08-21(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2462,6 +2462,102 @@ function renderUpcomingLeaveCard() {
   `;
 }
 
+// これまで（今日より前）の休み・有給の記録を、新しい順でまとめて確認できるようにする。
+// 否決・取り消しのものは実際にはお休みしていないので出さない。
+function filterPastLeave() {
+  const todayStr = formatYmd(new Date());
+  const list = (state.leaveRequests || [])
+    .filter(r => r.status !== "rejected" && r.status !== "cancelled" && r.date && r.date < todayStr)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // 日付の新しい順（降順）
+  const q = (state.pastLeaveSearch || "").trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(r =>
+    [r.employeeName, r.area, r.type, r.reason, r.date].some(f => (f || "").toString().toLowerCase().includes(q))
+  );
+}
+
+// 過去のお休み一覧の本体（表）を描く。検索欄の絞り込みが反映される。
+function renderPastLeaveList() {
+  const list = filterPastLeave();
+  const typeColor = { "有給休暇": "#2f855a", "欠勤（無給）": "#b7791f", "遅刻・早退": "#b7791f", "忌引き": "#4a5568" };
+  const statusLabel = { approved: "決裁済み", pending: "確認中", cancelRequested: "取り消し依頼あり" };
+  if (!list.length) {
+    return `<p class="muted" style="font-size:12px; margin:12px 0 0;">${(state.pastLeaveSearch || "").trim() ? "見つかりませんでした" : "過去のお休みの記録はありません"}</p>`;
+  }
+  return `<p class="muted" style="font-size:12px; margin:12px 0 4px;">${list.length}件</p>
+    <table>
+      <thead><tr><th>日付</th><th>氏名</th><th>エリア</th><th>区分</th><th>消化日数</th><th>理由</th><th>状態</th></tr></thead>
+      <tbody>
+        ${list.map(r => `
+          <tr>
+            <td>${escapeHtml(r.date || "")}</td>
+            <td>${escapeHtml(r.employeeName || "")}</td>
+            <td>${escapeHtml(r.area || "")}</td>
+            <td style="color:${typeColor[r.type] || "var(--text)"}; font-weight:600;">${escapeHtml(r.type || "")}</td>
+            <td>${r.type === "有給休暇" && r.days ? escapeHtml(String(r.days)) + "日" : ""}</td>
+            <td>${escapeHtml(r.reason || "")}</td>
+            <td>${escapeHtml(statusLabel[r.status] || r.status || "")}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>`;
+}
+
+// 「これからのお休み予定」の下に置く、過去のお休みをまとめて見るためのカード。
+function renderPastLeaveCard() {
+  const open = !!state.showPastLeave;
+  return `
+    <div class="card">
+      <div class="row-between" style="margin:0;">
+        <p class="staff-title" style="font-size:16px; margin:0;">過去のお休み（これまでの記録）</p>
+        <button style="font-size:13px; padding:8px 14px;" onclick="state.showPastLeave = !state.showPastLeave; render();">${open ? "とじる" : "ひらく"}</button>
+      </div>
+      ${open ? `
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;">
+          <input id="pastLeaveSearch" type="text" placeholder="氏名・エリア・区分・理由・日付で検索" value="${(state.pastLeaveSearch || "").replace(/"/g, '&quot;')}" oninput="handlePastLeaveSearch(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handlePastLeaveSearch(this)" style="flex:1; min-width:220px; margin:0;" />
+          <button style="font-size:13px; padding:10px 14px; flex-shrink:0;" onclick="exportPastLeaveToExcel()">エクセルに書き出す</button>
+        </div>
+        <div id="pastLeaveListBody">${renderPastLeaveList()}</div>
+        <p class="muted" style="font-size:11px; margin-top:10px;">今日より前の記録を、新しい順（降順）で表示しています。否決・取り消しのものは出していません。</p>
+      ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでのお休みを新しい順で確認できます。検索や、エクセルへの書き出しもできます。</p>`}
+    </div>
+  `;
+}
+
+// 検索入力：入力欄を作り直さず、一覧部分だけ差し替える（日本語変換中は反応しない）
+function handlePastLeaveSearch(el) {
+  if (el.dataset.composing === "1") return;
+  state.pastLeaveSearch = el.value;
+  const body = document.getElementById("pastLeaveListBody");
+  if (body) body.innerHTML = renderPastLeaveList();
+}
+
+// 過去のお休みをエクセル（.xlsx）に書き出す。検索で絞り込んだときは、その結果だけを書き出す。
+function exportPastLeaveToExcel() {
+  const list = filterPastLeave();
+  if (!list.length) return alert("書き出すデータがありません");
+  const statusLabel = { approved: "決裁済み", pending: "確認中", cancelRequested: "取り消し依頼あり" };
+  const rows = list.map(r => ({
+    "日付": r.date || "",
+    "氏名": r.employeeName || "",
+    "エリア": r.area || "",
+    "区分": r.type || "",
+    "消化日数": r.type === "有給休暇" ? (r.days || "") : "",
+    "理由": r.reason || "",
+    "状態": statusLabel[r.status] || r.status || ""
+  }));
+  try {
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "過去のお休み");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `過去のお休み_${dateStr}.xlsx`);
+  } catch (e) {
+    alert("書き出しに失敗しました: " + e.message);
+  }
+}
+
 function renderAdminLeaveTab(pending) {
   const cancelReqs = (state.leaveRequests || []).filter(r => r.status === "cancelRequested");
   return `
@@ -2490,6 +2586,7 @@ function renderAdminLeaveTab(pending) {
       </div>
       ` : ""}
       ${renderUpcomingLeaveCard()}
+      ${renderPastLeaveCard()}
       <div class="card">
         <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
         <table>

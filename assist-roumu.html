@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-21(1)";
+const APP_VERSION = "更新: 2026-08-21(4) この方の書類";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -512,7 +512,16 @@ const state = {
   groupPendingPhoto: null,
   allGroups: [],
   adminGroupId: null,        // 本社が内容確認中のグループID（null=一覧表示）
-  adminGroupMessages: []     // そのグループのトーク内容（本社の閲覧用）
+  adminGroupMessages: [],    // そのグループのトーク内容（本社の閲覧用）
+  // ---- この方の書類（従業員ごと・本社のみ閲覧。診断書などのPDF/画像を保存） ----
+  empMedCerts: [],           // 開いている従業員の診断書（medicalCertificates）
+  empEmployeeDocs: [],       // 開いている従業員の書類（employeeDocs）
+  empDocsLoadedFor: null,    // いま読み込んでいる従業員ID（購読の重複防止）
+  empDocCategory: "診断書",   // 追加フォーム：種類
+  empDocCategoryOther: "",   // 「その他」の自由入力
+  empDocDate: "",            // 追加フォーム：日付
+  empDocNote: "",            // 追加フォーム：メモ
+  empDocUploading: false     // 保存中かどうか
 };
 
 const appEl = document.getElementById("app");
@@ -3254,6 +3263,7 @@ function renderAdminEmployeeTab() {
           `
         }
 
+        ${renderEmployeeDocsSection(editing)}
         ${renderEmpAttendanceHistory(editing)}
       </div>
     `;
@@ -4453,6 +4463,250 @@ function renderStaffPayslips() {
           <button class="primary" style="width:auto; margin-top:0; padding:12px 20px;" onclick="openPayslip('${p.id}')">ひらく・印刷する</button>
         </div>
       `).join("") : `<p class="muted">まだ給与明細はありません</p>`}
+    </div>
+  `;
+}
+
+/* ===== この方の書類（従業員ごと・本社のみ閲覧） =====
+   既存の診断書(medicalCertificates)と、新しく足す書類(employeeDocs)を1つの画面にまとめて表示する。
+   ファイル本体は給与明細と同じく base64 のデータURIとして Firestore に保存する（Storageは使わない）。 */
+
+let empDocsUnsub1 = null; // medicalCertificates の購読解除用
+let empDocsUnsub2 = null; // employeeDocs の購読解除用
+
+// 開いている従業員の書類を購読する（別の従業員に切り替えたら前の購読は解除する）
+function subscribeEmployeeDocs(empId) {
+  if (empDocsUnsub1) { try { empDocsUnsub1(); } catch (e) {} empDocsUnsub1 = null; }
+  if (empDocsUnsub2) { try { empDocsUnsub2(); } catch (e) {} empDocsUnsub2 = null; }
+  state.empMedCerts = [];
+  state.empEmployeeDocs = [];
+  state.empDocsLoadedFor = empId;
+  if (!firebaseReady || !empId) return;
+  empDocsUnsub1 = db.collection("medicalCertificates").where("employeeId", "==", empId)
+    .onSnapshot(snap => { state.empMedCerts = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); },
+      err => console.error("診断書(medicalCertificates)購読エラー", err));
+  empDocsUnsub2 = db.collection("employeeDocs").where("employeeId", "==", empId)
+    .onSnapshot(snap => { state.empEmployeeDocs = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); },
+      err => console.error("書類(employeeDocs)購読エラー", err));
+}
+
+// 診断書(medicalCertificates)と書類(employeeDocs)を、共通の形にそろえて新しい順にまとめる
+function employeeDocList() {
+  const med = (state.empMedCerts || []).map(d => ({
+    id: d.id, source: "medicalCertificates",
+    category: "診断書",
+    date: d.certDate || "",
+    fileName: d.fileName || "",
+    note: d.note || "",
+    dataUri: d.pdfBase64 || "",
+    uploadedAt: d.uploadedAt
+  }));
+  const other = (state.empEmployeeDocs || []).map(d => ({
+    id: d.id, source: "employeeDocs",
+    category: d.category || "その他",
+    date: d.docDate || "",
+    fileName: d.fileName || "",
+    note: d.note || "",
+    dataUri: d.fileBase64 || "",
+    uploadedAt: d.uploadedAt
+  }));
+  return med.concat(other).sort((a, b) => {
+    const da = a.date || "", dbb = b.date || "";
+    if (da && dbb && da !== dbb) return da < dbb ? 1 : -1; // 日付の新しい順
+    return tsSeconds(b.uploadedAt) - tsSeconds(a.uploadedAt);
+  });
+}
+
+// データURI（data:...;base64,...）をBlobに変換する（大きいファイルでも確実に開ける・保存できるように）
+function dataUriToBlob(dataUri) {
+  const comma = dataUri.indexOf(",");
+  const meta = dataUri.slice(0, comma);
+  const b64 = dataUri.slice(comma + 1);
+  const mime = (meta.match(/data:(.*?);base64/) || [])[1] || "application/octet-stream";
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function viewEmployeeDoc(source, id) {
+  const d = employeeDocList().find(x => x.source === source && x.id === id);
+  if (!d || !d.dataUri) return alert("この書類を開けませんでした");
+  try {
+    const url = URL.createObjectURL(dataUriToBlob(d.dataUri));
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    window.open(d.dataUri, "_blank");
+  }
+}
+
+function downloadEmployeeDoc(source, id) {
+  const d = employeeDocList().find(x => x.source === source && x.id === id);
+  if (!d || !d.dataUri) return alert("この書類を保存できませんでした");
+  const name = d.fileName || (d.category + ".pdf");
+  try {
+    const url = URL.createObjectURL(dataUriToBlob(d.dataUri));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    window.open(d.dataUri, "_blank");
+  }
+}
+
+function resetEmpDocForm() {
+  state.empDocNote = "";
+  state.empDocDate = "";
+  state.empDocCategoryOther = "";
+}
+
+// PDF/画像を base64 化して employeeDocs に保存する
+async function addEmployeeDoc(empId) {
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return;
+  const fileInput = document.getElementById("empDocFile");
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  let category = state.empDocCategory || "診断書";
+  if (category === "その他") category = (state.empDocCategoryOther || "").trim() || "その他";
+  const docDate = ((document.getElementById("empDocDate") || {}).value) || state.empDocDate || "";
+  const note = (((document.getElementById("empDocNote") || {}).value) || "").trim();
+
+  if (!file) return alert("ファイルを選んでください");
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  const isImg = /^image\//.test(file.type);
+  if (!isPdf && !isImg) return alert("PDFまたは画像ファイルを選んでください");
+
+  state.empDocUploading = true;
+  render();
+  try {
+    let dataUri, mimeType;
+    if (isImg) {
+      dataUri = await compressImageToBase64(file, 1400, 0.7); // 画像は圧縮
+      mimeType = "image/jpeg";
+    } else {
+      dataUri = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error("ファイルの読み込みに失敗しました"));
+        r.readAsDataURL(file);
+      });
+      mimeType = "application/pdf";
+    }
+    if (!dataUri || dataUri.length > 950000) {
+      state.empDocUploading = false;
+      render();
+      return alert("ファイルが大きすぎて保存できません（およそ900KBまで）。スキャンを白黒・低解像度にする、ページを分けるなどして小さくしてから、もう一度お試しください。");
+    }
+    const data = {
+      employeeId: empId,
+      employeeName: emp.name || "",
+      category,
+      docDate,
+      fileName: file.name || (category + (isImg ? ".jpg" : ".pdf")),
+      note,
+      fileBase64: dataUri,
+      mimeType,
+      uploadedAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+    };
+    if (!firebaseReady) {
+      state.empEmployeeDocs = state.empEmployeeDocs || [];
+      state.empEmployeeDocs.unshift({ id: "demo-" + Date.now(), ...data });
+      state.empDocUploading = false;
+      resetEmpDocForm();
+      if (fileInput) fileInput.value = "";
+      render();
+      return;
+    }
+    await db.collection("employeeDocs").add(data);
+    state.empDocUploading = false;
+    resetEmpDocForm();
+    if (fileInput) fileInput.value = "";
+    render();
+    alert("書類を保存しました。");
+  } catch (e) {
+    state.empDocUploading = false;
+    render();
+    alert("保存できませんでした: " + (e && e.message ? e.message : e));
+  }
+}
+
+async function deleteEmployeeDoc(source, id) {
+  const d = employeeDocList().find(x => x.source === source && x.id === id);
+  if (!d) return;
+  const label = `${d.category}${d.date ? "／" + d.date : ""}`;
+  const extra = source === "medicalCertificates" ? "\n（以前に保存された診断書です）" : "";
+  if (!confirm(`「${label}」を削除します。元に戻せません。よろしいですか？${extra}`)) return;
+  try {
+    await db.collection(source).doc(id).delete();
+    render();
+  } catch (e) {
+    alert("削除できませんでした: " + (e && e.message ? e.message : e));
+  }
+}
+
+// 従業員編集画面に差し込む「この方の書類」セクション
+function renderEmployeeDocsSection(editing) {
+  // この従業員の書類をまだ読み込んでいなければ購読を開始する（描画中に呼んでも安全な作り）
+  if (firebaseReady && state.empDocsLoadedFor !== editing.id) subscribeEmployeeDocs(editing.id);
+
+  const list = employeeDocList();
+  const category = state.empDocCategory || "診断書";
+  const cats = ["診断書", "忌引き", "その他"];
+  const uploading = !!state.empDocUploading;
+
+  return `
+    <div style="margin-top:18px; padding:16px; border:1.5px solid #cdd7e5; border-radius:12px; background:#f7fafd;">
+      <p class="staff-title" style="font-size:15px; margin:0 0 4px;">この方の書類（本社のみ閲覧）</p>
+      <p class="muted" style="font-size:12px; margin:0 0 12px;">診断書・忌引きなどの書類（PDF・画像）を保存できます。従業員の画面には表示されません。</p>
+
+      ${list.length ? `
+        <table style="margin-bottom:14px;">
+          <thead><tr><th>種類</th><th>日付</th><th>ファイル名</th><th>メモ</th><th>操作</th></tr></thead>
+          <tbody>
+            ${list.map(d => `
+              <tr>
+                <td><span style="color:var(--blue); font-weight:600;">${escapeHtml(d.category)}</span></td>
+                <td>${escapeHtml(d.date || "")}</td>
+                <td style="font-size:12px;">${escapeHtml(d.fileName || "")}</td>
+                <td style="font-size:12px;">${escapeHtml(d.note || "")}</td>
+                <td style="white-space:nowrap;">
+                  <button style="font-size:12px; padding:6px 12px;" onclick="viewEmployeeDoc('${d.source}','${d.id}')">見る</button>
+                  <button style="font-size:12px; padding:6px 12px;" onclick="downloadEmployeeDoc('${d.source}','${d.id}')">保存</button>
+                  <button class="btn-reject" onclick="deleteEmployeeDoc('${d.source}','${d.id}')">削除</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<p class="muted" style="font-size:13px; margin:0 0 14px;">まだ書類はありません</p>`}
+
+      <div style="border-top:1px solid var(--border); padding-top:12px;">
+        <p class="staff-title" style="font-size:13px; margin:0 0 8px;">書類を追加する</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div>
+            <label style="font-size:12px;">種類</label>
+            <select onchange="state.empDocCategory=this.value; render();">
+              ${cats.map(c => `<option value="${c}" ${c === category ? "selected" : ""}>${c}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;">日付</label>
+            <input id="empDocDate" type="date" value="${state.empDocDate || ""}" oninput="state.empDocDate=this.value;" />
+          </div>
+        </div>
+        ${category === "その他" ? `
+          <label style="font-size:12px; margin-top:8px;">種類（自由入力）</label>
+          <input id="empDocCategoryOther" type="text" placeholder="例：健康診断結果" value="${(state.empDocCategoryOther || "").replace(/"/g, '&quot;')}" oninput="state.empDocCategoryOther=this.value;" />
+        ` : ""}
+        <label style="font-size:12px; margin-top:8px;">ファイル（PDFまたは画像）</label>
+        <input id="empDocFile" type="file" accept="application/pdf,image/*" ${uploading ? "disabled" : ""} style="font-size:15px;" />
+        <label style="font-size:12px; margin-top:8px;">メモ（任意）</label>
+        <input id="empDocNote" type="text" placeholder="例：◯月◯日 通院分" value="${(state.empDocNote || "").replace(/"/g, '&quot;')}" oninput="state.empDocNote=this.value;" />
+        <button class="primary" style="margin-top:12px;" ${uploading ? "disabled" : ""} onclick="addEmployeeDoc('${editing.id}')">${uploading ? "保存中です…" : "この書類を保存する"}</button>
+        <p class="muted" style="font-size:11px; margin-top:8px;">スキャンしたPDFや、スマホの写真でも保存できます。大きすぎると保存できないことがあるので、その場合は白黒・低解像度でスキャンし直してください。</p>
+      </div>
     </div>
   `;
 }

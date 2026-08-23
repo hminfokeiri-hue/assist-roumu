@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-21(6)";
+const APP_VERSION = "更新: 2026-08-21(7)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -521,7 +521,8 @@ const state = {
   empDocCategoryOther: "",   // 「その他」の自由入力
   empDocDate: "",            // 追加フォーム：日付
   empDocNote: "",            // 追加フォーム：メモ
-  empDocUploading: false     // 保存中かどうか
+  empDocUploading: false,    // 保存中かどうか
+  loginLogs: {}              // 従業員ID → 最終ログイン日時（本社がログイン状況を見るため）
 };
 
 const appEl = document.getElementById("app");
@@ -695,9 +696,11 @@ async function handleStaffLogin() {
     render();
     // 最終ログイン日時を記録（本社が「ログインできているか」を確認するため）。失敗してもログインは続行。
     try {
-      await db.collection("employees").doc(doc.id).update({
+      await db.collection("loginLogs").doc(doc.id).set({
+        employeeId: doc.id,
+        name: empData.name || "",
         lastLoginAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      }, { merge: true });
     } catch (e) { console.warn("最終ログインの記録をスキップ", e && e.message); }
     subscribeStaffLeaveRequests();
     subscribeStaffOrders();
@@ -3090,7 +3093,8 @@ function renderEmpTableRows() {
   const total = state.employees.filter(e => showResigned ? e.status === "resigned" : e.status !== "resigned").length;
   // 在籍者のうち「まだ一度もログインしていない人」の数（会社側がログイン状況を把握するため）
   const activeEmps = state.employees.filter(e => e.status !== "resigned");
-  const notLoggedCount = activeEmps.filter(e => !e.lastLoginAt).length;
+  const logins = state.loginLogs || {};
+  const notLoggedCount = activeEmps.filter(e => !logins[e.id]).length;
   const loginSummary = showResigned ? "" : `　／　<span style="color:var(--danger); font-weight:700;">まだログインしていない人 ${notLoggedCount}名</span>`;
   const summary = `<p class="muted" style="font-size:12.5px; margin:0 0 8px;">${showResigned ? "退職者" : "在籍者"} 合計 <b style="font-size:16px; color:var(--text);">${total}名</b>${list.length !== total ? `　／　絞り込み後 ${list.length}名` : ""}${loginSummary}</p>`;
   if (!list.length) {
@@ -3102,7 +3106,8 @@ function renderEmpTableRows() {
     const metaParts = [e.employeeCode || "管理番号未設定", e.area || ""].filter(Boolean);
     if ((state.empSortKey || "code") === "hire" && e.hireDate) metaParts.push("入社 " + e.hireDate);
     if (shift) metaParts.push(shift);
-    if (!showResigned && e.lastLoginAt) metaParts.push("最終ログイン " + fmtYmd(e.lastLoginAt));
+    const lastLogin = (state.loginLogs || {})[e.id];
+    if (!showResigned && lastLogin) metaParts.push("最終ログイン " + fmtYmd(lastLogin));
     return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
       <div style="min-width:0; flex:1;">
@@ -3110,7 +3115,7 @@ function renderEmpTableRows() {
           <span style="font-weight:700; font-size:16px;">${e.name || "(名前未登録)"}</span>
           ${age !== null ? `<span class="status-pill status-pending" style="font-size:11px; padding:2px 8px;">満${age}歳</span>` : ""}
           ${isInProbation(e) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中</span>` : ""}
-          ${(!showResigned && !e.lastLoginAt) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fdecea; color:var(--danger); font-weight:700;">未ログイン</span>` : ""}
+          ${(!showResigned && !lastLogin) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fdecea; color:var(--danger); font-weight:700;">未ログイン</span>` : ""}
           ${!e.employeeCode ? `<span style="color:var(--danger); font-weight:600; font-size:12px;">⚠️未設定</span>` : ""}
         </div>
         <div class="muted" style="font-size:12px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${metaParts.join(" ・ ")}</div>
@@ -5261,6 +5266,12 @@ function subscribeAllLeaveRequests() {
     render();
     cleanupOldPayslips(rows);
   }, err => console.error("payslips(admin)購読エラー", err));
+  db.collection("loginLogs").onSnapshot(snap => {
+    const map = {};
+    snap.docs.forEach(d => { map[d.id] = (d.data() || {}).lastLoginAt; });
+    state.loginLogs = map;
+    render();
+  }, err => console.error("loginLogs(admin)購読エラー", err));
 }
 
 function subscribeAllMessages() {

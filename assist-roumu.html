@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-21(5)";
+const APP_VERSION = "更新: 2026-08-21(4) この方の書類";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4077,22 +4077,77 @@ async function registerBulkPayslips() {
   }
 }
 
-function computePayslipEmpOptions() {
-  const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
-  const q = (state.payslipEmpSearchVal || "").toLowerCase();
-  const filtered = !q ? state.employees : state.employees.filter(e =>
-    [e.name, e.furigana, e.employeeCode].some(f => (f || "").toLowerCase().includes(q))
-  );
-  return filtered.map(e => `<option value="${e.id}" ${e.id === empId ? "selected" : ""}>${e.name || e.id}</option>`).join("")
-    || `<option value="">該当する従業員がいません</option>`;
+/* 検索の文字ゆれを吸収する（全角半角・大文字小文字・ひらがなカタカナ・空白・ハイフンなど） */
+function normalizeSearchText(v) {
+  let s = String(v == null ? "" : v);
+  try { s = s.normalize("NFKC"); } catch (e) { /* 古い環境では何もしない */ }
+  s = s.toLowerCase();
+  s = s.replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひらがな→カタカナ
+  s = s.replace(/[\s　]/g, "");                        // 空白（全角スペース含む）を無視
+  s = s.replace(/[-‐-―−－]/g, ""); // ハイフン各種を無視（長音「ー」は残す）
+  s = s.replace(/[・･.,'"()（）]/g, "");           // 中黒・句読点・かっこを無視
+  return s;
 }
+
+/* 濁点・半濁点のゆれも無視する（例：やまさき ⇔ やまざき） */
+function normalizeSearchLoose(v) {
+  let s = normalizeSearchText(v);
+  try { s = s.normalize("NFD").replace(/[゙゚]/g, "").normalize("NFC"); } catch (e) { /* 何もしない */ }
+  return s;
+}
+
+function payslipEmpFilteredList() {
+  const emps = state.employees || [];
+  const raw = state.payslipEmpSearchVal || "";
+  const q = normalizeSearchText(raw);
+  if (!q) return emps.slice();
+  const fields = e => [e.name, e.furigana, e.employeeCode, e.loginId, e.area, e.workplace];
+  const strict = emps.filter(e => fields(e).some(f => normalizeSearchText(f).includes(q)));
+  if (strict.length) return strict;
+  // 見つからないときだけ、濁点のゆれを無視してもう一度探す
+  const lq = normalizeSearchLoose(raw);
+  return emps.filter(e => fields(e).some(f => normalizeSearchLoose(f).includes(lq)));
+}
+
+function computePayslipEmpOptions() {
+  const list = payslipEmpFilteredList();
+  if (!list.length) return `<option value="">該当する人がいません</option>`;
+  // 絞り込みで選択中の人が候補から消えたときは、先頭の人に合わせる（表示と実際のズレ防止）
+  if (!list.some(e => e.id === state.payslipEmpId)) state.payslipEmpId = list[0].id;
+  return list.map(e => {
+    const code = e.employeeCode ? `（${e.employeeCode}）` : "";
+    const resigned = e.status === "resigned" ? "［退職］" : "";
+    return `<option value="${e.id}" ${e.id === state.payslipEmpId ? "selected" : ""}>${e.name || e.id}${code}${resigned}</option>`;
+  }).join("");
+}
+
+function payslipEmpHintHtml() {
+  const list = payslipEmpFilteredList();
+  const emp = (state.employees || []).find(e => e.id === state.payslipEmpId);
+  return list.length
+    ? `${list.length}人が見つかりました／アップロード先：<b>${(emp && emp.name) || ""}</b> さん`
+    : `見つかりませんでした。氏名・フリガナ（ひらがなでも可）・管理番号のどれかでお試しください。`;
+}
+
 function updatePayslipEmpSelect() {
   const sel = document.getElementById("payslipEmpSelect");
   if (sel) sel.innerHTML = computePayslipEmpOptions();
+  const hint = document.getElementById("payslipEmpHint");
+  if (hint) hint.innerHTML = payslipEmpHintHtml();
+  const card = document.getElementById("payslipMyListCard");
+  if (card) card.innerHTML = renderPayslipMyListCard();
 }
+
 function handlePayslipSearchInput(el) {
-  if (el.dataset.composing === "1") return;
-  state.payslipEmpSearchVal = el.value;
+  state.payslipEmpSearchVal = el.value;      // 変換中でも入力内容は必ず保持する
+  if (el.dataset.composing === "1") return;  // 変換確定までは絞り込みを待つ
+  updatePayslipEmpSelect();
+}
+
+function clearPayslipEmpSearch() {
+  state.payslipEmpSearchVal = "";
+  const el = document.getElementById("payslipEmpSearch");
+  if (el) { el.value = ""; el.focus(); }
   updatePayslipEmpSelect();
 }
 
@@ -4121,14 +4176,39 @@ async function cleanupOldPayslips(allPayslips) {
   }
 }
 
-function renderAdminPayslipTab() {
+/* 選んでいる人の給与明細一覧（検索で人が変わったら、ここだけ描き直す） */
+function renderPayslipMyListCard() {
   const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
-  const emp = state.employees.find(e => e.id === empId) || {};
+  const emp = (state.employees || []).find(e => e.id === empId) || {};
   const myPayslips = filterRecentPayslips(state.payslips)
     .filter(p => p.employeeId === empId)
     .slice()
     .sort((a, b) => (b.month || "").localeCompare(a.month || ""));
 
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:16px;">${emp.name || ""} さんの給与明細一覧</p>
+      <table>
+        <thead><tr><th>対象月</th><th>ファイル名</th><th>アップロード日</th><th></th></tr></thead>
+        <tbody>
+          ${myPayslips.map(p => `
+            <tr>
+              <td>${p.month || ""}</td>
+              <td>${p.fileName || ""}</td>
+              <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
+              <td>
+                <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="adminPreviewPayslip('${p.id}')">見る</button>
+                <button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button>
+              </td>
+            </tr>
+          `).join("") || `<tr><td colspan="4" class="muted">まだアップロードされた給与明細はありません</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAdminPayslipTab() {
   const allPayslips = filterRecentPayslips(state.payslips).slice().sort((a, b) => (b.month || "").localeCompare(a.month || ""));
   const monthFilter = state.payslipListMonthFilter || "";
   const months = [...new Set((state.payslips || []).map(p => p.month).filter(Boolean))].sort().reverse();
@@ -4157,14 +4237,19 @@ function renderAdminPayslipTab() {
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
           <label>従業員を選ぶ（氏名・フリガナ・管理番号で検索）</label>
-          <input id="payslipEmpSearch" type="text" placeholder="氏名で検索して絞り込む" value="${(state.payslipEmpSearchVal || "").replace(/"/g, '&quot;')}"
-                 oninput="handlePayslipSearchInput(this)"
-                 oncompositionstart="this.dataset.composing='1'"
-                 oncompositionend="this.dataset.composing=''; handlePayslipSearchInput(this)"
-                 style="margin-bottom:8px;" />
+          <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <input id="payslipEmpSearch" type="text" placeholder="例）田中／たなか／1-2-218" value="${(state.payslipEmpSearchVal || "").replace(/"/g, '&quot;')}"
+                   oninput="handlePayslipSearchInput(this)"
+                   onchange="handlePayslipSearchInput(this)"
+                   oncompositionstart="this.dataset.composing='1'"
+                   oncompositionend="this.dataset.composing=''; handlePayslipSearchInput(this)"
+                   style="flex:1; margin-bottom:0;" />
+            <button type="button" style="font-size:12px; padding:6px 10px;" onclick="clearPayslipEmpSearch()">クリア</button>
+          </div>
           <select id="payslipEmpSelect" onchange="state.payslipEmpId=this.value; render();">
             ${computePayslipEmpOptions()}
           </select>
+          <p id="payslipEmpHint" class="muted" style="font-size:12px; margin:6px 0 0;">${payslipEmpHintHtml()}</p>
         </div>
         <div>
           <label>対象月</label>
@@ -4176,25 +4261,7 @@ function renderAdminPayslipTab() {
       <div id="payslipUploadPreview"></div>
     </div>
 
-    <div class="card">
-      <p class="staff-title" style="font-size:16px;">${emp.name || ""} さんの給与明細一覧</p>
-      <table>
-        <thead><tr><th>対象月</th><th>ファイル名</th><th>アップロード日</th><th></th></tr></thead>
-        <tbody>
-          ${myPayslips.map(p => `
-            <tr>
-              <td>${p.month || ""}</td>
-              <td>${p.fileName || ""}</td>
-              <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
-              <td>
-                <button style="font-size:12px; padding:6px 10px; margin-right:6px;" onclick="adminPreviewPayslip('${p.id}')">見る</button>
-                <button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="deletePayslip('${p.id}')">削除</button>
-              </td>
-            </tr>
-          `).join("") || `<tr><td colspan="4" class="muted">まだアップロードされた給与明細はありません</td></tr>`}
-        </tbody>
-      </table>
-    </div>
+    <div id="payslipMyListCard">${renderPayslipMyListCard()}</div>
 
     <div class="card">
       <div class="row-between" style="margin-bottom:10px;">

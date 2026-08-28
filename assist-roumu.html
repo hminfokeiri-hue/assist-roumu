@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-21(7)";
+const APP_VERSION = "更新: 2026-08-29(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2783,6 +2783,20 @@ function fmtYmd(ts) {
   return `${y}-${m}-${day}`;
 }
 
+// 最終ログイン日時を「2026-08-29 08:45」の形にする（記録がなければ空文字）
+function fmtLoginAt(ts) {
+  if (!ts) return "";
+  let d;
+  if (ts.seconds) d = new Date(ts.seconds * 1000);
+  else if (ts instanceof Date) d = ts;
+  else if (typeof ts === "string") d = new Date(ts);
+  else return "";
+  if (isNaN(d)) return "";
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0"), mi = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${hh}:${mi}`;
+}
+
 // 郵便番号と住所が「560-0041 豊中市…」のように結合されている旧データを表示用に分割する
 function splitAddressForDisplay(editing) {
   let postalCode = editing.postalCode || "";
@@ -3031,6 +3045,7 @@ function exportEmployeesToExcel() {
     });
     row["満年齢"] = calcAge(e.birthDate) ?? "";
     row["在籍状況"] = e.status === "resigned" ? "退職済み" : "在籍中";
+    row["最終ログイン"] = fmtLoginAt((state.loginLogs || {})[e.id]) || "未ログイン";
     return row;
   });
 
@@ -3169,6 +3184,13 @@ function renderAdminEmployeeTab() {
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
           </div>
         </div>
+
+        ${(() => {
+          const lastLogin = fmtLoginAt((state.loginLogs || {})[editing.id]);
+          return lastLogin
+            ? `<p class="muted" style="font-size:12.5px; margin:0 0 10px;">最終ログイン：<b style="color:var(--text);">${lastLogin}</b></p>`
+            : `<p style="font-size:12.5px; margin:0 0 10px; color:var(--danger); font-weight:700;">最終ログイン：まだ一度もログインされていません</p>`;
+        })()}
 
         <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
           ${EMP_FIELDS_TOP.map(([key, label]) => {

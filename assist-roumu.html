@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-29(1)";
+const APP_VERSION = "更新: 2026-08-29(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -5538,7 +5538,7 @@ function renderAdminChatTab() {
 
     <div class="card">
       <p class="staff-title" style="font-size:16px;">お知らせを送る（全員／エリア宛て）</p>
-      <div class="broadcast-grid" style="display:grid; grid-template-columns:1fr 2fr auto; gap:10px; align-items:end;">
+      <div class="broadcast-grid" style="display:grid; grid-template-columns:1fr; gap:10px;">
         <div>
           <label>宛先</label>
           <select id="broadcastTarget">
@@ -5547,10 +5547,11 @@ function renderAdminChatTab() {
           </select>
         </div>
         <div>
-          <label>お知らせ内容</label>
-          <input id="broadcastText" type="text" placeholder="例：明日は台風のため休業します" />
+          <label>お知らせ内容<span class="muted" style="font-weight:400; font-size:12px;">（改行できます）</span></label>
+          <textarea id="broadcastText" rows="8" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical; font-size:15px; line-height:1.8; padding:12px;" placeholder="例：明日は台風のため休業します&#10;&#10;出勤の必要はありません。&#10;ご不明な点は本社までご連絡ください。"></textarea>
+          <p class="muted" style="font-size:11.5px; margin:5px 0 0;">右下をドラッグすると、さらに広げられます。改行はそのまま従業員の画面に表示されます。</p>
         </div>
-        <button class="primary" style="height:46px;" onclick="sendBroadcast()">送信</button>
+        <button class="primary" style="height:50px; font-size:16px;" onclick="sendBroadcast()">送信</button>
       </div>
 
       ${broadcasts.length ? `
@@ -5559,7 +5560,7 @@ function renderAdminChatTab() {
           ${broadcasts.map(b => `
             <div class="row-between" style="margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:8px;">
               <div>
-                <div>${escapeHtml(b.text)}</div>
+                <div style="white-space:pre-wrap;">${escapeHtml(b.text)}</div>
                 <span class="muted" style="font-size:12px;">${b.targetLabel}</span>
               </div>
               <span class="muted" style="font-size:13px;">既読 ${b.readCount}/${b.total}</span>
@@ -5695,6 +5696,10 @@ async function sendBroadcast() {
     targetLabel = area + "のみ";
   }
   if (!targets.length) return alert("宛先の従業員が見つかりません");
+
+  // 一斉送信は取り消せないため、送る前に人数と本文を確認する
+  const preview = text.length > 200 ? text.slice(0, 200) + "…" : text;
+  if (!confirm(`${targetLabel}（${targets.length}名）にお知らせを送ります。よろしいですか？\n\n----------\n${preview}\n----------`)) return;
 
   const broadcastId = "b" + Date.now();
   const senderName = state.currentUser.name || "本社";

@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-31(1)";
+const APP_VERSION = "更新: 2026-08-31(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3674,9 +3674,7 @@ async function handleBulkPayslipFile(evt) {
   if (!file) return;
   const isOxps = /\.oxps$/i.test(file.name);
   if (isOxps) return handleBulkPayslipOxps(file, evt);
-  const isCsv = /\.csv$/i.test(file.name) || file.type === "text/csv";
-  if (isCsv) return handleBulkPayslipCsv(file, evt);
-  if (file.type !== "application/pdf") { alert("CSV・OXPS・PDF のいずれかのファイルを選んでください"); evt.target.value = ""; return; }
+  if (file.type !== "application/pdf") { alert("PDFまたはOXPSファイルを選んでください"); evt.target.value = ""; return; }
 
   document.getElementById("bulkPayslipArea").innerHTML = `<p class="muted">読み込み中です…（管理番号を自動で読み取っています）しばらくお待ちください</p>`;
   try {
@@ -3767,6 +3765,18 @@ function psWarekiToMonth(str) {
   const year = 2018 + parseInt(m[1], 10);
   const month = String(parseInt(m[2], 10)).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+// 「2026-08」→「2026年8月支給分」。
+// 弥生給与の「令和8年8月分」は“8月に支給する分”を指すため、「8月分」とだけ書くと
+// 従業員が「8月に働いた分」と誤解する。表示は必ず「支給分」を付ける。
+function fmtPayslipMonth(month, style) {
+  if (!month) return "";
+  const m = String(month).match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return String(month);
+  const y = m[1], mm = parseInt(m[2], 10);
+  if (style === "short") return `${y}年${mm}月支給`;
+  return `${y}年${mm}月支給分`;
 }
 
 function psParseOnePage(xml) {
@@ -3869,8 +3879,6 @@ async function handleBulkPayslipOxps(file, evt) {
     });
 
     state.bulkOxpsRecords = records;
-    state.bulkOxpsSource = "oxps";
-    state.bulkOxpsIgnoredCols = [];
     state.bulkOxpsMonth = records[0] && records[0].month || state.payslipMonth || new Date().toISOString().slice(0, 7);
     document.getElementById("bulkPayslipArea").innerHTML = renderBulkOxpsReview();
   } catch (e) {
@@ -3886,8 +3894,6 @@ function renderBulkOxpsReview() {
   const ngCount = records.filter(r => !r.reconcileOk).length;
   const noWorkplaceCount = records.filter(r => r.noWorkplace).length;
   const unmatchedCount = records.filter(r => !r.matched).length;
-  const zeroCount = records.filter(r => r.zeroPay).length;
-  const ignoredCols = state.bulkOxpsIgnoredCols || [];
   const totalSashihiki = records.reduce((s, r) => s + r.sashihikiShikyu, 0);
   const month = state.bulkOxpsMonth;
 
@@ -3896,13 +3902,11 @@ function renderBulkOxpsReview() {
       <div class="responsive-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px;">
         <div class="stat-card"><div class="num">${records.length}名</div><div class="label">読み取り</div></div>
         <div class="stat-card"><div class="num" style="color:${ngCount ? 'var(--danger)' : 'inherit'};">${ngCount}名</div><div class="label">検算NG</div></div>
-        <div class="stat-card"><div class="num">${zeroCount ? zeroCount + "名" : noWorkplaceCount + "名"}</div><div class="label">${zeroCount ? "支給0円（除外）" : "所属未設定"}</div></div>
+        <div class="stat-card"><div class="num">${noWorkplaceCount}名</div><div class="label">所属未設定</div></div>
         <div class="stat-card"><div class="num" style="font-size:16px;">${totalSashihiki.toLocaleString()}円</div><div class="label">差引支給額 総計</div></div>
       </div>
       ${unmatchedCount ? `<div class="payslip-warning">従業員に一致しなかった方が${unmatchedCount}名います。お試しモードのため従業員データが少ないと、この件数が多く出ます（実際のFirebase環境では管理番号でご登録の従業員と自動照合されます）。下の一覧から手動で割り当てることもできます。</div>` : ""}
-      ${ngCount ? `<div class="payslip-warning">検算に一致しない明細が${ngCount}名分あります。金額が正しく読み取れていない可能性があるため、対象月を確認し、必要であれば元のファイルをご確認ください。</div>` : ""}
-      ${zeroCount ? `<div class="payslip-warning">支給額が0円の方が${zeroCount}名います（退職・休職の方など）。この方たちは「選ばない」にしてありますので、そのままだと配信されません。配信したい場合は下の一覧で従業員を選んでください。</div>` : ""}
-      ${ignoredCols.length ? `<div class="payslip-warning">次の列は明細に使いませんでした（見出しの書き方をご確認ください）：${ignoredCols.join("、")}</div>` : ""}
+      ${ngCount ? `<div class="payslip-warning">検算に一致しない明細が${ngCount}名分あります。金額が正しく読み取れていない可能性があるため、対象月を確認し、必要であれば元のOXPSファイルをご確認ください。</div>` : ""}
       <p class="muted" style="margin:0 0 8px;">対象月：
         <select onchange="state.bulkOxpsMonth=this.value;">
           ${[state.bulkOxpsMonth].concat(records.map(r=>r.month)).filter((v,i,a)=>v && a.indexOf(v)===i).map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
@@ -3966,7 +3970,7 @@ async function registerBulkOxpsPayslips() {
     targets.forEach(r => {
       const emp = state.employees.find(e => e.id === r.employeeId) || {};
       const docId = r.employeeId + "_" + month;
-      const data = { id: docId, employeeId: r.employeeId, employeeName: emp.name || r.name, month, fileName: `給与明細_${month}`, source: r.source || "oxps", data: r };
+      const data = { id: docId, employeeId: r.employeeId, employeeName: emp.name || r.name, month, fileName: `給与明細_${month}.pdf`, source: "oxps", data: r };
       const idx = state.payslips.findIndex(x => x.id === docId);
       if (idx >= 0) state.payslips[idx] = data; else state.payslips.push(data);
     });
@@ -3985,8 +3989,8 @@ async function registerBulkOxpsPayslips() {
         employeeId: r.employeeId,
         employeeName: emp.name || r.name,
         month,
-        fileName: `給与明細_${month}`,
-        source: r.source || "oxps",
+        fileName: `給与明細_${month}.pdf`,
+        source: "oxps",
         data: r,
         uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
@@ -4000,241 +4004,6 @@ async function registerBulkOxpsPayslips() {
   }
 }
 
-/* ========== CSV（給与明細一覧表などの表形式）対応 ========== */
-/* 「支給:」「控除:」「勤怠:」の接頭辞つきの列名で、明細のどこに出すかを決めます。
-   接頭辞がなくても、よくある項目名なら自動で仕分けします。 */
-
-const PS_CSV_CODE_KEYS   = ["管理番号", "番号", "従業員番号", "社員番号", "社員コード", "従業員コード", "コード"];
-const PS_CSV_NAME_KEYS   = ["氏名", "名前", "従業員名", "社員名"];
-const PS_CSV_BRANCH_KEYS = ["組織", "所属", "部門", "事業所", "支店", "現場"];
-const PS_CSV_MONTH_KEYS  = ["対象月", "支給月", "給与月", "年月", "月"];
-
-const PS_CSV_TOTAL_KEYS = [
-  ["kyuyoGokei",       ["支給合計", "総支給額", "支給額合計", "総支給"]],
-  ["shakaihokenGokei", ["社会保険料計", "社会保険料合計", "社会保険計", "社保計"]],
-  ["shotokuzei",       ["所得税", "源泉所得税"]],
-  ["kojoGokei",        ["控除合計", "控除額合計", "総控除額"]],
-  ["sashihikiShikyu",  ["差引支給額", "差引支給合計", "差引支給", "差引支払額", "手取り額"]],
-  ["furikomiShikyu",   ["振込支給額", "振込支給合計", "振込額", "銀行振込額"]],
-  ["genkinShikyu",     ["現金支給額", "現金支給", "現金支払額"]]
-];
-
-const PS_CSV_KINTAI_KEYS = new Set([
-  "所定就労日", "出勤日数", "休日出勤日数", "欠勤日数", "有休日数",
-  "所定労働時間", "実働時間", "有休残日数", "残業時間", "深夜時間",
-  "所定", "出勤", "休日", "実働", "有休", "欠勤"
-]);
-const PS_CSV_KOJO_KEYS = new Set([
-  "健康保険料", "介護保険料", "厚生年金保険", "厚生年金保険料", "雇用保険料",
-  "住民税", "年末調整還付", "年末調整徴収", "(定額減税額)", "(減税前税額)"
-]);
-const PS_CSV_KYUYO_KEYS = new Set([
-  "基本給", "基本給(月給)", "基本給(日給)", "基本給(時給)",
-  "役員報酬", "職務給", "役付手当", "皆勤手当", "精皆勤手当", "出張手当",
-  "休日勤務手当", "残業手当", "時間外手当", "深夜手当",
-  "非課税通勤費", "通勤手当", "家族手当", "住宅手当", "資格手当",
-  "立替", "立替金", "前月修正"
-]);
-
-/* Excel で保存した CSV は Shift_JIS のことが多いので、文字コードを自動で見分ける */
-function psDecodeCsvBuffer(buf) {
-  const bytes = new Uint8Array(buf);
-  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-    return new TextDecoder("utf-8").decode(bytes.subarray(3));
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (e) {
-    try { return new TextDecoder("shift_jis").decode(bytes); }
-    catch (e2) { return new TextDecoder("utf-8").decode(bytes); }
-  }
-}
-
-/* ダブルクォート・改行入りのセルにも対応した CSV 読み取り */
-function psParseCsvText(text) {
-  const rows = [];
-  let row = [], cell = "", inQuote = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuote) {
-      if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQuote = false; }
-      else cell += c;
-    } else if (c === '"') inQuote = true;
-    else if (c === ",") { row.push(cell); cell = ""; }
-    else if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
-    else if (c === "\r") { /* 読み飛ばす */ }
-    else cell += c;
-  }
-  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
-  return rows.filter(r => r.some(v => String(v).trim() !== ""));
-}
-
-/* 列名のゆれ（全角スペース・全角コロン・全角カッコ）をそろえる */
-function psNormHeader(h) {
-  return String(h == null ? "" : h)
-    .replace(/^﻿/, "")
-    .replace(/[　\s]/g, "")
-    .replace(/：/g, ":")
-    .replace(/（/g, "(").replace(/）/g, ")")
-    .trim();
-}
-
-/* 「2026-08」「2026/8」「令和8年8月」「R8.8」などを 2026-08 の形にそろえる */
-function psNormalizeMonth(s) {
-  if (!s) return "";
-  const t = String(s).trim();
-  let m = t.match(/令和\s*(\d+)\s*年\s*(\d+)\s*月/);
-  if (m) return (2018 + parseInt(m[1], 10)) + "-" + String(parseInt(m[2], 10)).padStart(2, "0");
-  m = t.match(/(\d{4})\s*[-\/年.]\s*(\d{1,2})/);
-  if (m) return m[1] + "-" + String(parseInt(m[2], 10)).padStart(2, "0");
-  m = t.match(/^[RrＲ]\s*(\d+)\s*[-\/年.]\s*(\d{1,2})/);
-  if (m) return (2018 + parseInt(m[1], 10)) + "-" + String(parseInt(m[2], 10)).padStart(2, "0");
-  return "";
-}
-
-/* 1行分（1名分）を、OXPS読み取りと同じ形の明細データに組み立てる */
-function psBuildCsvRecord(cols, cells, fallbackMonth) {
-  const rec = {
-    code: "", name: "", branch: "", month: "",
-    attendance: {}, kyuyo: [], kojo: [],
-    kyuyoGokei: 0, shakaihokenGokei: 0, shotokuzei: 0, kojoGokei: 0,
-    sashihikiShikyu: 0, furikomiShikyu: 0, genkinShikyu: 0,
-    source: "csv"
-  };
-  let hasSashihiki = false, hasFurikomi = false, hasGenkin = false, hasKyuyoGokei = false, hasKojoGokei = false;
-
-  cols.forEach((col, i) => {
-    if (!col) return;
-    const raw = (cells[i] == null ? "" : String(cells[i])).trim();
-    if (col.kind === "code")   { rec.code = raw; return; }
-    if (col.kind === "name")   { rec.name = raw; return; }
-    if (col.kind === "branch") { rec.branch = raw; return; }
-    if (col.kind === "month")  { rec.month = psNormalizeMonth(raw); return; }
-    if (col.kind === "total")  {
-      rec[col.field] = psToNumber(raw);
-      if (col.field === "sashihikiShikyu") hasSashihiki = true;
-      if (col.field === "furikomiShikyu")  hasFurikomi = true;
-      if (col.field === "genkinShikyu")    hasGenkin = true;
-      if (col.field === "kyuyoGokei")      hasKyuyoGokei = true;
-      if (col.field === "kojoGokei")       hasKojoGokei = true;
-      return;
-    }
-    if (col.kind === "kintai") { if (raw !== "") rec.attendance[col.label] = raw; return; }
-    if (col.kind === "kyuyo")  { const a = psToNumber(raw); if (a) rec.kyuyo.push({ label: col.label, amount: a }); return; }
-    if (col.kind === "kojo")   { const a = psToNumber(raw); if (a) rec.kojo.push({ label: col.label, amount: a }); return; }
-  });
-
-  if (!rec.month) rec.month = fallbackMonth || "";
-  if (!hasKyuyoGokei) rec.kyuyoGokei = rec.kyuyo.reduce((s, x) => s + x.amount, 0);
-  if (!hasKojoGokei)  rec.kojoGokei  = rec.kojo.reduce((s, x) => s + x.amount, 0) + rec.shotokuzei;
-  if (!hasSashihiki)  rec.sashihikiShikyu = rec.kyuyoGokei - rec.kojoGokei;
-  if (!hasFurikomi && !hasGenkin) { rec.furikomiShikyu = rec.sashihikiShikyu; rec.genkinShikyu = 0; }
-  else if (!hasGenkin)  rec.genkinShikyu  = rec.sashihikiShikyu - rec.furikomiShikyu;
-  else if (!hasFurikomi) rec.furikomiShikyu = rec.sashihikiShikyu - rec.genkinShikyu;
-  return rec;
-}
-
-async function handleBulkPayslipCsv(file, evt) {
-  document.getElementById("bulkPayslipArea").innerHTML = `<p class="muted">読み込み中です…（CSVを解析し、金額を読み取っています）しばらくお待ちください</p>`;
-  try {
-    const text = psDecodeCsvBuffer(await file.arrayBuffer());
-    const rows = psParseCsvText(text);
-    if (rows.length < 2) throw new Error("見出し行と、1名以上のデータ行が必要です");
-
-    const head = rows[0].map(psNormHeader);
-    const cols = head.map(h => {
-      if (!h) return null;
-      const pm = h.match(/^(支給|控除|勤怠|出勤|きんたい)\s*:\s*(.+)$/);
-      if (pm) {
-        const label = pm[2];
-        if (pm[1] === "支給") return { kind: "kyuyo", label };
-        if (pm[1] === "控除") return { kind: "kojo", label };
-        return { kind: "kintai", label };
-      }
-      if (PS_CSV_CODE_KEYS.includes(h))   return { kind: "code" };
-      if (PS_CSV_NAME_KEYS.includes(h))   return { kind: "name" };
-      if (PS_CSV_BRANCH_KEYS.includes(h)) return { kind: "branch" };
-      if (PS_CSV_MONTH_KEYS.includes(h))  return { kind: "month" };
-      for (const [field, keys] of PS_CSV_TOTAL_KEYS) if (keys.includes(h)) return { kind: "total", field };
-      if (PS_CSV_KINTAI_KEYS.has(h)) return { kind: "kintai", label: h };
-      if (PS_CSV_KOJO_KEYS.has(h))   return { kind: "kojo", label: h };
-      if (PS_CSV_KYUYO_KEYS.has(h))  return { kind: "kyuyo", label: h };
-      return { kind: "ignore", label: h };
-    });
-
-    if (!cols.some(c => c && c.kind === "name") && !cols.some(c => c && c.kind === "code")) {
-      throw new Error("「氏名」または「管理番号」の列が見つかりませんでした（1行目を見出し行にしてください）");
-    }
-    const ignored = cols.filter(c => c && c.kind === "ignore").map(c => c.label);
-
-    const fallbackMonth = state.payslipMonth || new Date().toISOString().slice(0, 7);
-    const records = [];
-    for (let i = 1; i < rows.length; i++) {
-      const rec = psBuildCsvRecord(cols, rows[i], fallbackMonth);
-      if (!rec.code && !rec.name) continue;
-      if (/^(合計|総計|計)$/.test(rec.name) || /^(合計|総計|計)$/.test(rec.code)) continue; // 合計行は取り込まない
-      records.push(rec);
-    }
-    if (!records.length) throw new Error("データ行が見つかりませんでした");
-
-    // CSV の中で重複している管理番号は、番号での自動照合には使わない（氏名で照合する）
-    const codeCount = {};
-    records.forEach(r => { if (r.code) codeCount[r.code] = (codeCount[r.code] || 0) + 1; });
-
-    records.forEach(rec => {
-      let emp = null;
-      if (rec.code && codeCount[rec.code] === 1) {
-        const hits = state.employees.filter(e => e.employeeCode && e.employeeCode === rec.code);
-        if (hits.length === 1) emp = hits[0];
-      }
-      if (!emp && rec.name) {
-        const hits = state.employees.filter(e => e.name && e.name.replace(/[　\s]/g, "") === rec.name.replace(/[　\s]/g, ""));
-        if (hits.length === 1) emp = hits[0];
-      }
-      rec.employeeId = emp ? emp.id : "";
-      rec.matched = !!emp;
-      rec.noWorkplace = emp ? !emp.workplace : false;
-      if (!rec.branch && emp && emp.workplace) rec.branch = emp.workplace; // 組織欄が空なら従業員登録の所属を使う
-      rec.reconcileOk =
-        (rec.kyuyoGokei - rec.kojoGokei) === rec.sashihikiShikyu &&
-        (rec.furikomiShikyu + rec.genkinShikyu) === rec.sashihikiShikyu;
-      // 差引支給額が0円の行は、登録すると0円の明細が配信されてしまうので初めから外しておく
-      if (rec.sashihikiShikyu === 0 && rec.kyuyoGokei === 0) { rec.employeeId = ""; rec.zeroPay = true; }
-    });
-
-    state.bulkOxpsRecords = records;
-    state.bulkOxpsSource = "csv";
-    state.bulkOxpsIgnoredCols = ignored;
-    state.bulkOxpsMonth = records[0].month || fallbackMonth;
-    document.getElementById("bulkPayslipArea").innerHTML = renderBulkOxpsReview();
-  } catch (e) {
-    document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">CSVの読み込みに失敗しました: ${e.message}</p>`;
-  } finally {
-    if (evt) evt.target.value = "";
-  }
-}
-
-/* CSVの見本（1行だけ入った雛形）をダウンロードする */
-function downloadPayslipCsvTemplate() {
-  const head = ["管理番号", "氏名", "組織", "対象月",
-    "勤怠:出勤日数", "勤怠:実働時間", "勤怠:有休日数",
-    "支給:基本給", "支給:職務給", "支給:皆勤手当", "支給:非課税通勤費",
-    "控除:健康保険料", "控除:厚生年金保険", "控除:雇用保険料",
-    "支給合計", "社会保険料計", "所得税", "控除合計", "差引支給額", "振込支給額", "現金支給額"];
-  const sample = ["1-1-006", "山田花子", "本社", "2026-08",
-    "21.00", "136:30", "0.00",
-    "160661", "5000", "2000", "5980",
-    "8813", "13896", "955",
-    "173641", "23664", "2800", "26464", "147177", "147177", "0"];
-  const csv = "﻿" + head.join(",") + "\r\n" + sample.join(",") + "\r\n";
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "給与明細_CSV見本.csv";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 /* 弥生台紙そっくりのブルー罫線レイアウトで1名分の明細を描画 */
 function renderPayslipSheet(r) {
   const kyuyoRows = r.kyuyo.length ? r.kyuyo : [{ label: "（内訳なし）", amount: 0 }];
@@ -4245,7 +4014,7 @@ function renderPayslipSheet(r) {
       <div class="ps-head">
         <div class="ps-code">番号<b>${r.code || ""}</b></div>
         <div class="ps-name">${r.name || ""} 様<span class="ps-branch">${r.branch || "所属未設定"}</span></div>
-        <div class="ps-month">${r.month || ""} 分給与</div>
+        <div class="ps-month">${fmtPayslipMonth(r.month)}の給与</div>
       </div>
       ${attendEntries.length ? `
       <div class="ps-attend">
@@ -4422,16 +4191,15 @@ function renderAdminPayslipTab() {
   return `
     <div class="card">
       <p class="staff-title" style="font-size:16px;">給与明細をまとめてアップロード（おすすめ）</p>
-      <p class="muted" style="font-size:12px; margin-top:-6px;"><b>CSVファイル</b>（1行1名。Excelで作った表をそのまま「CSV」で保存したもの）をアップロードすると、氏名・金額を自動で読み取って全員分をまとめて登録できます。弥生給与の<b>OXPSファイル</b>（1人1ページ、管理番号入り）、PDF（全員分・1人1ページ）にも対応しています。</p>
-      <p class="muted" style="font-size:12px; margin-top:6px;">CSVの見出し行は「管理番号／氏名／対象月」に加えて、<b>支給:基本給</b>・<b>控除:健康保険料</b>・<b>勤怠:出勤日数</b> のように<b>「支給:」「控除:」「勤怠:」を頭につける</b>と、明細のどこに出すかが決まります。金額が0の項目は明細に表示しません。<button class="link" style="padding:0;" onclick="downloadPayslipCsvTemplate()">CSVの見本をダウンロード</button></p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与から出力した<b>OXPSファイル</b>（1人1ページ、管理番号入り）をそのままアップロードすると、氏名・金額を自動で読み取って全員分をまとめて登録できます。PDF（全員分・1人1ページ）にも対応しています。</p>
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
-          <label>対象月（PDFアップロード時に使用／OXPS・CSVは自動で読み取ります）</label>
+          <label>対象月（PDFアップロード時のみ使用／OXPSは自動で読み取ります）</label>
           <input id="bulkPayslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
         </div>
         <div>
-          <label>まとめてCSV・OXPS・PDF</label>
-          <input type="file" accept=".csv,text/csv,.oxps,application/pdf" id="bulkPayslipFile" onchange="handleBulkPayslipFile(event)" />
+          <label>まとめてOXPSまたはPDF</label>
+          <input type="file" accept=".oxps,application/pdf" id="bulkPayslipFile" onchange="handleBulkPayslipFile(event)" />
         </div>
       </div>
       <div id="bulkPayslipArea">${renderBulkPayslipAssignList() || renderBulkOxpsReview()}</div>
@@ -4465,11 +4233,11 @@ function renderAdminPayslipTab() {
     <div class="card">
       <p class="staff-title" style="font-size:16px;">${emp.name || ""} さんの給与明細一覧</p>
       <table>
-        <thead><tr><th>対象月</th><th>ファイル名</th><th>アップロード日</th><th></th></tr></thead>
+        <thead><tr><th>支給月</th><th>ファイル名</th><th>アップロード日</th><th></th></tr></thead>
         <tbody>
           ${myPayslips.map(p => `
             <tr>
-              <td>${p.month || ""}</td>
+              <td style="white-space:nowrap;">${fmtPayslipMonth(p.month, "short")}</td>
               <td>${p.fileName || ""}</td>
               <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
               <td>
@@ -4492,11 +4260,11 @@ function renderAdminPayslipTab() {
       </div>
       <p class="muted" style="font-size:11px; margin-top:-4px;">36か月より古いものは、自動的に一覧から消え、削除されます。</p>
       <table>
-        <thead><tr><th>対象月</th><th>氏名</th><th>ファイル名</th><th></th></tr></thead>
+        <thead><tr><th>支給月</th><th>氏名</th><th>ファイル名</th><th></th></tr></thead>
         <tbody>
           ${filteredAll.map(p => `
             <tr>
-              <td>${p.month || ""}</td>
+              <td style="white-space:nowrap;">${fmtPayslipMonth(p.month, "short")}</td>
               <td>${p.employeeName || ""}</td>
               <td>${p.fileName || ""}</td>
               <td>
@@ -4693,10 +4461,10 @@ function adminPreviewPayslip(id) {
     <div class="modal-overlay" onclick="document.getElementById('adminPayslipPreviewModal').remove()">
       <div class="modal-box payslip-preview" style="max-width:760px;" onclick="event.stopPropagation()">
         <div class="row-between no-print" style="margin-bottom:10px;">
-          <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${p.month || ""}分</p>
+          <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${fmtPayslipMonth(p.month)}</p>
           <div>
             <button style="margin-right:8px;" onclick="window.print()">印刷する</button>
-            <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${p.month || ""}.pdf', this)">PDFとして保存する</button>
+            <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${fmtPayslipMonth(p.month)}.pdf', this)">PDFとして保存する</button>
             <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
           </div>
         </div>
@@ -4723,11 +4491,11 @@ function renderPayslipViewScreen() {
   return `
     <div class="card no-print">
       <div class="row-between">
-        <p class="staff-title" style="font-size:17px; margin:0;">${p.month || ""} の給与明細</p>
+        <p class="staff-title" style="font-size:17px; margin:0;">${fmtPayslipMonth(p.month)}の給与明細</p>
         <button class="link" onclick="state.screen='payslips'; render();">一覧にもどる</button>
       </div>
       <button class="primary" style="margin-top:14px;" onclick="window.print()">印刷する</button>
-      <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${p.month || ""}.pdf', this)">PDFとして保存する</button>
+      <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${fmtPayslipMonth(p.month)}.pdf', this)">PDFとして保存する</button>
     </div>
     <div class="card payslip-preview" id="staffPayslipSheet">
       ${renderPayslipSheet(p.data)}
@@ -4766,9 +4534,10 @@ function renderStaffPayslips() {
         <p class="staff-title" style="font-size:17px; margin:0;">給与明細</p>
         <button class="link" onclick="state.screen='staffHome'; render();">とじる</button>
       </div>
+      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">お給料が振り込まれた月で表示しています。（例：7月に働いた分は「8月支給分」です）</p>
       ${list.length ? list.map(p => `
         <div class="row-between" style="padding:14px 0; border-bottom:1px solid var(--border);">
-          <div style="font-size:17px; font-weight:700;">${p.month || ""}</div>
+          <div style="font-size:17px; font-weight:700;">${fmtPayslipMonth(p.month)}</div>
           <button class="primary" style="width:auto; margin-top:0; padding:12px 20px;" onclick="openPayslip('${p.id}')">ひらく・印刷する</button>
         </div>
       `).join("") : `<p class="muted">まだ給与明細はありません</p>`}

@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-29(2)";
+const APP_VERSION = "更新: 2026-08-31(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -5472,7 +5472,7 @@ function renderAdminChatTab() {
   const selectedId = currentChatSelectedId();
   const thread = msgs.filter(m => m.employeeId === selectedId && !m.broadcastId);
   const broadcasts = groupBroadcasts(msgs);
-  const areas = [...new Set(allEmployees.map(e => e.area).filter(Boolean))];
+  const areas = [...new Set(allEmployees.filter(e => e.status !== "resigned").map(e => e.area).filter(Boolean))];
 
   const listPanel = `
     <div>
@@ -5542,7 +5542,7 @@ function renderAdminChatTab() {
         <div>
           <label>宛先</label>
           <select id="broadcastTarget">
-            <option value="all">全員</option>
+            <option value="all">在籍者 全員（退職者には送りません）</option>
             ${areas.map(a => `<option value="area:${a}">${a}のみ</option>`).join("")}
           </select>
         </div>
@@ -5626,12 +5626,17 @@ function groupBroadcasts(msgs) {
     if (!map[m.broadcastId]) map[m.broadcastId] = { text: m.text, targetLabel: m.targetLabel || "全員", items: [] };
     map[m.broadcastId].items.push(m);
   });
-  return Object.values(map).map(b => ({
-    text: b.text,
-    targetLabel: b.targetLabel,
-    total: b.items.length,
-    readCount: b.items.filter(i => i.readByStaff).length
-  }));
+  // 退職した人は既読の分母から外す（退職者はログインできないため、いつまでも未読のままになる）
+  const resignedIds = new Set((state.employees || []).filter(e => e.status === "resigned").map(e => e.id));
+  return Object.values(map).map(b => {
+    const active = b.items.filter(i => !resignedIds.has(i.employeeId));
+    return {
+      text: b.text,
+      targetLabel: b.targetLabel,
+      total: active.length,
+      readCount: active.filter(i => i.readByStaff).length
+    };
+  });
 }
 
 function openAdminThread(empId) {
@@ -5688,8 +5693,9 @@ async function sendBroadcast() {
   const target = document.getElementById("broadcastTarget").value;
   if (!text) return alert("お知らせ内容を入れてください");
 
-  let targets = state.employees || [];
-  let targetLabel = "全員";
+  // 退職者には送らない（退職者はログインできないため、送っても読まれず既読数だけが狂う）
+  let targets = (state.employees || []).filter(e => e.status !== "resigned");
+  let targetLabel = "在籍者全員";
   if (target.startsWith("area:")) {
     const area = target.slice(5);
     targets = targets.filter(e => e.area === area);

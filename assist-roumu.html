@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-08-31(2)";
+const APP_VERSION = "更新: 2026-08-31(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3767,16 +3767,45 @@ function psWarekiToMonth(str) {
   return `${year}-${month}`;
 }
 
-// 「2026-08」→「2026年8月支給分」。
-// 弥生給与の「令和8年8月分」は“8月に支給する分”を指すため、「8月分」とだけ書くと
-// 従業員が「8月に働いた分」と誤解する。表示は必ず「支給分」を付ける。
-function fmtPayslipMonth(month, style) {
-  if (!month) return "";
-  const m = String(month).match(/^(\d{4})-(\d{1,2})$/);
-  if (!m) return String(month);
+/* ---------- 給与明細の月の表し方 ----------
+   この会社は「月末締め・翌月末払い」。7月に働いた分を8月31日に振り込む。
+   給与明細の月は必ず【支給月】(paidMonth) で持ち、勤務月はその1つ前の月として表示する。
+   旧データには paidMonth が無い。month の意味が登録方法で食い違っているため、次で推定する。
+     ・弥生OXPS取り込み（source:"oxps"）… 弥生の「令和8年8月分」は支給月なので、month がそのまま支給月
+     ・PDFを手動アップロード（旧）      … 担当者が勤務月を入れていたので、その翌月が支給月
+   month と書類ID（従業員ID_month）は過去データを壊さないため変更しない。 */
+
+function ymAdd(ym, n) {
+  const m = String(ym || "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return "";
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// 給与明細1件の「支給月」を返す
+function payslipPaidMonth(p) {
+  if (!p) return "";
+  if (p.paidMonth) return p.paidMonth;               // 新しいデータはこれが正
+  if (p.source === "oxps") return p.month || "";     // 弥生の月＝支給月
+  return ymAdd(p.month, 1) || p.month || "";         // 旧・手動PDFは勤務月なので翌月が支給月
+}
+
+// 「2026-08」→「2026年8月度支給（7月分）」
+function fmtPaidMonth(paidMonth, style) {
+  const m = String(paidMonth || "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return String(paidMonth || "");
   const y = m[1], mm = parseInt(m[2], 10);
-  if (style === "short") return `${y}年${mm}月支給`;
-  return `${y}年${mm}月支給分`;
+  const work = ymAdd(paidMonth, -1).match(/^(\d{4})-(\d{1,2})$/);
+  const wm = work ? parseInt(work[2], 10) : "";
+  if (style === "short") return `${y}年${mm}月度支給`;
+  if (style === "file") return `${y}年${mm}月度支給_${wm}月分`;
+  return `${y}年${mm}月度支給（${wm}月分）`;
+}
+
+// 給与明細1件をそのまま渡して表示文字にする
+function fmtPayslipMonth(p, style) {
+  if (typeof p === "string") return fmtPaidMonth(p, style);
+  return fmtPaidMonth(payslipPaidMonth(p), style);
 }
 
 function psParseOnePage(xml) {
@@ -3907,7 +3936,7 @@ function renderBulkOxpsReview() {
       </div>
       ${unmatchedCount ? `<div class="payslip-warning">従業員に一致しなかった方が${unmatchedCount}名います。お試しモードのため従業員データが少ないと、この件数が多く出ます（実際のFirebase環境では管理番号でご登録の従業員と自動照合されます）。下の一覧から手動で割り当てることもできます。</div>` : ""}
       ${ngCount ? `<div class="payslip-warning">検算に一致しない明細が${ngCount}名分あります。金額が正しく読み取れていない可能性があるため、対象月を確認し、必要であれば元のOXPSファイルをご確認ください。</div>` : ""}
-      <p class="muted" style="margin:0 0 8px;">対象月：
+      <p class="muted" style="margin:0 0 8px;">支給月：
         <select onchange="state.bulkOxpsMonth=this.value;">
           ${[state.bulkOxpsMonth].concat(records.map(r=>r.month)).filter((v,i,a)=>v && a.indexOf(v)===i).map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
         </select>
@@ -3961,7 +3990,7 @@ function previewOxpsRecord(i) {
 async function registerBulkOxpsPayslips() {
   const records = state.bulkOxpsRecords || [];
   const month = state.bulkOxpsMonth;
-  if (!month) return alert("対象月を選んでください");
+  if (!month) return alert("支給月を選んでください");
   const targets = records.filter(r => r.employeeId);
   if (!targets.length) return alert("登録できる明細がありません（従業員の割り当てをご確認ください）");
 
@@ -3970,7 +3999,7 @@ async function registerBulkOxpsPayslips() {
     targets.forEach(r => {
       const emp = state.employees.find(e => e.id === r.employeeId) || {};
       const docId = r.employeeId + "_" + month;
-      const data = { id: docId, employeeId: r.employeeId, employeeName: emp.name || r.name, month, fileName: `給与明細_${month}.pdf`, source: "oxps", data: r };
+      const data = { id: docId, employeeId: r.employeeId, employeeName: emp.name || r.name, month, paidMonth: month, fileName: `給与明細_${month}.pdf`, source: "oxps", data: r };
       const idx = state.payslips.findIndex(x => x.id === docId);
       if (idx >= 0) state.payslips[idx] = data; else state.payslips.push(data);
     });
@@ -3989,6 +4018,7 @@ async function registerBulkOxpsPayslips() {
         employeeId: r.employeeId,
         employeeName: emp.name || r.name,
         month,
+        paidMonth: month, // 弥生の「令和◯年◯月分」＝支給月
         fileName: `給与明細_${month}.pdf`,
         source: "oxps",
         data: r,
@@ -4014,7 +4044,7 @@ function renderPayslipSheet(r) {
       <div class="ps-head">
         <div class="ps-code">番号<b>${r.code || ""}</b></div>
         <div class="ps-name">${r.name || ""} 様<span class="ps-branch">${r.branch || "所属未設定"}</span></div>
-        <div class="ps-month">${fmtPayslipMonth(r.month)}の給与</div>
+        <div class="ps-month">${fmtPayslipMonth(r.month)}</div>
       </div>
       ${attendEntries.length ? `
       <div class="ps-attend">
@@ -4089,7 +4119,7 @@ function renderBulkPayslipAssignList() {
 async function registerBulkPayslips() {
   const month = (document.getElementById("bulkPayslipMonth") || {}).value || state.payslipMonth;
   const pages = state.bulkPayslipPages || [];
-  if (!month) return alert("対象月を選んでください");
+  if (!month) return alert("支給月を選んでください");
   const targets = pages.filter(p => p.employeeId && p.sizeKB <= 650);
   if (!targets.length) return alert("登録できるページがありません（割り当てとサイズをご確認ください）");
 
@@ -4194,7 +4224,7 @@ function renderAdminPayslipTab() {
       <p class="muted" style="font-size:12px; margin-top:-6px;">弥生給与から出力した<b>OXPSファイル</b>（1人1ページ、管理番号入り）をそのままアップロードすると、氏名・金額を自動で読み取って全員分をまとめて登録できます。PDF（全員分・1人1ページ）にも対応しています。</p>
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
-          <label>対象月（PDFアップロード時のみ使用／OXPSは自動で読み取ります）</label>
+          <label>支給月（PDFアップロード時のみ使用／OXPSは自動で読み取ります）</label>
           <input id="bulkPayslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
         </div>
         <div>
@@ -4207,7 +4237,7 @@ function renderAdminPayslipTab() {
 
     <div class="card">
       <p class="staff-title" style="font-size:16px;">1人分だけアップロード（差し替え・再アップロードもこちらから）</p>
-      <p class="muted" style="font-size:12px; margin-top:-6px;">個別のPDFを、従業員・対象月ごとにアップロードします。同じ人・同じ月でもう一度アップロードすると、内容が上書きされます。1ファイル650KBまでです（大きい場合は白黒・低解像度で出力し直してください）。</p>
+      <p class="muted" style="font-size:12px; margin-top:-6px;">個別のPDFを、従業員・<b>支給月</b>ごとにアップロードします（7月に働いた分を8月31日に振り込むなら「2026年8月」を選びます）。同じ人・同じ月でもう一度アップロードすると、内容が上書きされます。1ファイル650KBまでです（大きい場合は白黒・低解像度で出力し直してください）。</p>
       <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0;">
         <div>
           <label>従業員を選ぶ（氏名・フリガナ・管理番号で検索）</label>
@@ -4221,7 +4251,7 @@ function renderAdminPayslipTab() {
           </select>
         </div>
         <div>
-          <label>対象月</label>
+          <label>支給月（振り込んだ月）</label>
           <input id="payslipMonth" type="month" value="${state.payslipMonth || new Date().toISOString().slice(0, 7)}" onchange="state.payslipMonth=this.value;" />
         </div>
       </div>
@@ -4237,7 +4267,7 @@ function renderAdminPayslipTab() {
         <tbody>
           ${myPayslips.map(p => `
             <tr>
-              <td style="white-space:nowrap;">${fmtPayslipMonth(p.month, "short")}</td>
+              <td style="white-space:nowrap;">${fmtPayslipMonth(p, "short")}</td>
               <td>${p.fileName || ""}</td>
               <td class="muted" style="font-size:12px;">${p.uploadedAt && p.uploadedAt.seconds ? new Date(p.uploadedAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
               <td>
@@ -4254,7 +4284,7 @@ function renderAdminPayslipTab() {
       <div class="row-between" style="margin-bottom:10px;">
         <p class="staff-title" style="font-size:16px; margin:0;">アップロード済みの給与明細一覧（全員）</p>
         <select onchange="state.payslipListMonthFilter=this.value; render();">
-          <option value="">対象月：すべて</option>
+          <option value="">支給月：すべて</option>
           ${months.map(m => `<option value="${m}" ${m === monthFilter ? "selected" : ""}>${m}</option>`).join("")}
         </select>
       </div>
@@ -4264,7 +4294,7 @@ function renderAdminPayslipTab() {
         <tbody>
           ${filteredAll.map(p => `
             <tr>
-              <td style="white-space:nowrap;">${fmtPayslipMonth(p.month, "short")}</td>
+              <td style="white-space:nowrap;">${fmtPayslipMonth(p, "short")}</td>
               <td>${p.employeeName || ""}</td>
               <td>${p.fileName || ""}</td>
               <td>
@@ -4316,12 +4346,13 @@ async function uploadPayslip() {
   const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
   const month = (document.getElementById("payslipMonth") || {}).value || state.payslipMonth;
-  if (!empId || !month || !state.pendingPayslip) return alert("従業員・対象月・ファイルをご確認ください");
+  if (!empId || !month || !state.pendingPayslip) return alert("従業員・支給月・ファイルをご確認ください");
 
   const data = {
     employeeId: empId,
     employeeName: emp.name || "",
     month,
+    paidMonth: month, // 入力欄は「支給月」。意味を固定するため必ず保存する
     fileName: state.pendingPayslip.fileName,
     pdfBase64: state.pendingPayslip.base64,
     uploadedAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
@@ -4461,10 +4492,10 @@ function adminPreviewPayslip(id) {
     <div class="modal-overlay" onclick="document.getElementById('adminPayslipPreviewModal').remove()">
       <div class="modal-box payslip-preview" style="max-width:760px;" onclick="event.stopPropagation()">
         <div class="row-between no-print" style="margin-bottom:10px;">
-          <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${fmtPayslipMonth(p.month)}</p>
+          <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${fmtPayslipMonth(p)}</p>
           <div>
             <button style="margin-right:8px;" onclick="window.print()">印刷する</button>
-            <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${fmtPayslipMonth(p.month)}.pdf', this)">PDFとして保存する</button>
+            <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${fmtPayslipMonth(p, "file")}.pdf', this)">PDFとして保存する</button>
             <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
           </div>
         </div>
@@ -4491,11 +4522,11 @@ function renderPayslipViewScreen() {
   return `
     <div class="card no-print">
       <div class="row-between">
-        <p class="staff-title" style="font-size:17px; margin:0;">${fmtPayslipMonth(p.month)}の給与明細</p>
+        <p class="staff-title" style="font-size:17px; margin:0;">${fmtPayslipMonth(p)}の給与明細</p>
         <button class="link" onclick="state.screen='payslips'; render();">一覧にもどる</button>
       </div>
       <button class="primary" style="margin-top:14px;" onclick="window.print()">印刷する</button>
-      <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${fmtPayslipMonth(p.month)}.pdf', this)">PDFとして保存する</button>
+      <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${fmtPayslipMonth(p, "file")}.pdf', this)">PDFとして保存する</button>
     </div>
     <div class="card payslip-preview" id="staffPayslipSheet">
       ${renderPayslipSheet(p.data)}
@@ -4537,7 +4568,7 @@ function renderStaffPayslips() {
       <p class="muted" style="font-size:12.5px; margin:0 0 10px;">お給料が振り込まれた月で表示しています。（例：7月に働いた分は「8月支給分」です）</p>
       ${list.length ? list.map(p => `
         <div class="row-between" style="padding:14px 0; border-bottom:1px solid var(--border);">
-          <div style="font-size:17px; font-weight:700;">${fmtPayslipMonth(p.month)}</div>
+          <div style="font-size:17px; font-weight:700;">${fmtPayslipMonth(p)}</div>
           <button class="primary" style="width:auto; margin-top:0; padding:12px 20px;" onclick="openPayslip('${p.id}')">ひらく・印刷する</button>
         </div>
       `).join("") : `<p class="muted">まだ給与明細はありません</p>`}

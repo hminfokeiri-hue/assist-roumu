@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-03(1)";
+const APP_VERSION = "更新: 2026-09-04(1)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -677,7 +677,21 @@ async function handleStaffLogin() {
     return render();
   }
 
-  await waitForAuth(3000);
+  // 匿名認証がまだ通っていなければ、待つのではなく能動的にやり直す
+  if (!authReady) {
+    try {
+      await firebase.auth().signInAnonymously();
+    } catch (e) {
+      return alert(
+        "ログインの準備でエラーが出ました。\nこの文字を本社にお伝えください：\n" +
+        (e.code || "") + "\n" + (e.message || "")
+      );
+    }
+  }
+  await waitForAuth(5000);
+  if (!authReady) {
+    return alert("通信の準備が終わりませんでした。電波のよい場所でもう一度おためしください。");
+  }
 
   try {
     const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
@@ -708,7 +722,7 @@ async function handleStaffLogin() {
     subscribeStaffPayslips();
     subscribeStaffGroups(); // ホーム画面で未読バッジを出すため、ログイン時から購読しておく
   } catch (e) {
-    alert("接続エラーが発生しました: " + e.message);
+    alert("接続エラーが発生しました。\nこの文字を本社にお伝えください：\n" + (e.code || "") + "\n" + (e.message || ""));
   }
 }
 

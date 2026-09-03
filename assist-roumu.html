@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-04(1)";
+const APP_VERSION = "更新: 2026-09-04(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -825,7 +825,7 @@ function renderStaff() {
               </p>
               <p class="muted" style="margin:6px 0 0; font-size:12px;">
                 ${bal.dutyLeft > 0
-                  ? `法律で、1年に5日は有給を取ることが決められています。${bal.dutyDeadline ? esc(bal.dutyDeadline.replace(/-/g, "/")) + " までに" : ""}あと${bal.dutyLeft}日おやすみしてください。日にちが決まったら「有給を申請する」からお知らせください。`
+                  ? `法律で、1年に5日は有給を取ることが決められています。${bal.dutyDeadline ? bal.dutyDeadline.replace(/-/g, "/") + " までに" : ""}あと${bal.dutyLeft}日おやすみしてください。日にちが決まったら「有給を申請する」からお知らせください。`
                   : `法律で決められた年5日を、すでに取れています。のこりの有給も遠慮なくお使いください。`}
               </p>
             </div>` : ""}

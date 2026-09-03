@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-04(2)";
+const APP_VERSION = "更新: 2026-09-04(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -818,17 +818,6 @@ function renderStaff() {
             <div><p class="muted" style="margin:0;">残り有給（繰越ふくむ）</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.remaining}日</p></div>
             <div><p class="muted" style="margin:0;">申請中・決裁ずみ</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
-          ${bal.dutyTarget > 0 ? `
-            <div style="margin-top:14px; padding:12px 14px; border-radius:10px; background:${bal.dutyLeft > 0 ? "#fdf0d5" : "#e3f3ea"};">
-              <p style="margin:0; font-weight:700; font-size:15px; color:${bal.dutyLeft > 0 ? "var(--warning)" : "var(--success)"};">
-                ${bal.dutyLeft > 0 ? `今年かならず取る有給　あと ${bal.dutyLeft}日` : "今年かならず取る有給　達成ずみ 🎉"}
-              </p>
-              <p class="muted" style="margin:6px 0 0; font-size:12px;">
-                ${bal.dutyLeft > 0
-                  ? `法律で、1年に5日は有給を取ることが決められています。${bal.dutyDeadline ? bal.dutyDeadline.replace(/-/g, "/") + " までに" : ""}あと${bal.dutyLeft}日おやすみしてください。日にちが決まったら「有給を申請する」からお知らせください。`
-                  : `法律で決められた年5日を、すでに取れています。のこりの有給も遠慮なくお使いください。`}
-              </p>
-            </div>` : ""}
         </div>
 
         ${(state.orders && state.orders.length) ? `<div class="card">${renderOrderHistory(true)}</div>` : ""}

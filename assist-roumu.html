@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-04(4)";
+const APP_VERSION = "更新: 2026-09-04(5)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -2696,25 +2696,45 @@ function computeShiftDerivedFields(emp) {
 }
 
 // シフト入力欄が変わるたびに、週の勤務日数・就業時間・休日の表示をその場で更新する
-function updateShiftComputedFields() {
+function updateShiftComputedFields(force) {
+  // 「手入力」に切りかえているときは、シフトを触っても3項目を上書きしない
+  const flag = document.getElementById("emp_shiftAuto");
+  if (!force && flag && flag.value === "0") return;
   const emp = {};
   WEEKDAY_FIELDS.forEach(([key]) => {
     const el = document.getElementById("emp_" + key);
     emp[key] = el ? el.value : "";
   });
   const { weeklyDays, workHours, holiday } = computeShiftDerivedFields(emp);
-  const wDisp = document.getElementById("computed_weeklyDays");
-  const hDisp = document.getElementById("computed_workHours");
-  const hoDisp = document.getElementById("computed_holiday");
   const wInput = document.getElementById("emp_weeklyDays");
   const hInput = document.getElementById("emp_workHours");
   const hoInput = document.getElementById("emp_holiday");
-  if (wDisp) wDisp.textContent = weeklyDays + "日";
-  if (hDisp) hDisp.textContent = workHours || "（シフト未入力）";
-  if (hoDisp) hoDisp.textContent = holiday || "（シフト未入力）";
   if (wInput) wInput.value = weeklyDays;
   if (hInput) hInput.value = workHours;
   if (hoInput) hoInput.value = holiday;
+}
+
+// 「シフトから自動で計算する」のチェックを入れたり外したりしたときの動き
+function toggleShiftAuto(on) {
+  const flag = document.getElementById("emp_shiftAuto");
+  if (flag) flag.value = on ? "1" : "0";
+  ["weeklyDays", "workHours", "holiday"].forEach(key => {
+    const el = document.getElementById("emp_" + key);
+    if (!el) return;
+    el.readOnly = !!on;
+    el.style.background = on ? "#eef1f3" : "#fff";
+    el.style.color = on ? "#6b7280" : "";
+  });
+  const note = document.getElementById("shiftAutoNote");
+  if (note) note.textContent = on
+    ? "チェックを外すと、下の3つを手で書きかえられます。ここに書いた内容が雇用契約書にそのまま印刷されます。"
+    : "手入力にしています。下の3つはシフトを変えても自動では変わりません。ここに書いた内容が雇用契約書にそのまま印刷されます。";
+  if (on) updateShiftComputedFields(true);
+}
+
+// 手入力モードのままでも、いまのシフトから3項目を入れなおすボタン
+function fillContractFromShift() {
+  updateShiftComputedFields(true);
 }
 
 // 「1990-05-01」のような西暦だけでなく、「昭和24年9月13日」のような和暦入力も読み取れるようにする
@@ -3195,6 +3215,17 @@ function renderAdminEmployeeTab() {
     const isResigned = editing.status === "resigned";
     const age = calcAge(editing.birthDate);
     const shiftComputed = computeShiftDerivedFields(editing);
+    // 「シフトから自動計算」か「手入力」か。未設定の人は今までどおり自動計算。
+    const shiftAutoOn = editing.shiftAuto !== false;
+    const pickVal = (v, fallback) => (v === undefined || v === null || v === "") ? fallback : v;
+    const contractShift = shiftAutoOn
+      ? { weeklyDays: shiftComputed.weeklyDays, workHours: shiftComputed.workHours, holiday: shiftComputed.holiday }
+      : {
+          weeklyDays: pickVal(editing.weeklyDays, shiftComputed.weeklyDays),
+          workHours: pickVal(editing.workHours, shiftComputed.workHours),
+          holiday: pickVal(editing.holiday, shiftComputed.holiday)
+        };
+    const shiftLockStyle = shiftAutoOn ? "background:#eef1f3; color:#6b7280;" : "background:#fff;";
     const { postalCode, address } = splitAddressForDisplay(editing);
 
     const fieldInput = (key, label, opts) => `
@@ -3283,22 +3314,27 @@ function renderAdminEmployeeTab() {
             `).join("")}
           </div>
 
-          <p class="muted" style="margin:16px 0 4px; font-size:12px;">↓ シフトから自動で計算されます（直接の編集はできません）</p>
+          <div style="margin:16px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <label style="margin:0; display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; cursor:pointer;">
+              <input type="checkbox" id="shiftAutoCheck" ${shiftAutoOn ? "checked" : ""} style="width:18px; height:18px; margin:0;" onchange="toggleShiftAuto(this.checked)" />
+              シフトから自動で計算する
+            </label>
+            <button type="button" style="font-size:12.5px; padding:7px 12px; width:auto;" onclick="fillContractFromShift()">今のシフトから入れなおす</button>
+            <input type="hidden" id="emp_shiftAuto" value="${shiftAutoOn ? "1" : "0"}" />
+          </div>
+          <p class="muted" id="shiftAutoNote" style="margin:0 0 8px; font-size:12px;">${shiftAutoOn ? "チェックを外すと、下の3つを手で書きかえられます。ここに書いた内容が雇用契約書にそのまま印刷されます。" : "手入力にしています。下の3つはシフトを変えても自動では変わりません。ここに書いた内容が雇用契約書にそのまま印刷されます。"}</p>
           <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px 16px;">
             <div>
               <label style="margin:4px 0 4px;">週の勤務日数</label>
-              <div id="computed_weeklyDays" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px; font-weight:700;">${shiftComputed.weeklyDays}日</div>
-              <input type="hidden" id="emp_weeklyDays" value="${shiftComputed.weeklyDays}" />
+              <input id="emp_weeklyDays" type="text" ${shiftAutoOn ? "readonly" : ""} style="font-weight:700; ${shiftLockStyle}" value="${String(contractShift.weeklyDays ?? "").replace(/"/g, '&quot;')}" />
             </div>
             <div>
               <label style="margin:4px 0 4px;">就業時間</label>
-              <div id="computed_workHours" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px;">${shiftComputed.workHours || "（シフト未入力）"}</div>
-              <input type="hidden" id="emp_workHours" value="${shiftComputed.workHours.replace(/"/g, '&quot;')}" />
+              <input id="emp_workHours" type="text" ${shiftAutoOn ? "readonly" : ""} placeholder="例：月・水・金 9時〜16時" style="${shiftLockStyle}" value="${String(contractShift.workHours ?? "").replace(/"/g, '&quot;')}" />
             </div>
             <div>
               <label style="margin:4px 0 4px;">休日</label>
-              <div id="computed_holiday" style="padding:12px; background:#fff; border:1.5px solid var(--border); border-radius:10px;">${shiftComputed.holiday || "（シフト未入力）"}</div>
-              <input type="hidden" id="emp_holiday" value="${shiftComputed.holiday.replace(/"/g, '&quot;')}" />
+              <input id="emp_holiday" type="text" ${shiftAutoOn ? "readonly" : ""} placeholder="例：火・木・土・日" style="${shiftLockStyle}" value="${String(contractShift.holiday ?? "").replace(/"/g, '&quot;')}" />
             </div>
           </div>
         </div>
@@ -3576,6 +3612,9 @@ async function saveEmployee(id) {
     const el = document.getElementById("emp_" + key);
     if (el) data[key] = el.value;
   });
+  // 就業時間・休日・週の勤務日数を「自動計算」にするか「手入力」にするかの設定
+  const shiftAutoEl = document.getElementById("emp_shiftAuto");
+  if (shiftAutoEl) data.shiftAuto = shiftAutoEl.value !== "0";
   if (!firebaseReady) {
     const idx = state.employees.findIndex(e => e.id === id);
     if (idx >= 0) state.employees[idx] = { ...state.employees[idx], ...data };

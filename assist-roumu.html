@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-04(3)";
+const APP_VERSION = "更新: 2026-09-04(4)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -815,7 +815,7 @@ function renderStaff() {
 
         <div class="card" style="margin-top:20px;">
           <div class="row-between">
-            <div><p class="muted" style="margin:0;">残り有給（繰越ふくむ）</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.remaining}日</p></div>
+            <div><p class="muted" style="margin:0;">使える有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.remainingThisYear}日</p></div>
             <div><p class="muted" style="margin:0;">申請中・決裁ずみ</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
         </div>
@@ -2859,7 +2859,7 @@ function usedPaidLeaveFor(empId) {
    ・消化は「有給休暇」で否決でないものを、付与日を境に前年ぶん／今年ぶんに振り分ける。
    返り値: { grantNow, grantPrev, carryOver, usedPrev, usedCurr, remaining, hasData, notYet } */
 function leaveBalance(emp) {
-  const empty = { grantNow: 0, grantPrev: 0, carryOver: 0, usedPrev: 0, usedCurr: 0, remaining: 0, dutyTarget: 0, dutyDone: 0, dutyLeft: 0, dutyDeadline: "", lastGrantDate: "", nextGrantDate: "", hasData: false, notYet: false };
+  const empty = { grantNow: 0, grantPrev: 0, carryOver: 0, usedPrev: 0, usedCurr: 0, remaining: 0, remainingThisYear: 0, dutyTarget: 0, dutyDone: 0, dutyLeft: 0, dutyDeadline: "", lastGrantDate: "", nextGrantDate: "", hasData: false, notYet: false };
   if (!emp || !emp.hireDate || !emp.weeklyDays) return empty;
   const months = monthsBetween(emp.hireDate, new Date());
   if (months < 6) return { ...empty, hasData: true, notYet: true }; // まだ初回付与前（6か月未満）
@@ -2885,6 +2885,8 @@ function leaveBalance(emp) {
 
   const carryOver = Math.max(0, Math.min(grantPrev - usedPrev, grantPrev)); // 繰越は前年の付与が上限
   const remaining = Math.max(0, carryOver + grantNow - usedCurr);
+  // 従業員に見せる用：今年の付与ぶんだけの残り（繰越を含めない）
+  const remainingThisYear = Math.max(0, grantNow - usedCurr);
 
   /* 年5日の取得義務（2019年4月〜）。
      その年の付与が10日以上の人だけが対象。繰越は数えない。
@@ -2899,6 +2901,7 @@ function leaveBalance(emp) {
   return {
     grantNow: r1(grantNow), grantPrev: r1(grantPrev), carryOver: r1(carryOver),
     usedPrev: r1(usedPrev), usedCurr: r1(usedCurr), remaining: r1(remaining),
+    remainingThisYear: r1(remainingThisYear),
     dutyTarget, dutyDone: r1(dutyDone), dutyLeft: r1(dutyLeft), dutyDeadline,
     lastGrantDate, nextGrantDate,
     hasData: true, notYet: false

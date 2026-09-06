@@ -492,7 +492,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-04(5)";
+const APP_VERSION = "更新: 2026-09-06(7)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1671,28 +1671,50 @@ async function sendGroupMessage() {
 
 const LEAVE_TYPES = ["欠勤（無給）", "遅刻・早退", "忌引き", "有給休暇"];
 
+// 有給休暇は「休みたい日の14日前〜20日前のあいだに申請する」きまり。
+// つまり、申請するその日から数えて14日後〜20日後の日付だけを選べるようにする。
+const PAID_LEAVE_MIN_DAYS = 14;
+const PAID_LEAVE_MAX_DAYS = 20;
+function paidLeaveRange() {
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 今日の0時（時差ずれ防止）
+  const min = new Date(base); min.setDate(min.getDate() + PAID_LEAVE_MIN_DAYS);
+  const max = new Date(base); max.setDate(max.getDate() + PAID_LEAVE_MAX_DAYS);
+  return { min, max, minStr: formatYmd(min), maxStr: formatYmd(max) };
+}
+function paidLeaveRangeLabel() {
+  const { min, max } = paidLeaveRange();
+  const w = ["日", "月", "火", "水", "木", "金", "土"];
+  return `${min.getMonth() + 1}月${min.getDate()}日（${w[min.getDay()]}）〜 ${max.getMonth() + 1}月${max.getDate()}日（${w[max.getDay()]}）`;
+}
+
 function renderLeaveForm() {
   const type = state.leaveFormType || LEAVE_TYPES[0];
   const isPaid = type === "有給休暇";
 
   let dateFieldHtml;
   if (isPaid) {
-    const today = new Date();
-    const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
-    const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
-    const toStr = d => d.toISOString().slice(0, 10);
+    const { min: minDate, max: maxDate } = paidLeaveRange();
     const weekdayJp = ["日", "月", "火", "水", "木", "金", "土"];
     const options = [];
     const cur = new Date(minDate);
     while (cur <= maxDate) {
-      const iso = toStr(cur);
+      const iso = formatYmd(cur);
       const label = `${cur.getMonth() + 1}月${cur.getDate()}日（${weekdayJp[cur.getDay()]}）`;
       options.push(`<option value="${iso}" ${iso === state.leaveFormDate ? "selected" : ""}>${label}</option>`);
       cur.setDate(cur.getDate() + 1);
     }
     dateFieldHtml = `
-      <label>希望日（有給休暇は2週間後〜1か月後の間で選べます）</label>
+      <div class="placeholder-note" style="margin:10px 0 4px;">
+        有給休暇は、休みたい日の<b>14日前〜20日前</b>のあいだに申請してください。
+      </div>
+      <label>希望日</label>
       <select id="leaveDate" onchange="state.leaveFormDate=this.value;">${options.join("")}</select>
+      <div class="placeholder-note" style="margin:8px 0 0;">
+        今えらべるのは <b>${paidLeaveRangeLabel()}</b> です。<br><br>
+        これ以外の日にどうしても休みたいときは、本社にお電話かチャットでご相談ください。
+        <a href="tel:0666547812" style="display:block; margin-top:8px; text-align:center; padding:11px; border:1.5px solid var(--success); border-radius:10px; color:var(--success); text-decoration:none; font-weight:700;">📞 本社に電話する（06-6654-7812）</a>
+      </div>
     `;
   } else {
     dateFieldHtml = `
@@ -1766,12 +1788,14 @@ async function submitLeaveRequest() {
   if (!date) return alert("日付を選んでください");
 
   if (type === "有給休暇") {
-    const today = new Date();
-    const minDate = new Date(today); minDate.setDate(minDate.getDate() + 14);
-    const maxDate = new Date(today); maxDate.setMonth(maxDate.getMonth() + 1);
-    const picked = new Date(date);
-    if (picked < minDate || picked > maxDate) {
-      return alert("有給休暇の申請は2週間後から1か月後までの日付でお願いします");
+    const { minStr, maxStr } = paidLeaveRange();
+    // 文字列どうしで比べる（"2026-09-20" 形式なので時差でずれない）
+    if (date < minStr || date > maxStr) {
+      return alert(
+        "有給休暇は、休みたい日の14日前〜20日前のあいだに申請するきまりです。\n\n" +
+        "いま申請できるのは " + paidLeaveRangeLabel() + " です。\n" +
+        "これ以外の日は、本社（06-6654-7812）かチャットでご相談ください。"
+      );
     }
   }
 

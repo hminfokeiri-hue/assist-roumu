@@ -436,8 +436,8 @@ async function run(){
     const round15 = $('optRound').checked;
     const kuri    = $('optKurikoshi').checked;
 
-    // 人 → 日 → 打刻
-    const people = {};   // key -> {emp, days:{ymd:{ins:[],outs:[],mins:null}}}
+    // 人 → 日 → 現場ブロック（同じ日に2現場入る人がいても正しく合算する）
+    const people = {};
     let used=0, skipped=0;
 
     for(const rec of got.docs){
@@ -445,93 +445,118 @@ async function run(){
       if(!ymd || ymd.slice(0,7)!==ym){ skipped++; continue; }
 
       // 従業員をつきとめる
-      let emp=null, rawKey=null;
+      let emp=null, rawKey=null, rawName=null, rawArea=null;
       if(s.empKey && rec[s.empKey]!=null){
         rawKey=String(rec[s.empKey]).trim();
         emp = emps.byId[rawKey] || emps.byLogin[rawKey] || emps.byCode[rawKey] || null;
       }
-      if(!emp && s.nameKey && rec[s.nameKey]){
-        const n=String(rec[s.nameKey]).replace(/[\s　]/g,'');
-        emp = emps.byName[n] || null;
-        if(!rawKey) rawKey=n;
+      if(s.nameKey && rec[s.nameKey]) rawName=String(rec[s.nameKey]).trim();
+      if(rec.area) rawArea=String(rec.area);
+      if(!emp && rawName){
+        emp = emps.byName[rawName.replace(/[\s　]/g,'')] || null;
+        if(!rawKey) rawKey=rawName;
       }
-      const key = emp ? emp.__id : ('?'+(rawKey||'不明'));
-      if(!people[key]) people[key]={emp, raw:rawKey, days:{}};
-      if(!people[key].days[ymd]) people[key].days[ymd]={ins:[],outs:[],mins:null};
+      const key = emp ? emp.__id : ('?'+(rawKey||rawName||'不明'));
+      if(!people[key]) people[key]={emp, raw:rawKey, rawName, rawArea, days:{}};
+      if(!people[key].rawName && rawName) people[key].rawName=rawName;
+      if(!people[key].rawArea && rawArea) people[key].rawArea=rawArea;
+      if(!people[key].days[ymd]) people[key].days[ymd]={blocks:{}};
       const day=people[key].days[ymd];
 
+      // 同じ日でも現場ごとに別のかたまりにする
+      const bkey = (s.siteKey && rec[s.siteKey]!=null && String(rec[s.siteKey])!=='')
+                     ? String(rec[s.siteKey])
+                     : (s.perPunch ? '_' : String(rec.__id));
+      if(!day.blocks[bkey]) day.blocks[bkey]={ins:[],outs:[],mins:null};
+      const b=day.blocks[bkey];
+
       if(s.minKey && rec[s.minKey]!=null && !isNaN(Number(rec[s.minKey]))){
-        day.mins = (day.mins||0) + Number(rec[s.minKey]);
+        b.mins = (b.mins||0) + Number(rec[s.minKey]);
       }
       if(s.perPunch){
         const t = toDate(rec[s.tsKey]||rec[s.inKey]||rec[s.outKey], ymd);
-        if(t){ (isOutPunch(rec,s) ? day.outs : day.ins).push(t); }
+        if(t){ (isOutPunch(rec,s) ? b.outs : b.ins).push(t); }
       }else{
         const ti = s.inKey  ? toDate(rec[s.inKey], ymd)  : null;
         const to_= s.outKey ? toDate(rec[s.outKey], ymd) : null;
-        if(ti) day.ins.push(ti);
-        if(to_) day.outs.push(to_);
-        if(!ti && !to_ && s.tsKey){ const t=toDate(rec[s.tsKey],ymd); if(t) day.ins.push(t); }
+        if(ti) b.ins.push(ti);
+        if(to_) b.outs.push(to_);
+        if(!ti && !to_ && s.tsKey){ const t=toDate(rec[s.tsKey],ymd); if(t) b.ins.push(t); }
       }
       used++;
     }
 
     // 人ごとに合計
     ROWS = [];
+    const mn = a => new Date(Math.min.apply(null,a.map(x=>x.getTime())));
+    const mx = a => new Date(Math.max.apply(null,a.map(x=>x.getTime())));
+
     for(const key in people){
       const p=people[key];
       let days=0, mins=0; const issues=[];
       const ymds=Object.keys(p.days).sort();
-      // 日付またぎ：出勤だけの日の翌朝に退勤だけがあれば、前の日の勤務としてつなぐ
+
+      // 日付またぎ：出勤だけで終わった日の翌朝に退勤だけがあれば、前の日につなぐ
       if(kuri){
         for(let i=0;i<ymds.length-1;i++){
-          const a=p.days[ymds[i]], b=p.days[ymds[i+1]];
-          if(!(a.ins.length && !a.outs.length && b.outs.length && !b.ins.length)) continue;
           const yy=ymds[i].split('-').map(Number);
           if(ymdFromDate(new Date(yy[0],yy[1]-1,yy[2]+1)) !== ymds[i+1]) continue;
-          const first=new Date(Math.min.apply(null,b.outs.map(x=>x.getTime())));
+          const A=p.days[ymds[i]].blocks, B=p.days[ymds[i+1]].blocks;
+          const openA=Object.keys(A).filter(k=>A[k].ins.length && !A[k].outs.length && A[k].mins==null);
+          const orphB=Object.keys(B).filter(k=>!B[k].ins.length && B[k].outs.length && B[k].mins==null);
+          if(openA.length!==1 || orphB.length!==1) continue;
+          const a=A[openA[0]], b=B[orphB[0]];
+          const first=mn(b.outs);
           if(first.getHours()<8){
             a.outs.push(first);
             b.outs=b.outs.filter(x=>x.getTime()!==first.getTime());
+            if(!b.outs.length && !b.ins.length && b.mins==null) delete B[orphB[0]];
           }
         }
       }
+
       for(const ymd of ymds){
-        const d=p.days[ymd];
-        if(!d.ins.length && !d.outs.length && d.mins==null) continue;
-        days++;
-        if(d.mins!=null){ mins += d.mins; continue; }
-        const inT  = d.ins.length  ? new Date(Math.min.apply(null,d.ins.map(x=>x.getTime())))  : null;
-        const outT = d.outs.length ? new Date(Math.max.apply(null,d.outs.map(x=>x.getTime()))) : null;
-        if(inT && outT){
-          let g=(outT-inT)/60000;
-          if(g<0 && kuri) g+=24*60;
-          if(g<0){ issues.push(ymd.slice(5)+' 退勤が出勤より前'); g=0; }
-          if(g>capMin){ issues.push(ymd.slice(5)+' 勤務'+(g/60).toFixed(1)+'時間（打刻ミス？）'); }
-          g -= breakMinutes(g);
-          if(g<0) g=0;
-          if(round15) g=Math.floor(g/15)*15;
-          mins += g;
-        }else if(inT && !outT){
-          issues.push(ymd.slice(5)+' 退勤の打刻なし');
-          mins += noOutMin;
-        }else if(!inT && outT){
-          issues.push(ymd.slice(5)+' 出勤の打刻なし');
-          mins += noOutMin;
+        const bs=p.days[ymd].blocks;
+        let gross=0, net=0, worked=false;
+        for(const bk in bs){
+          const b=bs[bk];
+          if(b.mins!=null){ net+=b.mins; worked=true; continue; }
+          const inT  = b.ins.length  ? mn(b.ins)  : null;
+          const outT = b.outs.length ? mx(b.outs) : null;
+          if(!inT && !outT) continue;
+          worked=true;
+          if(inT && outT){
+            let g=(outT-inT)/60000;
+            if(g<0 && kuri) g+=24*60;
+            if(g<0){ issues.push(ymd.slice(5)+' 退勤が出勤より前'); g=0; }
+            if(g>capMin) issues.push(ymd.slice(5)+' 勤務'+(g/60).toFixed(1)+'時間（打刻ミス？）');
+            gross+=g;
+          }else{
+            issues.push(ymd.slice(5)+(inT?' 退勤の打刻なし':' 出勤の打刻なし'));
+            gross+=noOutMin;
+          }
         }
+        if(!worked) continue;
+        days++;
+        let g=gross-breakMinutes(gross);
+        if(g<0) g=0;
+        if(round15) g=Math.floor(g/15)*15;
+        mins += g + net;
       }
-      const name = p.emp ? String(p.emp.name||'') : '';
+
+      const nm = (p.emp && p.emp.name) ? String(p.emp.name) : (p.rawName || '');
       ROWS.push({
         key,
-        name: name || ('【要確認】'+(p.raw||'不明')),
+        name: nm || ('【要確認】'+(p.raw||'不明')),
         unknown: !p.emp,
-        area: p.emp ? (p.emp.area||'') : '',
+        area: (p.emp && p.emp.area) ? p.emp.area : (p.rawArea||''),
         days, hours: Math.round(mins/60*100)/100,
         absent: 0, tate: 0,
         issues
       });
-      if(!p.emp) ROWS[ROWS.length-1].issues.unshift('従業員名簿に見つかりません');
+      if(!p.emp) ROWS[ROWS.length-1].issues.unshift(nm ? '従業員名簿と付き合わせできず（氏名は打刻データのもの）' : '従業員名簿に見つかりません');
     }
+
     ROWS.sort((a,b)=> (a.unknown?1:0)-(b.unknown?1:0) || a.name.localeCompare(b.name,'ja'));
 
     draw();

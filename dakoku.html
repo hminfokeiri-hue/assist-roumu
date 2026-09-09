@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>出勤の記録｜アシスト労務</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --blue:#E8873A; --blue-dark:#C96A1E; --sun-soft:#F7DDBF;
+    --bg:#FBF6ED; --card:#fff; --border:#EDE2CE;
+    --text:#3A3530; --muted:#6B5F52; --danger:#C65D4B; --success:#4A7C6F;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Arial,sans-serif;
+       background:var(--bg);color:#111;font-weight:500;}
+  #app{max-width:480px;margin:0 auto;min-height:100vh;}
+  header.topbar{background:var(--blue);color:#fff;padding:16px 20px;}
+  header.topbar h1{font-size:18px;margin:0;font-weight:700;}
+  main{padding:20px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px;}
+  .site-name{font-size:26px;font-weight:700;text-align:center;margin:6px 0 4px;}
+  .site-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:4px;}
+  .who{font-size:16px;text-align:center;color:var(--muted);margin-bottom:18px;}
+  .who b{color:#111;font-size:19px;}
+  label{display:block;font-size:15px;color:var(--muted);margin:14px 0 6px;}
+  input{width:100%;font-size:20px;padding:16px;border-radius:10px;border:1.5px solid var(--border);
+        background:#fff;color:#111;font-weight:500;text-align:center;letter-spacing:.1em;}
+  .big-btn{width:100%;border:none;border-radius:16px;padding:30px 12px;font-size:26px;font-weight:700;
+           color:#fff;background:var(--blue);font-family:inherit;cursor:pointer;line-height:1.3;}
+  .big-btn:active{background:var(--blue-dark);}
+  .big-btn.out{background:var(--success);}
+  .big-btn[disabled]{opacity:.5;}
+  .sub-btn{width:100%;margin-top:12px;background:#fff;color:var(--blue);border:1.5px solid var(--blue);
+           border-radius:12px;padding:14px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;}
+  .done{text-align:center;padding:20px 0;}
+  .done .mark{font-size:56px;line-height:1;}
+  .done .msg{font-size:24px;font-weight:700;margin-top:10px;}
+  .done .time{font-size:40px;font-weight:700;margin-top:6px;letter-spacing:.02em;}
+  .done .note{font-size:14px;color:var(--muted);margin-top:12px;line-height:1.7;}
+  .status{background:var(--sun-soft);border-radius:10px;padding:12px 14px;font-size:15px;
+          text-align:center;margin-bottom:16px;color:var(--blue-dark);font-weight:700;}
+  .err{color:var(--danger);font-size:15px;margin-top:10px;text-align:center;font-weight:700;}
+  .muted{color:var(--muted);font-size:13px;line-height:1.7;}
+  .center{text-align:center;}
+  .waiting{background:#fff8e1;border:1px solid #f0d98c;border-radius:10px;padding:12px;
+           font-size:14px;color:#6b5b0e;margin-top:14px;text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar"><h1>出勤の記録</h1></header>
+  <main id="main"><div class="card center muted">読み込んでいます…</div></main>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
+  authDomain: "assist-roumu.firebaseapp.com",
+  projectId: "assist-roumu",
+  storageBucket: "assist-roumu.firebasestorage.app",
+  messagingSenderId: "919904591114",
+  appId: "1:919904591114:web:33d30e66ea4264e081eef3"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs: true }).catch(function(){});
+
+const LS_LOGIN = "assistRoumuLoginId";
+const LS_CODE3 = "assistDakokuCode3";
+
+var state = { site:null, siteId:null, emp:null, today:null, rec:null, busy:false, err:"" };
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function el(id){ return document.getElementById(id); }
+function todayStr(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function hhmm(ts){
+  if (!ts) return "";
+  var d = ts.toDate ? ts.toDate() : new Date(ts);
+  return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+}
+function last3(code){ return String(code||"").replace(/[^0-9]/g,"").slice(-3); }
+
+function render(html){ el("main").innerHTML = html; }
+
+function renderLogin(){
+  var saved = localStorage.getItem(LS_LOGIN) || "";
+  render(
+    '<div class="card">' +
+      (state.site ? '<div class="site-name">' + esc(state.site.name) + '</div><div class="site-sub">この現場に出勤します</div>' : '') +
+      '<p class="muted center" style="margin-top:14px">はじめだけ入力してください。<br>次からは読み取るだけで出勤できます。</p>' +
+      '<label>ログインID（8桁）</label>' +
+      '<input id="inLogin" type="tel" inputmode="numeric" maxlength="8" placeholder="12345678" value="' + esc(saved) + '">' +
+      '<label>管理番号の下3桁</label>' +
+      '<input id="inCode" type="tel" inputmode="numeric" maxlength="3" placeholder="001">' +
+      '<button class="big-btn" style="margin-top:20px;padding:20px;font-size:20px" onclick="doLogin()">つぎへ</button>' +
+      (state.err ? '<div class="err">' + esc(state.err) + '</div>' : '') +
+    '</div>'
+  );
+}
+
+async function doLogin(){
+  var loginId = (el("inLogin").value||"").trim();
+  var code3 = (el("inCode").value||"").trim();
+  if (!loginId || !code3){ state.err = "両方を入力してください"; return renderLogin(); }
+  state.err = "";
+  render('<div class="card center muted">確認しています…</div>');
+  try{
+    var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
+    if (snap.empty){ state.err = "ログインIDが見つかりません"; return renderLogin(); }
+    var doc = snap.docs[0];
+    var emp = Object.assign({ id: doc.id }, doc.data());
+    if (last3(emp.employeeCode) !== code3.padStart(3,"0")){
+      state.err = "管理番号の下3桁が違います"; return renderLogin();
+    }
+    localStorage.setItem(LS_LOGIN, loginId);
+    localStorage.setItem(LS_CODE3, code3.padStart(3,"0"));
+    state.emp = emp;
+    await loadRecord();
+    renderMain();
+  }catch(e){
+    state.err = "つながりませんでした。電波を確かめてもう一度おしてください。";
+    renderLogin();
+  }
+}
+
+function recId(){ return state.today + "_" + state.emp.id + "_" + state.siteId; }
+
+async function loadRecord(){
+  state.today = todayStr();
+  try{
+    var d = await db.collection("attendance").doc(recId()).get();
+    state.rec = d.exists ? d.data() : null;
+  }catch(e){ state.rec = null; }
+}
+
+function renderMain(){
+  var s = state.site, r = state.rec;
+  var head =
+    '<div class="card">' +
+      '<div class="site-name">' + esc(s ? s.name : "現場が未設定") + '</div>' +
+      (s && s.startTime ? '<div class="site-sub">予定 ' + esc(s.startTime) + '〜' + esc(s.endTime||"") + '</div>' : '') +
+      '<div class="who">' + esc(state.emp.name||"") + ' さん</div>';
+
+  if (!r){
+    render(head +
+      '<button class="big-btn" onclick="punch(\'in\')">出勤</button>' +
+      '<button class="sub-btn" onclick="switchUser()">ちがう人が使う</button>' +
+      '</div>');
+    return;
+  }
+  if (r && r.inAt && !r.outAt){
+    render(head +
+      '<div class="status">' + hhmm(r.inAt) + ' に出勤しました</div>' +
+      '<button class="big-btn out" onclick="punch(\'out\')">退勤</button>' +
+      '<button class="sub-btn" onclick="switchUser()">ちがう人が使う</button>' +
+      '</div>');
+    return;
+  }
+  render(head +
+    '<div class="done">' +
+      '<div class="mark">✓</div>' +
+      '<div class="msg">きょうはおつかれさまでした</div>' +
+      '<div class="note">出勤 ' + hhmm(r.inAt) + '　／　退勤 ' + hhmm(r.outAt) + '</div>' +
+    '</div>' +
+    '<button class="sub-btn" onclick="switchUser()">ちがう人が使う</button>' +
+    '</div>');
+}
+
+async function punch(kind){
+  if (state.busy) return;
+  state.busy = true;
+  var now = firebase.firestore.FieldValue.serverTimestamp();
+  var ref = db.collection("attendance").doc(recId());
+  var data = {
+    date: state.today,
+    employeeId: state.emp.id,
+    employeeName: state.emp.name || "",
+    employeeCode: state.emp.employeeCode || "",
+    area: state.emp.area || "",
+    siteId: state.siteId,
+    siteName: state.site ? state.site.name : "",
+    source: "qr"
+  };
+  if (kind === "in") data.inAt = now; else data.outAt = now;
+
+  var localTime = new Date();
+  var shown = String(localTime.getHours()).padStart(2,"0") + ":" + String(localTime.getMinutes()).padStart(2,"0");
+  render(
+    '<div class="card"><div class="done">' +
+      '<div class="mark">✓</div>' +
+      '<div class="msg">' + (kind==="in" ? "出勤しました" : "退勤しました") + '</div>' +
+      '<div class="time">' + shown + '</div>' +
+      '<div class="note">' + esc(state.site ? state.site.name : "") + '<br>' + esc(state.emp.name||"") + ' さん</div>' +
+      '<div id="sendState" class="waiting">送信しています…</div>' +
+    '</div></div>'
+  );
+
+  ref.set(data, { merge:true }).then(function(){
+    var e = el("sendState");
+    if (e){ e.className = "waiting"; e.style.background = "#e3f3ea"; e.style.borderColor = "#a8cfc2";
+            e.style.color = "#2f5c50"; e.textContent = "本社に届きました"; }
+  }).catch(function(){
+    var e = el("sendState");
+    if (e) e.textContent = "電波が戻ったら自動で送られます。このまま閉じて大丈夫です。";
+  });
+
+  setTimeout(function(){ state.busy = false; }, 1500);
+}
+
+function switchUser(){
+  localStorage.removeItem(LS_LOGIN);
+  localStorage.removeItem(LS_CODE3);
+  state.emp = null; state.rec = null; state.err = "";
+  renderLogin();
+}
+
+async function boot(){
+  var params = new URLSearchParams(location.search);
+  state.siteId = params.get("site");
+  state.today = todayStr();
+
+  try{ await firebase.auth().signInAnonymously(); }catch(e){}
+
+  if (!state.siteId){
+    render('<div class="card center"><p class="muted">現場のQRコードを読み取って開いてください。</p></div>');
+    return;
+  }
+  try{
+    var d = await db.collection("sites").doc(state.siteId).get();
+    if (d.exists) state.site = d.data();
+  }catch(e){}
+  if (!state.site){
+    render('<div class="card center"><p class="muted">この現場は登録されていません。<br>本社にお知らせください。</p></div>');
+    return;
+  }
+
+  var loginId = localStorage.getItem(LS_LOGIN);
+  var code3 = localStorage.getItem(LS_CODE3);
+  if (!loginId || !code3) return renderLogin();
+
+  try{
+    var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
+    if (snap.empty) return renderLogin();
+    var doc = snap.docs[0];
+    var emp = Object.assign({ id: doc.id }, doc.data());
+    if (last3(emp.employeeCode) !== code3) return renderLogin();
+    state.emp = emp;
+    await loadRecord();
+    renderMain();
+  }catch(e){
+    render('<div class="card center"><p class="muted">つながりませんでした。<br>電波のよい場所でもう一度お試しください。</p></div>');
+  }
+}
+boot();
+</script>
+</body>
+</html>

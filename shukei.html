@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>勤怠集計・弥生取込CSV｜アシスト労務</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --line:#dde3e9; --ink:#1c2530; --sub:#5f7183;
+    --key:#0b6fb8; --key-d:#095c98; --ok:#1a8a4a; --warn:#b8860b; --bad:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+       font-size:15px;line-height:1.7}
+  header{background:#0b3c5d;color:#fff;padding:14px 18px}
+  header h1{margin:0;font-size:18px;font-weight:700}
+  header p{margin:2px 0 0;font-size:12px;opacity:.85}
+  .wrap{max-width:1180px;margin:0 auto;padding:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+  .card h2{margin:0 0 12px;font-size:16px;border-left:5px solid var(--key);padding-left:9px}
+  label{font-size:13px;color:var(--sub);display:block;margin-bottom:4px}
+  input[type=text],input[type=email],input[type=password],input[type=month],input[type=number],select{
+    font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px;background:#fff;width:100%}
+  button{font:inherit;font-weight:700;padding:10px 18px;border:0;border-radius:8px;background:var(--key);color:#fff;cursor:pointer}
+  button:hover{background:var(--key-d)}
+  button.sub{background:#e8edf2;color:#33404e}
+  button.sub:hover{background:#dae1e8}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+  .row>div{flex:1 1 190px;min-width:150px}
+  .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .chk{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--ink);margin:7px 0}
+  .chk input{width:17px;height:17px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:center}
+  th{background:#eef3f7;font-size:13px;white-space:nowrap;position:sticky;top:0;z-index:1}
+  td.l{text-align:left}
+  td input{padding:5px 6px;text-align:center}
+  td input.name{text-align:left}
+  .tblbox{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  .note{font-size:13px;color:var(--sub);margin:8px 0 0}
+  .msg{padding:11px 13px;border-radius:8px;margin:12px 0;font-size:14px;display:none}
+  .msg.on{display:block}
+  .msg.ok{background:#e6f5ec;color:#14663a;border:1px solid #b7e0c8}
+  .msg.err{background:#fdecea;color:#96271b;border:1px solid #f3c2bd}
+  .msg.inf{background:#eaf3fb;color:#0b4f7d;border:1px solid #bcd9ef}
+  .warnrow{background:#fffbe9}
+  .badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:#f0e0b8;color:#7a5b00;margin-left:5px}
+  details{margin-top:10px}
+  summary{cursor:pointer;font-size:14px;color:var(--key);font-weight:700}
+  pre{background:#0f1b26;color:#d6e4ef;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.55}
+  .hide{display:none}
+  .sum{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:10px;color:var(--sub)}
+  .sum b{color:var(--ink);font-size:16px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>勤怠集計・弥生取込CSV</h1>
+  <p>アシスト労務　打刻データ → 出勤日数・実働時間 → 弥生給与の取込ファイル</p>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ ログイン ============ -->
+  <div class="card" id="loginCard">
+    <h2>本社ログイン</h2>
+    <div class="row">
+      <div><label>メールアドレス</label><input type="email" id="email" autocomplete="username"></div>
+      <div><label>パスワード</label><input type="password" id="pass" autocomplete="current-password"></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="remember" checked><label for="remember" style="margin:0">パスワードを保存する</label></div>
+    <div class="btns"><button id="btnLogin">ログイン</button></div>
+    <div class="msg err" id="loginMsg"></div>
+  </div>
+
+  <!-- ============ 本体 ============ -->
+  <div id="main" class="hide">
+
+    <div class="card">
+      <h2>1. 集計する月をえらぶ</h2>
+      <div class="row">
+        <div><label>対象月</label><input type="month" id="ym"></div>
+        <div style="flex:2 1 320px">
+          <label>&nbsp;</label>
+          <div class="btns" style="margin:0">
+            <button id="btnRun">この月を集計する</button>
+            <button class="sub" id="btnPeek">打刻データの中身を見る</button>
+          </div>
+        </div>
+      </div>
+      <div class="msg inf" id="runMsg"></div>
+      <details id="peekBox" class="hide"><summary>読み取った打刻データ（項目名の確認用）</summary><pre id="peek"></pre></details>
+
+      <details>
+        <summary>計算のしかたを変える（ふだんは開かなくて大丈夫です）</summary>
+        <div class="chk"><input type="checkbox" id="optBreak" checked>
+          <label for="optBreak" style="margin:0">休憩を自動で引く（1日6時間を超えたら45分、8時間を超えたら60分）</label></div>
+        <div class="chk"><input type="checkbox" id="optRound">
+          <label for="optRound" style="margin:0">1日ごとに15分単位で切り捨てる</label></div>
+        <div class="row" style="margin-top:10px">
+          <div><label>退勤の打刻がない日を何時間で数えるか</label><input type="number" id="optNoOut" value="0" min="0" max="24" step="0.25"></div>
+          <div><label>1日の上限時間（これを超えたら打刻ミスとみなす）</label><input type="number" id="optCap" value="16" min="1" max="24" step="0.5"></div>
+        </div>
+        <div class="chk" style="margin-top:10px"><input type="checkbox" id="optKurikoshi" checked>
+          <label for="optKurikoshi" style="margin:0">日付をまたいだ退勤（例：22時→翌1時）を前の日の勤務として数える</label></div>
+      </details>
+    </div>
+
+    <div class="card hide" id="resultCard">
+      <h2>2. 中身をたしかめる・直す</h2>
+      <div class="sum" id="sumLine"></div>
+      <p class="note">数字はこの表の上で直せます。直した内容がそのままCSVになります。黄色い行は打刻に足りないところがある人です。</p>
+      <div class="tblbox"><table id="tbl"><thead><tr>
+        <th style="min-width:150px">氏名（弥生に合わせる）</th>
+        <th>出勤日数</th><th>欠勤日数</th><th>実働時間</th>
+        <th class="tateColH hide">立替金</th>
+        <th style="min-width:230px">気になるところ</th>
+      </tr></thead><tbody id="tbody"></tbody></table></div>
+    </div>
+
+    <div class="card hide" id="csvCard">
+      <h2>3. 弥生に取り込むCSVを作る</h2>
+      <p class="note" style="margin-bottom:10px">保存済みの取込形式（カンマ区切り／時間表示＝10進法／4フィールド／氏名で従業員特定）に合わせて書き出します。</p>
+      <div class="chk"><input type="checkbox" id="optSjis" checked>
+        <label for="optSjis" style="margin:0">文字コードを Shift_JIS にする（弥生はふつうこちら）</label></div>
+      <div class="chk"><input type="checkbox" id="optHead">
+        <label for="optHead" style="margin:0">1行目に見出しを付ける</label></div>
+      <div class="chk"><input type="checkbox" id="optTate">
+        <label for="optTate" style="margin:0">立替金の列も出す（5フィールドになります。取込形式を作り直す必要があります）</label></div>
+      <div class="chk"><input type="checkbox" id="optZero" checked>
+        <label for="optZero" style="margin:0">出勤日数が0の人はCSVに出さない</label></div>
+      <div class="btns">
+        <button id="btnCsv">弥生の取込CSVを保存</button>
+        <button class="sub" id="btnCheckCsv">確認用の一覧をCSVで保存</button>
+      </div>
+      <div class="msg ok" id="csvMsg"></div>
+    </div>
+
+    <div class="btns"><button class="sub" id="btnLogout">ログアウト</button></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/encoding-japanese@2.2.0/encoding.min.js"></script>
+<script>
+/* ===================================================================
+   アシスト労務 — 勤怠集計・弥生取込CSV
+   本体(assist-roumu.html)には手を加えていません。読み取り専用です。
+   =================================================================== */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
+  authDomain: "assist-roumu.firebaseapp.com",
+  projectId: "assist-roumu",
+  storageBucket: "assist-roumu.firebasestorage.app",
+  messagingSenderId: "919904591114",
+  appId: "1:919904591114:web:33d30e66ea4264e081eef3"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2,'0');
+function show(el,cls,text){ el.className='msg '+cls+' on'; el.textContent=text; }
+function hideMsg(el){ el.className='msg'; el.textContent=''; }
+
+/* ---------- ログイン ---------- */
+const LS_MAIL='assistShukeiMail', LS_PASS='assistShukeiPass';
+try{
+  if(localStorage.getItem(LS_MAIL)) $('email').value = localStorage.getItem(LS_MAIL);
+  if(localStorage.getItem(LS_PASS)) $('pass').value  = localStorage.getItem(LS_PASS);
+}catch(e){}
+
+$('btnLogin').onclick = async () => {
+  hideMsg($('loginMsg'));
+  const mail=$('email').value.trim(), pw=$('pass').value;
+  if(!mail||!pw) return show($('loginMsg'),'err','メールアドレスとパスワードを入れてください。');
+  $('btnLogin').disabled=true;
+  try{
+    await auth.signInWithEmailAndPassword(mail,pw);
+    try{
+      if($('remember').checked){ localStorage.setItem(LS_MAIL,mail); localStorage.setItem(LS_PASS,pw); }
+      else { localStorage.removeItem(LS_MAIL); localStorage.removeItem(LS_PASS); }
+    }catch(e){}
+  }catch(e){
+    show($('loginMsg'),'err','ログインできませんでした。'+(e.message||''));
+  }
+  $('btnLogin').disabled=false;
+};
+$('btnLogout').onclick = ()=>auth.signOut();
+
+auth.onAuthStateChanged(u=>{
+  const inOk = u && !u.isAnonymous;
+  $('loginCard').classList.toggle('hide', !!inOk);
+  $('main').classList.toggle('hide', !inOk);
+  if(inOk && !$('ym').value){
+    const d=new Date(); d.setMonth(d.getMonth()-1);
+    $('ym').value = d.getFullYear()+'-'+pad(d.getMonth()+1);
+  }
+});
+
+/* ===================================================================
+   打刻データの項目名を自動で見つける
+   =================================================================== */
+const CAND = {
+  date : ['date','workdate','ymd','day','datekey','dt','hiduke','日付','targetdate','businessdate'],
+  in   : ['in','clockin','inat','intime','instamp','start','startat','starttime','checkin','arrive','arriveat','shukkin','punchin','begin','出勤'],
+  out  : ['out','clockout','outat','outtime','outstamp','end','endat','endtime','checkout','leave','leaveat','taikin','punchout','finish','退勤'],
+  emp  : ['empid','employeeid','employeecode','code','loginid','uid','userid','staffid','memberid','emp','employee','従業員コード'],
+  name : ['name','empname','employeename','staffname','氏名','名前'],
+  site : ['siteid','site','sitename','genba','現場'],
+  type : ['type','kind','punchtype','mode','action','種別'],
+  min  : ['minutes','workminutes','worktime','workmin','jitsudo','実働','durationmin'],
+  ts   : ['at','time','timestamp','createdat','punchat','stamp','recordedat']
+};
+let SCHEMA = null;
+let LAST_SAMPLE = [];
+
+function keyMap(obj){ const m={}; for(const k of Object.keys(obj)) m[k.toLowerCase()]=k; return m; }
+
+function pickKey(docs, cands){
+  const score={};
+  for(const d of docs){
+    const m=keyMap(d);
+    for(const c of cands){ if(m[c]!=null){ score[m[c]]=(score[m[c]]||0)+1; break; } }
+  }
+  let best=null,bn=0;
+  for(const k in score) if(score[k]>bn){best=k;bn=score[k];}
+  return (bn >= Math.max(1, docs.length*0.3)) ? best : null;
+}
+
+function detectSchema(docs){
+  const s = {
+    dateKey: pickKey(docs,CAND.date),
+    inKey  : pickKey(docs,CAND.in),
+    outKey : pickKey(docs,CAND.out),
+    empKey : pickKey(docs,CAND.emp),
+    nameKey: pickKey(docs,CAND.name),
+    siteKey: pickKey(docs,CAND.site),
+    typeKey: pickKey(docs,CAND.type),
+    minKey : pickKey(docs,CAND.min),
+    tsKey  : pickKey(docs,CAND.ts)
+  };
+  // 1レコード＝1打刻（type で出勤/退勤を分ける）方式かどうか
+  s.perPunch = !!(s.typeKey && !(s.inKey && s.outKey));
+  // 日付フィールドが文字列かタイムスタンプか
+  s.dateIsString = false;
+  if(s.dateKey){
+    const v = docs.map(d=>d[s.dateKey]).find(v=>v!=null);
+    s.dateIsString = (typeof v === 'string');
+  }
+  return s;
+}
+
+function schemaText(s){
+  const t = k => k ? k : '（見つからず）';
+  return [
+    '日付      : '+t(s.dateKey)+(s.dateKey?(s.dateIsString?'（文字）':'（日時）'):''),
+    '出勤時刻  : '+t(s.inKey),
+    '退勤時刻  : '+t(s.outKey),
+    '打刻時刻  : '+t(s.tsKey),
+    '出勤/退勤の区分: '+t(s.typeKey)+(s.perPunch?'　→ 1件＝1打刻として計算します':''),
+    '従業員    : '+t(s.empKey),
+    '氏名      : '+t(s.nameKey),
+    '現場      : '+t(s.siteKey),
+    '実働(分)  : '+t(s.minKey)
+  ].join('\n');
+}
+
+$('btnPeek').onclick = async () => {
+  hideMsg($('runMsg'));
+  $('btnPeek').disabled=true;
+  try{
+    const snap = await db.collection('attendance').limit(30).get();
+    LAST_SAMPLE = snap.docs.map(d=>Object.assign({__id:d.id}, d.data()));
+    if(!LAST_SAMPLE.length){
+      show($('runMsg'),'inf','打刻データがまだ1件もありません。dakoku.html で1回打刻すると中身が見られます。');
+    }else{
+      SCHEMA = detectSchema(LAST_SAMPLE);
+      const j = JSON.stringify(LAST_SAMPLE.slice(0,3), (k,v)=>{
+        if(v && typeof v==='object' && typeof v.toDate==='function') return v.toDate().toISOString()+'（日時）';
+        return v;
+      }, 2);
+      $('peek').textContent =
+        '■ 項目名の見立て\n'+schemaText(SCHEMA)+
+        '\n\n■ 実際のデータ（先頭3件）\n'+j;
+      $('peekBox').classList.remove('hide'); $('peekBox').open=true;
+    }
+  }catch(e){ show($('runMsg'),'err','読み取れませんでした。'+(e.message||'')); }
+  $('btnPeek').disabled=false;
+};
+
+/* ===================================================================
+   日時の読み取り
+   =================================================================== */
+function toDate(v, baseYmd){
+  if(v==null) return null;
+  if(typeof v==='object'){
+    if(typeof v.toDate==='function'){ try{ return v.toDate(); }catch(e){ return null; } }
+    if(v.seconds!=null) return new Date(v.seconds*1000);
+    if(v instanceof Date) return v;
+    return null;
+  }
+  if(typeof v==='number') return new Date(v < 1e12 ? v*1000 : v);
+  if(typeof v==='string'){
+    const s=v.trim(); if(!s) return null;
+    let m=s.match(/^(\d{1,2}):(\d{2})/);
+    if(m){
+      if(!baseYmd) return null;
+      return new Date(baseYmd+'T'+pad(m[1])+':'+m[2]+':00');
+    }
+    const d=new Date(s.replace(/\//g,'-'));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+function ymdFromDate(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function ymdOf(rec,s){
+  if(s.dateKey){
+    const v=rec[s.dateKey];
+    if(typeof v==='string'){
+      const m=v.match(/(\d{4})\D{0,2}(\d{1,2})\D{0,2}(\d{1,2})/);
+      if(m) return m[1]+'-'+pad(m[2])+'-'+pad(m[3]);
+    }
+    const d=toDate(v); if(d) return ymdFromDate(d);
+  }
+  for(const k of [s.inKey, s.tsKey, s.outKey]){
+    if(!k) continue;
+    const d=toDate(rec[k]); if(d) return ymdFromDate(d);
+  }
+  return null;
+}
+function isOutPunch(rec,s){
+  if(!s.typeKey) return false;
+  const v=String(rec[s.typeKey]||'').toLowerCase();
+  return /out|退勤|end|leave|taikin|finish|2/.test(v);
+}
+function isInPunch(rec,s){
+  if(!s.typeKey) return false;
+  const v=String(rec[s.typeKey]||'').toLowerCase();
+  return /(^|[^a-z])in|出勤|start|arrive|shukkin|begin|1/.test(v);
+}
+
+/* ===================================================================
+   集計
+   =================================================================== */
+let ROWS = [];   // 画面の行
+
+async function loadEmployees(){
+  const map={byId:{},byLogin:{},byCode:{},byName:{}};
+  const snap = await db.collection('employees').get();
+  snap.forEach(d=>{
+    const e=Object.assign({__id:d.id}, d.data());
+    map.byId[d.id]=e;
+    if(e.loginId!=null)       map.byLogin[String(e.loginId).trim()]=e;
+    if(e.employeeCode!=null)  map.byCode[String(e.employeeCode).trim()]=e;
+    if(e.name)                map.byName[String(e.name).replace(/[\s　]/g,'')]=e;
+  });
+  return map;
+}
+
+async function fetchMonth(ym){
+  const [Y,M]=ym.split('-').map(Number);
+  const from = ym+'-01';
+  const last = new Date(Y, M, 0).getDate();
+  const to   = ym+'-'+pad(last);
+  const dFrom= new Date(Y, M-1, 1, 0,0,0);
+  const dTo  = new Date(Y, M, 1, 0,0,0);
+
+  // 項目名がまだ分からなければ先に見つける
+  if(!SCHEMA){
+    const s0 = await db.collection('attendance').limit(30).get();
+    LAST_SAMPLE = s0.docs.map(d=>Object.assign({__id:d.id}, d.data()));
+    if(!LAST_SAMPLE.length) return {docs:[], mode:'empty'};
+    SCHEMA = detectSchema(LAST_SAMPLE);
+  }
+  const s=SCHEMA;
+  let docs=null, mode='';
+
+  // ① 日付が文字列なら、その範囲だけ取りにいく（いちばん軽い）
+  if(s.dateKey && s.dateIsString){
+    try{
+      const q = await db.collection('attendance')
+        .where(s.dateKey,'>=',from).where(s.dateKey,'<=',to+'').get();
+      docs=q.docs; mode='date文字列';
+    }catch(e){ docs=null; }
+  }
+  // ② 日時フィールドで範囲を取る
+  if(!docs){
+    const tk = (s.dateKey && !s.dateIsString) ? s.dateKey : (s.inKey || s.tsKey);
+    if(tk){
+      try{
+        const q = await db.collection('attendance')
+          .where(tk,'>=',dFrom).where(tk,'<',dTo).get();
+        docs=q.docs; mode='日時範囲';
+      }catch(e){ docs=null; }
+    }
+  }
+  // ③ どうしてもだめなら全部取ってこちらで絞る
+  if(!docs){
+    const q = await db.collection('attendance').limit(60000).get();
+    docs=q.docs; mode='全件から絞り込み';
+  }
+  return {docs:docs.map(d=>Object.assign({__id:d.id}, d.data())), mode};
+}
+
+function breakMinutes(gross){
+  if(!$('optBreak').checked) return 0;
+  if(gross > 8*60) return 60;
+  if(gross > 6*60) return 45;
+  return 0;
+}
+
+async function run(){
+  hideMsg($('runMsg'));
+  const ym=$('ym').value;
+  if(!ym) return show($('runMsg'),'err','集計する月をえらんでください。');
+  $('btnRun').disabled=true;
+  show($('runMsg'),'inf','読み込んでいます…');
+
+  try{
+    const [emps, got] = await Promise.all([ loadEmployees(), fetchMonth(ym) ]);
+    if(got.mode==='empty'){
+      show($('runMsg'),'inf','打刻データがまだ1件もありません。');
+      $('btnRun').disabled=false; return;
+    }
+    const s=SCHEMA;
+    const capMin  = Number($('optCap').value||16)*60;
+    const noOutMin= Number($('optNoOut').value||0)*60;
+    const round15 = $('optRound').checked;
+    const kuri    = $('optKurikoshi').checked;
+
+    // 人 → 日 → 打刻
+    const people = {};   // key -> {emp, days:{ymd:{ins:[],outs:[],mins:null}}}
+    let used=0, skipped=0;
+
+    for(const rec of got.docs){
+      const ymd = ymdOf(rec,s);
+      if(!ymd || ymd.slice(0,7)!==ym){ skipped++; continue; }
+
+      // 従業員をつきとめる
+      let emp=null, rawKey=null;
+      if(s.empKey && rec[s.empKey]!=null){
+        rawKey=String(rec[s.empKey]).trim();
+        emp = emps.byId[rawKey] || emps.byLogin[rawKey] || emps.byCode[rawKey] || null;
+      }
+      if(!emp && s.nameKey && rec[s.nameKey]){
+        const n=String(rec[s.nameKey]).replace(/[\s　]/g,'');
+        emp = emps.byName[n] || null;
+        if(!rawKey) rawKey=n;
+      }
+      const key = emp ? emp.__id : ('?'+(rawKey||'不明'));
+      if(!people[key]) people[key]={emp, raw:rawKey, days:{}};
+      if(!people[key].days[ymd]) people[key].days[ymd]={ins:[],outs:[],mins:null};
+      const day=people[key].days[ymd];
+
+      if(s.minKey && rec[s.minKey]!=null && !isNaN(Number(rec[s.minKey]))){
+        day.mins = (day.mins||0) + Number(rec[s.minKey]);
+      }
+      if(s.perPunch){
+        const t = toDate(rec[s.tsKey]||rec[s.inKey]||rec[s.outKey], ymd);
+        if(t){ (isOutPunch(rec,s) ? day.outs : day.ins).push(t); }
+      }else{
+        const ti = s.inKey  ? toDate(rec[s.inKey], ymd)  : null;
+        const to_= s.outKey ? toDate(rec[s.outKey], ymd) : null;
+        if(ti) day.ins.push(ti);
+        if(to_) day.outs.push(to_);
+        if(!ti && !to_ && s.tsKey){ const t=toDate(rec[s.tsKey],ymd); if(t) day.ins.push(t); }
+      }
+      used++;
+    }
+
+    // 人ごとに合計
+    ROWS = [];
+    for(const key in people){
+      const p=people[key];
+      let days=0, mins=0; const issues=[];
+      const ymds=Object.keys(p.days).sort();
+      // 日付またぎ：出勤だけの日の翌朝に退勤だけがあれば、前の日の勤務としてつなぐ
+      if(kuri){
+        for(let i=0;i<ymds.length-1;i++){
+          const a=p.days[ymds[i]], b=p.days[ymds[i+1]];
+          if(!(a.ins.length && !a.outs.length && b.outs.length && !b.ins.length)) continue;
+          const yy=ymds[i].split('-').map(Number);
+          if(ymdFromDate(new Date(yy[0],yy[1]-1,yy[2]+1)) !== ymds[i+1]) continue;
+          const first=new Date(Math.min.apply(null,b.outs.map(x=>x.getTime())));
+          if(first.getHours()<8){
+            a.outs.push(first);
+            b.outs=b.outs.filter(x=>x.getTime()!==first.getTime());
+          }
+        }
+      }
+      for(const ymd of ymds){
+        const d=p.days[ymd];
+        if(!d.ins.length && !d.outs.length && d.mins==null) continue;
+        days++;
+        if(d.mins!=null){ mins += d.mins; continue; }
+        const inT  = d.ins.length  ? new Date(Math.min.apply(null,d.ins.map(x=>x.getTime())))  : null;
+        const outT = d.outs.length ? new Date(Math.max.apply(null,d.outs.map(x=>x.getTime()))) : null;
+        if(inT && outT){
+          let g=(outT-inT)/60000;
+          if(g<0 && kuri) g+=24*60;
+          if(g<0){ issues.push(ymd.slice(5)+' 退勤が出勤より前'); g=0; }
+          if(g>capMin){ issues.push(ymd.slice(5)+' 勤務'+(g/60).toFixed(1)+'時間（打刻ミス？）'); }
+          g -= breakMinutes(g);
+          if(g<0) g=0;
+          if(round15) g=Math.floor(g/15)*15;
+          mins += g;
+        }else if(inT && !outT){
+          issues.push(ymd.slice(5)+' 退勤の打刻なし');
+          mins += noOutMin;
+        }else if(!inT && outT){
+          issues.push(ymd.slice(5)+' 出勤の打刻なし');
+          mins += noOutMin;
+        }
+      }
+      const name = p.emp ? String(p.emp.name||'') : '';
+      ROWS.push({
+        key,
+        name: name || ('【要確認】'+(p.raw||'不明')),
+        unknown: !p.emp,
+        area: p.emp ? (p.emp.area||'') : '',
+        days, hours: Math.round(mins/60*100)/100,
+        absent: 0, tate: 0,
+        issues
+      });
+      if(!p.emp) ROWS[ROWS.length-1].issues.unshift('従業員名簿に見つかりません');
+    }
+    ROWS.sort((a,b)=> (a.unknown?1:0)-(b.unknown?1:0) || a.name.localeCompare(b.name,'ja'));
+
+    draw();
+    show($('runMsg'),'ok',
+      ym+' の集計ができました。打刻 '+used+' 件を使いました（対象外 '+skipped+' 件／読み方：'+got.mode+'）。');
+    $('resultCard').classList.remove('hide');
+    $('csvCard').classList.remove('hide');
+  }catch(e){
+    show($('runMsg'),'err','集計できませんでした。'+(e.message||e));
+    console.error(e);
+  }
+  $('btnRun').disabled=false;
+}
+$('btnRun').onclick = run;
+
+/* ---------- 表を描く ---------- */
+function draw(){
+  const tb=$('tbody'); tb.innerHTML='';
+  const showTate=$('optTate').checked;
+  document.querySelectorAll('.tateColH').forEach(el=>el.classList.toggle('hide',!showTate));
+  let td=0, th=0;
+  ROWS.forEach((r,i)=>{
+    td+=Number(r.days)||0; th+=Number(r.hours)||0;
+    const tr=document.createElement('tr');
+    if(r.issues.length) tr.className='warnrow';
+    tr.innerHTML =
+      '<td class="l"><input class="name" data-i="'+i+'" data-f="name" value="'+esc(r.name)+'"></td>'+
+      '<td><input type="number" step="0.5" min="0" style="width:70px" data-i="'+i+'" data-f="days" value="'+r.days+'"></td>'+
+      '<td><input type="number" step="0.5" min="0" style="width:70px" data-i="'+i+'" data-f="absent" value="'+r.absent+'"></td>'+
+      '<td><input type="number" step="0.01" min="0" style="width:85px" data-i="'+i+'" data-f="hours" value="'+r.hours+'"></td>'+
+      '<td class="tateColH '+(showTate?'':'hide')+'"><input type="number" step="1" min="0" style="width:90px" data-i="'+i+'" data-f="tate" value="'+r.tate+'"></td>'+
+      '<td class="l" style="font-size:12px;color:#7a5b00">'+(r.issues.length?esc(r.issues.join(' / ')):'')+'</td>';
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('input').forEach(inp=>{
+    inp.onchange = e=>{
+      const i=+e.target.dataset.i, f=e.target.dataset.f;
+      ROWS[i][f] = (f==='name') ? e.target.value : Number(e.target.value||0);
+      sumLine();
+    };
+  });
+  sumLine();
+}
+function sumLine(){
+  const n=ROWS.length;
+  const td=ROWS.reduce((a,r)=>a+(Number(r.days)||0),0);
+  const th=ROWS.reduce((a,r)=>a+(Number(r.hours)||0),0);
+  const ng=ROWS.filter(r=>r.issues.length).length;
+  $('sumLine').innerHTML =
+    '人数 <b>'+n+'</b> 名　のべ出勤 <b>'+td+'</b> 日　実働合計 <b>'+(Math.round(th*100)/100)+'</b> 時間'+
+    (ng?'　<span class="badge">要確認 '+ng+' 名</span>':'');
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+$('optTate').onchange = ()=>{ if(ROWS.length) draw(); };
+
+/* ===================================================================
+   CSV
+   =================================================================== */
+function csvName(s){ return String(s).replace(/[\s　]/g,'').replace(/[,"\r\n]/g,''); }
+function num(v,d){ return (Math.round((Number(v)||0)*Math.pow(10,d))/Math.pow(10,d)).toFixed(d); }
+
+function buildYayoi(){
+  const useTate=$('optTate').checked, skipZero=$('optZero').checked;
+  const lines=[];
+  if($('optHead').checked){
+    lines.push(['氏名','出勤日数','欠勤日数','実働時間'].concat(useTate?['立替金']:[]).join(','));
+  }
+  for(const r of ROWS){
+    if(skipZero && !(Number(r.days)>0)) continue;
+    const row=[csvName(r.name), num(r.days,1).replace(/\.0$/,''), num(r.absent,1).replace(/\.0$/,''), num(r.hours,2)];
+    if(useTate) row.push(String(Math.round(Number(r.tate)||0)));
+    lines.push(row.join(','));
+  }
+  return lines.join('\r\n')+'\r\n';
+}
+function buildCheck(){
+  const h=['氏名','エリア','出勤日数','欠勤日数','実働時間','気になるところ'];
+  const lines=[h.join(',')];
+  for(const r of ROWS){
+    lines.push([ '"'+String(r.name).replace(/"/g,'""')+'"', '"'+String(r.area||'').replace(/"/g,'""')+'"',
+      r.days, r.absent, num(r.hours,2), '"'+r.issues.join(' / ').replace(/"/g,'""')+'"' ].join(','));
+  }
+  return lines.join('\r\n')+'\r\n';
+}
+function download(text, filename, sjis){
+  let blob, note='UTF-8';
+  if(sjis && window.Encoding){
+    try{
+      const u = Encoding.stringToCode(text);
+      const s = Encoding.convert(u,{to:'SJIS',from:'UNICODE'});
+      blob = new Blob([new Uint8Array(s)],{type:'text/csv'});
+      note='Shift_JIS';
+    }catch(e){ blob=null; }
+  }
+  if(!blob){ blob=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8'}); note='UTF-8（BOM付き）'; }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},1500);
+  return note;
+}
+$('btnCsv').onclick = ()=>{
+  if(!ROWS.length) return show($('csvMsg'),'err','先に集計してください。');
+  const ym=$('ym').value.replace('-','');
+  const note=download(buildYayoi(),'弥生取込_'+ym+'.csv',$('optSjis').checked);
+  const n=ROWS.filter(r=>!($('optZero').checked && !(Number(r.days)>0))).length;
+  show($('csvMsg'),'ok','「弥生取込_'+ym+'.csv」を保存しました（'+n+'名・'+note+'）。弥生給与の［ファイル］→［インポート］で、保存してある取込形式を選んでください。');
+};
+$('btnCheckCsv').onclick = ()=>{
+  if(!ROWS.length) return show($('csvMsg'),'err','先に集計してください。');
+  const ym=$('ym').value.replace('-','');
+  download(buildCheck(),'確認用_勤怠一覧_'+ym+'.csv',true);
+  show($('csvMsg'),'ok','確認用の一覧を保存しました。Excelでそのまま開けます。');
+};
+</script>
+</body>
+</html>

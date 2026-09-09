@@ -102,6 +102,7 @@ var COMPANIES = [
       roumu:     "https://hminfokeiri-hue.github.io/assist-roumu/assist-roumu.html",
       shingoban: "https://hminfokeiri-hue.github.io/assist-roumu/shingoban.html",
       shukei:    "https://hminfokeiri-hue.github.io/assist-roumu/shukei.html",
+      kyuyo:     "",
       calendar:  "https://hminfokeiri-hue.github.io/assist-calendar/",
       kaikei:    "https://hminfokeiri-hue.github.io/kaikei-assist/homemaintenance.html"
     }
@@ -112,6 +113,7 @@ var COMPANIES = [
       roumu:     "",
       shingoban: "",
       shukei:    "",
+      kyuyo:     "https://hminfokeiri-hue.github.io/kyuyo-assist/kyuyo-assist.html",
       calendar:  "",
       kaikei:    "https://hminfokeiri-hue.github.io/kaikei-assist/assistbuildingmgmt.html"
     }
@@ -122,6 +124,7 @@ var COMPANIES = [
       roumu:     "",
       shingoban: "",
       shukei:    "",
+      kyuyo:     "",
       calendar:  "",
       kaikei:    "https://hminfokeiri-hue.github.io/kaikei/alphacleanyonago.html"
     }
@@ -132,6 +135,7 @@ var COMPANIES = [
       roumu:     "",
       shingoban: "",
       shukei:    "",
+      kyuyo:     "",
       calendar:  "",
       kaikei:    ""
     }
@@ -142,6 +146,7 @@ var APPS = [
   { key:"roumu",     name:"アシスト労務",       ico:"🗂️", desc:"勤怠・有給・給与明細・発注・連絡" },
   { key:"shingoban", name:"信号板（出勤の見張り）", ico:"🚦", desc:"本社用　現場の出勤状況・QRの印刷・伝言メモ" },
   { key:"shukei",    name:"勤怠集計・弥生CSV",   ico:"🧮", desc:"本社用　月の出勤日数と実働時間・弥生の取込ファイル" },
+  { key:"kyuyo",     name:"給与アシスト",         ico:"💴", desc:"給与計算・給与明細" },
   { key:"calendar",  name:"アシストカレンダー",   ico:"📅", desc:"予定・シフト" },
   { key:"kaikei",    name:"会計ソフト",          ico:"📊", desc:"会計・記帳" }
 ];
@@ -177,7 +182,9 @@ function showApps(company){
   backBtn.style.display = "flex";
   sub.textContent = company.name + " ― 使いたいアプリを選んでください";
   menu.innerHTML = "";
-  APPS.forEach(function(app){
+  var ordered = APPS.filter(function(a){ return (company.apps[a.key] || "") !== ""; })
+          .concat(APPS.filter(function(a){ return (company.apps[a.key] || "") === ""; }));
+  ordered.forEach(function(app){
     var url = company.apps[app.key] || "";
     var ready = url !== "";
     var a = document.createElement("div");

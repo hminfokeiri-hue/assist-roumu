@@ -47,12 +47,24 @@
   .sum{font-size:14px;color:var(--sub);margin-bottom:10px}
   .sum b{color:var(--ink);font-size:16px}
   /* 印刷用 */
-  .qrgrid{display:grid;grid-template-columns:1fr 1fr;gap:10mm}
-  .qrcard{border:1.5px dashed #999;border-radius:6px;padding:8mm 6mm;text-align:center;break-inside:avoid;background:#fff}
-  .qrcard .nm{font-size:20pt;font-weight:800;margin-bottom:2mm;line-height:1.3}
-  .qrcard .ar{font-size:10pt;color:#555;margin-bottom:4mm}
-  .qrcard .qr{display:flex;justify-content:center;margin-bottom:4mm}
-  .qrcard .hint{font-size:10pt;color:#333;line-height:1.6;text-align:left;display:inline-block}
+  .qrgrid{display:grid;grid-template-columns:1fr 1fr;gap:8mm}
+  .qrgrid.one{grid-template-columns:1fr}
+  .qrcard{border:1.5px dashed #999;border-radius:8px;padding:10mm 8mm;text-align:center;
+          break-inside:avoid;page-break-inside:avoid;background:#fff}
+  .qrcard .nm {font-size:30pt;font-weight:800;line-height:1.25;margin:0 0 2mm}
+  .qrcard .job{font-size:17pt;font-weight:700;color:#333;margin:0 0 6mm}
+  .qrcard .qr {display:flex;justify-content:center;margin:0 0 6mm}
+  .qrcard .act{font-size:32pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
+  .qrcard .cam{font-size:17pt;font-weight:700;color:#333;margin:0}
+  .qrcard .hint{font-size:10pt;color:#555;margin-top:5mm;line-height:1.5}
+  .qrgrid.one .qrcard .nm {font-size:44pt}
+  .qrgrid.one .qrcard .job{font-size:24pt}
+  .qrgrid.one .qrcard .act{font-size:46pt}
+  .qrgrid.one .qrcard .cam{font-size:24pt}
+  .qrgrid.one .qrcard .hint{font-size:12pt}
+  .chk{display:flex;align-items:center;gap:7px;font-size:14px;margin:7px 0}
+  .chk input{width:17px;height:17px}
+  select{font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px;background:#fff;width:100%}
   @media print{
     body{background:#fff}
     header,.tabs,.noprint{display:none !important}
@@ -60,6 +72,7 @@
     .card{border:0;padding:0;margin:0}
     .qrgrid{gap:8mm}
     .qrcard{border:1px dashed #bbb}
+    .qrgrid.one .qrcard{page-break-after:always}
   }
 </style>
 </head>
@@ -134,11 +147,21 @@
     <div id="pane2" class="hide">
       <div class="card noprint">
         <h2>QRをまとめて印刷</h2>
-        <div class="btns" style="margin:0">
+        <div class="row" style="margin-bottom:6px">
+          <div><label>現場名の下に出す文字</label><input type="text" id="qJob" value="日常清掃業務"></div>
+          <div><label>1枚あたりの大きさ</label>
+            <select id="qSize">
+              <option value="2">A4に2枚（切って貼る）</option>
+              <option value="1">A4に1枚（大きく貼る）</option>
+            </select></div>
+        </div>
+        <div class="chk"><input type="checkbox" id="qHint" checked>
+          <label for="qHint" style="margin:0">下に小さく「はじめの1回だけ…」の案内を入れる</label></div>
+        <div class="btns" style="margin:8px 0 0">
           <button id="btnQr">登録ずみの現場のQRを出す</button>
           <button class="sub" id="btnPrint">印刷する</button>
         </div>
-        <p class="note">A4に2枚ずつ並びます。切って現場に貼ってください。QRの中身は現場ごとに違います。<b>貼ったあとで中身は変えられません。</b></p>
+        <p class="note">文字や大きさを変えたら、もう一度「登録ずみの現場のQRを出す」を押してください。QRの中身は現場ごとに違います。<b>貼ったあとで中身は変えられません。</b></p>
         <div class="msg" id="qMsg"></div>
       </div>
       <div class="card"><div class="qrgrid" id="qrgrid"></div></div>
@@ -224,6 +247,8 @@ function pickName(o){
   return o.name || o.title || o.siteName || o.facility || o.施設名 || o.現場名 || "";
 }
 function pickArea(o){
+  var nm = pickName(o);
+  if(/鳥取|米子|境港|倉吉|八頭/.test(nm)) return "鳥取";   // 独法など、区分が鳥取でなくても名前で拾う
   if(typeof o === "string") return "";
   var g = o.group || o.grp || o.kind || "";
   if(g === "鳥取") return "鳥取";
@@ -385,16 +410,21 @@ $("btnQr").onclick = async function(){
     arr.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
     var g=$("qrgrid"); g.innerHTML="";
     if(!arr.length){ show($("qMsg"),"err","現場がまだ登録されていません。"); $("btnQr").disabled=false; return; }
+    var job=($("qJob").value||"").trim();
+    var one=($("qSize").value==="1");
+    var wantHint=$("qHint").checked;
+    var px=one?300:200;
+    g.className="qrgrid"+(one?" one":"");
     arr.forEach(function(s){
       var c=document.createElement("div"); c.className="qrcard";
       c.innerHTML='<div class="nm">'+esc(s.name)+'</div>'+
-                  '<div class="ar">'+esc(s.area)+'</div>'+
+                  (job?'<div class="job">'+esc(job)+'</div>':'')+
                   '<div class="qr"></div>'+
-                  '<div class="hint">① スマホのカメラでこのQRを読む<br>'+
-                  '② はじめの1回だけ、ログインID（8けた）と<br>　 管理番号の下3けたを入れる<br>'+
-                  '③ 来たとき「出勤」、帰るとき「退勤」を押す</div>';
+                  '<div class="act">出勤 / 退勤</div>'+
+                  '<div class="cam">カメラで読み込む</div>'+
+                  (wantHint?'<div class="hint">はじめの1回だけ、ログインID（8けた）と管理番号の下3けたを入れます</div>':'');
       g.appendChild(c);
-      new QRCode(c.querySelector(".qr"), { text:dakokuUrl(s.id), width:180, height:180,
+      new QRCode(c.querySelector(".qr"), { text:dakokuUrl(s.id), width:px, height:px,
         correctLevel: (window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
     });
     show($("qMsg"),"ok",arr.length+" 件ぶんのQRを出しました。「印刷する」を押してください。");

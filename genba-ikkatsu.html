@@ -107,12 +107,15 @@
         <h2>3. 登録する現場をえらぶ</h2>
         <div class="sum" id="sum1"></div>
         <p class="note" style="margin:0 0 10px">
-          曜日・時刻・人数は<b>空のままで大丈夫</b>です。空のままだと信号板にはふだん出ず、<b>誰かがそこで打刻した日だけ</b>出てきます。
-          毎日入る現場は、曜日と時刻を入れておくと出勤の見張りができます。あとから信号板でも直せます。
+          曜日は<b>月〜土</b>、時刻は<b>7:30〜11:00</b>、人数は<b>1人</b>を初めから入れてあります。ちがう現場は表の上で直してください。
+          曜日を空にすると、その現場は信号板にふだん出ず、<b>誰かがそこで打刻した日だけ</b>出てきます。あとから信号板でも直せます。
         </p>
         <div class="btns" style="margin:0 0 12px">
           <button class="sub" id="btnAll">全部えらぶ</button>
           <button class="sub" id="btnNone">全部はずす</button>
+          <button class="sub" id="btnWdOn">曜日を月〜土にする</button>
+          <button class="sub" id="btnWdOff">曜日を全部空にする</button>
+          <button class="sub" id="btnTime">時刻と人数を入れ直す</button>
         </div>
         <div class="tblbox"><table><thead><tr>
           <th style="width:38px">登録</th>
@@ -173,6 +176,11 @@ var CFG_CAL = {
 var ID_DOMAIN = "assist.local";
 var GROUP_LABEL = {"国":"国（国土交通省）","府":"大阪府","市":"大阪市","社協":"社会福祉協議会","民間":"民間病院","鳥取":"鳥取県","独法":"独立行政法人"};
 var WD = ["日","月","火","水","木","金","土"];
+/* ---- 登録するときの初期値（ここを変えれば既定が変わります） ---- */
+var DEF_WD = [1,2,3,4,5,6];   // 月〜土（0=日 … 6=土）
+var DEF_ST = "07:30";
+var DEF_ET = "11:00";
+var DEF_HC = 1;
 
 var appR = firebase.initializeApp(CFG_ROUMU);
 var appC = firebase.initializeApp(CFG_CAL, "cal");
@@ -259,7 +267,7 @@ $("btnLoad").onclick = async function(){
     ROWS = list.map(function(o){
       var nm = pickName(o);
       return { name:nm, area:pickArea(o), memo:pickMemo(o),
-               weekdays:[], startTime:"", endTime:"", headcount:0,
+               weekdays:DEF_WD.slice(), startTime:DEF_ST, endTime:DEF_ET, headcount:DEF_HC,
                dup: !!have[norm(nm)], sel: !have[norm(nm)] && !!nm };
     }).filter(function(r){ return r.name; });
 
@@ -317,6 +325,9 @@ function sum(){
 }
 $("btnAll").onclick=function(){ ROWS.forEach(function(r){ r.sel=true; }); draw(); };
 $("btnNone").onclick=function(){ ROWS.forEach(function(r){ r.sel=false; }); draw(); };
+$("btnWdOn").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=DEF_WD.slice(); }); draw(); };
+$("btnWdOff").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=[]; }); draw(); };
+$("btnTime").onclick=function(){ ROWS.forEach(function(r){ r.startTime=DEF_ST; r.endTime=DEF_ET; r.headcount=DEF_HC; }); draw(); };
 
 /* ---------- 登録 ---------- */
 $("btnSave").onclick = async function(){

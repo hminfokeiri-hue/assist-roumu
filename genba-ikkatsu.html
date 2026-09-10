@@ -62,6 +62,21 @@
   .qrgrid.one .qrcard .act{font-size:46pt}
   .qrgrid.one .qrcard .cam{font-size:24pt}
   .qrgrid.one .qrcard .hint{font-size:12pt}
+  .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:6mm}
+  .pcard{border:1.5px dashed #999;border-radius:8px;padding:6mm 5mm;text-align:center;background:#fff;
+         break-inside:avoid;page-break-inside:avoid;height:126mm;
+         display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .pgrid.eight .pcard{height:62mm;padding:3mm 4mm}
+  .pcard .pn  {font-size:22pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
+  .pcard .pt  {font-size:11pt;font-weight:700;color:#555;margin:0 0 4mm}
+  .pcard .pq  {display:flex;justify-content:center;margin:0 0 4mm}
+  .pcard .ph  {font-size:11pt;font-weight:700;color:#333;line-height:1.5;margin:0}
+  .pcard .pid {font-size:8.5pt;color:#888;margin:2mm 0 0}
+  .pgrid.eight .pcard .pn{font-size:15pt;margin-bottom:0}
+  .pgrid.eight .pcard .pt{font-size:8.5pt;margin-bottom:2mm}
+  .pgrid.eight .pcard .pq{margin-bottom:2mm}
+  .pgrid.eight .pcard .ph{font-size:8.5pt}
+  .pgrid.eight .pcard .pid{font-size:7.5pt}
   .chk{display:flex;align-items:center;gap:7px;font-size:14px;margin:7px 0}
   .chk input{width:17px;height:17px}
   select{font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px;background:#fff;width:100%}
@@ -72,6 +87,8 @@
     .card{border:0;padding:0;margin:0}
     .qrgrid{gap:8mm}
     .qrcard{border:1px dashed #bbb}
+    .pgrid{gap:6mm}
+    .pcard{border:1px dashed #bbb}
     .qrgrid.one .qrcard{page-break-after:always}
   }
 </style>
@@ -98,7 +115,8 @@
   <div id="main" class="hide">
     <div class="tabs noprint">
       <button id="tab1" class="on">現場をまとめて登録</button>
-      <button id="tab2">QRをまとめて印刷</button>
+      <button id="tab2">現場のQRをまとめて印刷</button>
+      <button id="tab3">個人用QR（本人カード）</button>
       <button class="sub" id="btnLogout" style="margin-left:auto">ログアウト</button>
     </div>
 
@@ -165,6 +183,34 @@
         <div class="msg" id="qMsg"></div>
       </div>
       <div class="card"><div class="qrgrid" id="qrgrid"></div></div>
+    </div>
+
+    <!-- ========== タブ3：個人用QR ========== -->
+    <div id="pane3" class="hide">
+      <div class="card noprint">
+        <h2>個人用QR（本人カード）</h2>
+        <p class="note" style="margin:0 0 10px">
+          1人1枚のカードです。<b>はじめの1回だけ</b>このQRを読んでもらうと、そのスマホがその人を覚えます。
+          あとは現場のQRを読むだけで、番号を打たずに出勤・退勤ができます。
+        </p>
+        <div class="row">
+          <div><label>エリアでしぼる</label><select id="pArea"><option value="">全部</option></select></div>
+          <div><label>名前でさがす</label><input type="text" id="pFind" placeholder="一部でも大丈夫"></div>
+          <div><label>1枚あたりの大きさ</label>
+            <select id="pSize">
+              <option value="4">A4に4枚</option>
+              <option value="8">A4に8枚（名刺くらい）</option>
+            </select></div>
+        </div>
+        <div class="btns">
+          <button id="btnEmp">従業員を読み込む</button>
+          <button id="btnPCard">カードを出す</button>
+          <button class="sub" id="btnPPrint">印刷する</button>
+        </div>
+        <div class="msg" id="pMsg"></div>
+        <p class="note"><b>このカードは、拾った人が使えてしまいます。</b>本人にだけ手渡して、財布などに入れて持っていてもらってください。なくしたときは本社に言ってもらう、という約束にしておくと安心です。</p>
+      </div>
+      <div class="card"><div class="pgrid" id="pgrid"></div></div>
     </div>
   </div>
 </div>
@@ -234,10 +280,15 @@ authR.onAuthStateChanged(function(u){
 });
 
 /* ---------- タブ ---------- */
-$("tab1").onclick=function(){ $("tab1").classList.add("on"); $("tab2").classList.remove("on");
-  $("pane1").classList.remove("hide"); $("pane2").classList.add("hide"); };
-$("tab2").onclick=function(){ $("tab2").classList.add("on"); $("tab1").classList.remove("on");
-  $("pane2").classList.remove("hide"); $("pane1").classList.add("hide"); };
+function goTab(n){
+  [1,2,3].forEach(function(i){
+    $("tab"+i).classList.toggle("on", i===n);
+    $("pane"+i).classList.toggle("hide", i!==n);
+  });
+}
+$("tab1").onclick=function(){ goTab(1); };
+$("tab2").onclick=function(){ goTab(2); };
+$("tab3").onclick=function(){ goTab(3); };
 
 /* ---------- カレンダーから読み込む ---------- */
 var ROWS = [];
@@ -432,6 +483,68 @@ $("btnQr").onclick = async function(){
   $("btnQr").disabled=false;
 };
 $("btnPrint").onclick=function(){ window.print(); };
+
+/* ---------- 個人用QR（本人カード） ---------- */
+var EMPS = [];
+function last3(c){ return String(c==null?"":c).replace(/[^0-9]/g,"").slice(-3); }
+function meUrl(loginId, code){ return new URL("dakoku.html", location.href).href + "?me=" + loginId + "-" + last3(code); }
+
+$("btnEmp").onclick = async function(){
+  hide($("pMsg"));
+  $("btnEmp").disabled=true;
+  show($("pMsg"),"inf","読み込んでいます…");
+  try{
+    var snap = await dbR.collection("employees").get();
+    EMPS = [];
+    snap.forEach(function(d){
+      var v = d.data() || {};
+      if(!v.loginId || !v.name) return;
+      EMPS.push({ name:String(v.name), loginId:String(v.loginId).trim(),
+                  code3:last3(v.employeeCode), area:String(v.area||"") });
+    });
+    EMPS = EMPS.filter(function(e){ return e.code3; });
+    EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
+    var areas = {}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
+    var sel = $("pArea");
+    sel.innerHTML = '<option value="">全部</option>' +
+      Object.keys(areas).sort().map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join("");
+    show($("pMsg"),"ok","従業員を "+EMPS.length+" 名よみこみました。「カードを出す」を押してください。");
+  }catch(e){
+    show($("pMsg"),"err","読み込めませんでした。"+(e.message||e));
+  }
+  $("btnEmp").disabled=false;
+};
+
+$("btnPCard").onclick = function(){
+  hide($("pMsg"));
+  if(!EMPS.length) return show($("pMsg"),"err","先に「従業員を読み込む」を押してください。");
+  var ar = $("pArea").value;
+  var kw = norm($("pFind").value);
+  var eight = ($("pSize").value === "8");
+  var list = EMPS.filter(function(e){
+    if(ar && e.area !== ar) return false;
+    if(kw && norm(e.name).indexOf(kw) < 0) return false;
+    return true;
+  });
+  var g = $("pgrid");
+  g.className = "pgrid" + (eight ? " eight" : "");
+  g.innerHTML = "";
+  if(!list.length) return show($("pMsg"),"err","あてはまる人がいませんでした。");
+  var px = eight ? 110 : 160;
+  list.forEach(function(e){
+    var c = document.createElement("div"); c.className = "pcard";
+    c.innerHTML = '<div class="pn">'+esc(e.name)+'</div>'+
+                  '<div class="pt">出勤の記録　本人カード</div>'+
+                  '<div class="pq"></div>'+
+                  '<div class="ph">はじめに1回だけ<br>これを読んでください</div>'+
+                  '<div class="pid">ログインID '+esc(e.loginId)+'</div>';
+    g.appendChild(c);
+    new QRCode(c.querySelector(".pq"), { text:meUrl(e.loginId, e.code3), width:px, height:px,
+      correctLevel: (window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
+  });
+  show($("pMsg"),"ok",list.length+" 名ぶんのカードを出しました。「印刷する」を押してください。");
+};
+$("btnPPrint").onclick = function(){ window.print(); };
 </script>
 </body>
 </html>

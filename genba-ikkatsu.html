@@ -125,6 +125,7 @@
     <div class="tabs noprint">
       <button id="tab1" class="on">現場をまとめて登録</button>
       <button id="tab2">QRを印刷する</button>
+      <button id="tab3">現場の人数を直す</button>
       <button class="sub" id="btnLogout" style="margin-left:auto">ログアウト</button>
     </div>
 
@@ -246,6 +247,32 @@
       </div>
       <div class="card"><div class="sheet" id="sheet"></div></div>
     </div>
+
+    <!-- ========== タブ3：現場の人数 ========== -->
+    <div id="pane3" class="hide">
+      <div class="card">
+        <h2>現場の人数をまとめて直す</h2>
+        <p class="note" style="margin:0 0 10px">
+          信号板が「未出勤（赤）」を出すかどうかは、この人数で決まります。
+          いまは全部の現場が1人で登録されています。<b>配ったカードから数えた人数</b>を右の欄に入れてありますので、
+          そのまま「保存する」を押せば直ります。ちがうところは書きかえてください。
+        </p>
+        <div class="btns" style="margin:0 0 12px">
+          <button class="sub" id="btnCntFill">数えた人数を入れ直す</button>
+          <button class="sub" id="btnCntKeep">いまの人数に戻す</button>
+        </div>
+        <div class="sum" id="sum3"></div>
+        <div class="tblbox"><table><thead><tr>
+          <th style="min-width:200px">現場</th>
+          <th style="width:80px">エリア</th>
+          <th style="width:80px">いま</th>
+          <th style="width:90px">新しい人数</th>
+          <th style="min-width:200px">その現場の人</th>
+        </tr></thead><tbody id="tb3"></tbody></table></div>
+        <div class="btns"><button id="btnCntSave">この人数で保存する</button></div>
+        <div class="msg" id="nMsg"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -314,14 +341,16 @@ authR.onAuthStateChanged(function(u){
 
 /* ---------- タブ ---------- */
 function goTab(n){
-  [1,2].forEach(function(i){
+  [1,2,3].forEach(function(i){
     $("tab"+i).classList.toggle("on", i===n);
     $("pane"+i).classList.toggle("hide", i!==n);
   });
   if(n===2) prepPrint();
+  if(n===3) prepCount();
 }
 $("tab1").onclick=function(){ goTab(1); };
 $("tab2").onclick=function(){ goTab(2); };
+$("tab3").onclick=function(){ goTab(3); };
 
 /* =====================================================================
    タブ1：カレンダーから読み込んで登録
@@ -886,6 +915,87 @@ $("btnSaveNames").onclick = async function(){
     }
   }catch(e){ show($("qMsg"),"err","保存できませんでした。"+(e.message||e)); }
   $("btnSaveNames").disabled=false;
+};
+
+/* =====================================================================
+   タブ3：現場の人数
+   ===================================================================== */
+var COUNTS = {"さわ病院": {"n": 3, "w": "コンドウ、シオミ、フクドメ"}, "四條畷警察署": {"n": 1, "w": "シオムラ"}, "大正警察署": {"n": 2, "w": "クロカワ、サカグチ"}, "大阪市建設局 舞洲スラッジセンター": {"n": 1, "w": "アヅチ"}, "大阪市教育委員会 浪速図書館": {"n": 1, "w": "カワベ"}, "大阪府警北単身寮": {"n": 1, "w": "マツザキ"}, "大阪府警城東単身寮": {"n": 1, "w": "ミツイ"}, "大阪府警堺北単身寮": {"n": 3, "w": "タナカ、ヨシムラ、カワカミ"}, "大阪府警寝屋川単身寮": {"n": 1, "w": "ミヤキ"}, "大阪府警東淀川単身寮": {"n": 2, "w": "アオキ、タキガワ"}, "大阪府警泉佐野単身寮": {"n": 1, "w": "カミヤマ"}, "新北島別館": {"n": 2, "w": "サキヤマ、コヤマ"}, "枚岡警察署": {"n": 3, "w": "ニシザキ、ハタノ、ミヤジマ"}, "河内警察署": {"n": 2, "w": "マツイ、ヤナガワ"}, "泉州警備派出所": {"n": 1, "w": "トクツ"}, "浪速警察署": {"n": 3, "w": "カネムラ、キクチ、ヒライ"}, "独立行政法人 鳥取職業能力開発促進センター": {"n": 1, "w": "ナカオ"}, "福島区社会福祉協議会子育てプラザ": {"n": 1, "w": "ワタナベ"}, "第三機動隊": {"n": 1, "w": "ニシダ"}, "第二方面機動警ら隊": {"n": 1, "w": "コジマ"}, "第二機動隊": {"n": 1, "w": "ミキ"}, "芦原別館": {"n": 1, "w": "オガサワラ"}, "西堺警察署": {"n": 2, "w": "ムカイ、エグチ"}, "関西空港警察署": {"n": 1, "w": "ツジ"}, "阿倍野警察署": {"n": 4, "w": "クマイ、オクダ、ナカガワ、ヤマノ"}, "鳥取県八頭庁舎": {"n": 6, "w": "タムラ、カキウチ、ノザキ、ホリ、ヤマダ、ヤマモト"}, "鳥取県立皆生養護学校": {"n": 4, "w": "アラマツ、クニヤマ、モチダ、ツキタニ"}, "鳥取県立鳥取盲学校": {"n": 1, "w": "タカギ"}, "鳥取県立鳥取聾学校": {"n": 1, "w": "ヒラキ"}, "鳥取県総合療育センター": {"n": 3, "w": "ナイトウ、ニイノ、ヤマダ"}, "鳥取県警高速道路警察隊庁舎": {"n": 1, "w": "タニモト"}, "中堺警察署": {"n": 2, "w": "タカハシ、ハタ"}, "交野警察署": {"n": 1, "w": "ヤマグチ"}, "住之江警察署": {"n": 1, "w": "ササヤマ"}, "住吉警察署": {"n": 1, "w": "フクダ"}, "北堺警察署": {"n": 1, "w": "ハマグチ"}, "南堺警察署": {"n": 2, "w": "クボタ、サカイ"}, "南警察署": {"n": 3, "w": "ツキヤマ、ナカタ、ナカジマ"}, "吹田警察署": {"n": 1, "w": "ミウラ"}, "堺警察署": {"n": 2, "w": "ノザキ、ヨシムラ"}, "大阪府警察学校": {"n": 5, "w": "イデウチ、オガタ、ヤマシキ、カナモリ、ヒョウゴ"}, "大阪府警淀川単身寮": {"n": 2, "w": "スギヤマ、タカノ"}, "大阪水上警察署": {"n": 1, "w": "イワタ"}, "天満警察署": {"n": 2, "w": "ウチダ、コイケ"}, "天王寺警察署": {"n": 1, "w": "オオツカ"}, "守口警察署": {"n": 2, "w": "カクム、サクモト"}, "富田林警察署": {"n": 2, "w": "マツタニ、モリモト"}, "寝屋川警察署": {"n": 2, "w": "オオガミ、クワヤマ"}, "岸和田警察署": {"n": 1, "w": "コンドウ"}, "布施警察署": {"n": 1, "w": "イシハラ"}, "平野警察署": {"n": 2, "w": "シライシ、タツミ"}, "摂津警察署": {"n": 2, "w": "イナバヤシ、マツダ"}, "旭警察署": {"n": 1, "w": "ツツイ"}, "東住吉警察署": {"n": 2, "w": "ナカムラ、ホリウチ"}, "東成警察署": {"n": 1, "w": "ナカムラ"}, "東淀川警察署": {"n": 1, "w": "ニシハナ"}, "東警察署": {"n": 1, "w": "ミヤザキ"}, "松原警察署": {"n": 2, "w": "タチバナ、テラモト"}, "枚方警察署": {"n": 1, "w": "オガワ"}, "柏原警察署": {"n": 1, "w": "ツチノ"}, "此花警察署": {"n": 2, "w": "オダ、スギモト"}, "池田警察署": {"n": 2, "w": "オキ、クニヤマ"}, "河内長野警察署": {"n": 1, "w": "オガワ"}, "泉佐野警察署": {"n": 1, "w": "アンドウ"}, "泉南警察署": {"n": 1, "w": "スナガワ"}, "泉大津警察署": {"n": 1, "w": "シオタニ"}, "港警察署": {"n": 1, "w": "キタザワ"}, "生野警察署": {"n": 1, "w": "オオツカ"}, "福島警察署": {"n": 1, "w": "イノツカ"}, "第一方面機動警ら隊": {"n": 1, "w": "ナカキタ"}, "箕面警察署": {"n": 2, "w": "アマノ、ナカジマ"}, "羽曳野警察署": {"n": 2, "w": "コタニ、ホリバタ"}, "茨木警察署": {"n": 1, "w": "マツイ"}, "西成警察署": {"n": 2, "w": "オオニシ、タナカ"}, "西淀川警察署": {"n": 1, "w": "ナンジョウ"}, "西警察署": {"n": 1, "w": "タナカ"}, "豊中南警察署": {"n": 1, "w": "マツモト"}, "豊中警察署": {"n": 2, "w": "ウエムラ、ハヤシ"}, "豊能警察署": {"n": 1, "w": "ヨコセ"}, "都島警察署": {"n": 2, "w": "キムラ、ミネ"}, "鉄道警察隊": {"n": 1, "w": "ヤマダ"}, "門真警察署": {"n": 2, "w": "イナバ、サイトウ"}, "高槻警察署": {"n": 2, "w": "オオシモ、ヨデン"}, "高石警察署": {"n": 1, "w": "キシダ"}, "鳥取県警察学校": {"n": 2, "w": "タカガキ、ナカムラ"}, "鳥取県運転免許センター": {"n": 2, "w": "タハラ、ヒガキ"}, "鶴見警察署": {"n": 2, "w": "イマニシ、オオノ"}, "黒山警察署": {"n": 2, "w": "コタケ、コバヤシ"}, "本社": {"n": 2, "w": "イシカワ、ビトウ"}, "米子支店": {"n": 3, "w": "エザキ、トヨグチ、ヒグチ"}};
+var CROWS = [];
+
+async function prepCount(){
+  if(CROWS.length) return;
+  hide($("nMsg")); show($("nMsg"),"inf","読み込んでいます…");
+  try{
+    var ss = await dbR.collection("sites").get();
+    CROWS = [];
+    ss.forEach(function(d){
+      var v=d.data()||{};
+      var nm=String(v.name||"");
+      var c=COUNTS[nm];
+      CROWS.push({ id:d.id, name:nm, area:String(v.area||""),
+                   now:Number(v.headcount)||0,
+                   val:(c? c.n : (Number(v.headcount)||0)),
+                   who:(c? c.w : "") });
+    });
+    CROWS.sort(function(a,b){
+      return (b.val-a.val) || String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
+    drawCount();
+    var hit=CROWS.filter(function(r){ return r.who; }).length;
+    show($("nMsg"),"ok","現場 "+CROWS.length+" 件を読み込みました。うち "+hit+" 件は、配ったカードから人数を数えて入れてあります。");
+  }catch(e){ show($("nMsg"),"err","読み込めませんでした。"+(e.message||e)); }
+}
+function drawCount(){
+  var tb=$("tb3"); tb.innerHTML="";
+  CROWS.forEach(function(r,i){
+    var tr=document.createElement("tr");
+    if(r.val!==r.now) tr.style.background="#fffbe9";
+    tr.innerHTML='<td class="l">'+esc(r.name)+'</td>'+
+      '<td>'+esc(r.area)+'</td>'+
+      '<td style="color:#8a97a4">'+r.now+'</td>'+
+      '<td><input type="number" min="0" style="width:64px" data-i="'+i+'" value="'+r.val+'"></td>'+
+      '<td class="l" style="font-size:12px;color:#5f7183">'+esc(r.who)+'</td>';
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll("input").forEach(function(inp){
+    inp.onchange=function(e){ CROWS[+e.target.dataset.i].val=Number(e.target.value)||0; sum3(); };
+  });
+  sum3();
+}
+function sum3(){
+  var ch=CROWS.filter(function(r){ return r.val!==r.now; }).length;
+  $("sum3").innerHTML="全 <b>"+CROWS.length+"</b> 件　変わるところ <b>"+ch+"</b> 件";
+}
+$("btnCntFill").onclick=function(){
+  CROWS.forEach(function(r){ var c=COUNTS[r.name]; if(c) r.val=c.n; }); drawCount(); };
+$("btnCntKeep").onclick=function(){ CROWS.forEach(function(r){ r.val=r.now; }); drawCount(); };
+
+$("btnCntSave").onclick = async function(){
+  hide($("nMsg"));
+  var targets=CROWS.filter(function(r){ return r.val!==r.now; });
+  if(!targets.length) return show($("nMsg"),"err","変わるところがありません。");
+  if(!confirm("現場 "+targets.length+" 件の人数を直します。\n（現場名・曜日・時刻はさわりません）\nよろしいですか？")) return;
+  $("btnCntSave").disabled=true;
+  show($("nMsg"),"inf","保存しています…");
+  var done=0, ng=0, lastErr="";
+  try{
+    for(var i=0;i<targets.length;i+=400){
+      var chunk=targets.slice(i,i+400);
+      var batch=dbR.batch();
+      chunk.forEach(function(r){
+        batch.set(dbR.collection("sites").doc(r.id), { headcount:Number(r.val)||0 }, { merge:true });
+      });
+      try{ await batch.commit(); done+=chunk.length; }
+      catch(err){ ng+=chunk.length; lastErr=err.message||String(err); }
+    }
+    if(ng) show($("nMsg"),"err","直せたのは "+done+" 件、できなかったのが "+ng+" 件です。"+lastErr);
+    else{
+      CROWS.forEach(function(r){ r.now=r.val; });
+      drawCount();
+      show($("nMsg"),"ok",done+" 件の人数を直しました。信号板の判定に反映されます。");
+    }
+  }catch(e){ show($("nMsg"),"err","保存できませんでした。"+(e.message||e)); }
+  $("btnCntSave").disabled=false;
 };
 
 $("btnPrint1").onclick=function(){ window.print(); };

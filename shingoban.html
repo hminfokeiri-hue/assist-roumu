@@ -9,92 +9,94 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
-  :root{
-    --blue:#E8873A; --blue-dark:#C96A1E; --sun-soft:#F7DDBF;
-    --bg:#FBF6ED; --card:#fff; --border:#EDE2CE;
-    --text:#3A3530; --muted:#6B5F52; --danger:#C65D4B; --success:#4A7C6F; --warning:#C08A2B;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Arial,sans-serif;
-       background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;}
-  #app{max-width:1100px;margin:0 auto;min-height:100vh;}
-  header.topbar{background:var(--blue);color:#fff;padding:14px 20px;display:flex;
-                align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
-  header.topbar h1{font-size:18px;margin:0;font-weight:700;}
-  header.topbar h1 small{font-size:12px;font-weight:400;opacity:.9;margin-left:6px;}
-  .hright{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;}
-  .hbtn{background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;
-        padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;}
-  main{padding:20px;}
-  .tabbar{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
-  .tabbar button{background:#fff;border:1.5px solid var(--border);border-radius:10px;
-                 padding:9px 14px;font-size:13px;font-weight:700;color:var(--text);
-                 font-family:inherit;cursor:pointer;}
-  .tabbar button.active{background:var(--blue);color:#fff;border-color:var(--blue);}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;}
-  label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px;}
-  input,select,textarea{width:100%;font-size:15px;padding:10px;border-radius:10px;
-        border:1.5px solid var(--border);background:#fff;font-family:inherit;color:var(--text);}
-  .btn{border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;
-       font-family:inherit;cursor:pointer;background:var(--blue);color:#fff;}
-  .btn.sec{background:#fff;color:var(--blue);border:1.5px solid var(--blue);}
-  .btn.del{background:#fff;color:var(--danger);border:1.5px solid var(--danger);}
-  .btn.sm{padding:6px 12px;font-size:13px;}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
-  .row > div{flex:1;min-width:130px;}
-  .muted{color:var(--muted);font-size:13px;}
-  .center-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
-  .login-card{width:100%;max-width:380px;}
-  .login-card h1{font-size:22px;color:var(--blue);text-align:center;margin:0 0 4px;}
-  .login-card p.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 20px;}
+:root{
+--blue:#E8873A; --blue-dark:#C96A1E; --sun-soft:#F7DDBF;
+--bg:#FBF6ED; --card:#fff; --border:#EDE2CE;
+--text:#3A3530; --muted:#6B5F52; --danger:#C65D4B; --success:#4A7C6F; --warning:#C08A2B;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Arial,sans-serif;
+background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;}
+#app{max-width:1100px;margin:0 auto;min-height:100vh;}
+header.topbar{background:var(--blue);color:#fff;padding:14px 20px;display:flex;
+align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+header.topbar h1{font-size:18px;margin:0;font-weight:700;}
+header.topbar h1 small{font-size:12px;font-weight:400;opacity:.9;margin-left:6px;}
+.hright{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;}
+.hbtn{background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:8px;
+padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;}
+main{padding:20px;}
+.tabbar{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tabbar button{background:#fff;border:1.5px solid var(--border);border-radius:10px;
+padding:9px 14px;font-size:13px;font-weight:700;color:var(--text);
+font-family:inherit;cursor:pointer;}
+.tabbar button.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+.tabbar button.link{background:transparent;border-style:dashed;color:var(--muted);}
+.tabbar button.link:hover{color:var(--blue);border-color:var(--blue);}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;}
+label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px;}
+input,select,textarea{width:100%;font-size:15px;padding:10px;border-radius:10px;
+border:1.5px solid var(--border);background:#fff;font-family:inherit;color:var(--text);}
+.btn{border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;
+font-family:inherit;cursor:pointer;background:var(--blue);color:#fff;}
+.btn.sec{background:#fff;color:var(--blue);border:1.5px solid var(--blue);}
+.btn.del{background:#fff;color:var(--danger);border:1.5px solid var(--danger);}
+.btn.sm{padding:6px 12px;font-size:13px;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+.row > div{flex:1;min-width:130px;}
+.muted{color:var(--muted);font-size:13px;}
+.center-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.login-card{width:100%;max-width:380px;}
+.login-card h1{font-size:22px;color:var(--blue);text-align:center;margin:0 0 4px;}
+.login-card p.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 20px;}
 
-  .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;}
-  .site-card{background:#fff;border:1px solid var(--border);border-left:8px solid var(--border);
-             border-radius:12px;padding:14px 16px;}
-  .site-card.ok{border-left-color:#4A7C6F;}
-  .site-card.few{border-left-color:#C08A2B;}
-  .site-card.wait{border-left-color:#C9C4B8;}
-  .site-card.ng{border-left-color:#C65D4B;background:#FEF0EE;}
-  .sc-name{font-size:17px;font-weight:700;}
-  .sc-time{font-size:12px;color:var(--muted);margin-top:2px;}
-  .sc-state{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;
-            border-radius:20px;margin-top:8px;}
-  .st-ok{background:#e3f3ea;color:var(--success);}
-  .st-few{background:#fdf0d5;color:var(--warning);}
-  .st-wait{background:#f0ece5;color:var(--muted);}
-  .st-ng{background:#fbe6e4;color:var(--danger);}
-  .sc-people{margin-top:10px;font-size:13px;}
-  .sc-person{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #F5EFE4;}
-  .sc-person:last-child{border-bottom:none;}
-  .sc-person .t{color:var(--muted);}
-  .sec-title{font-size:15px;font-weight:700;margin:22px 0 10px;}
-  .memo-box{width:100%;min-height:70px;resize:vertical;}
-  .sum{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;}
-  .sum div{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 18px;}
-  .sum .n{font-size:24px;font-weight:700;}
-  .sum .l{font-size:12px;color:var(--muted);}
-  table{width:100%;border-collapse:collapse;font-size:14px;}
-  th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);}
-  th{color:var(--muted);font-weight:700;font-size:12px;}
-  .wd{display:flex;gap:6px;flex-wrap:wrap;}
-  .wd label{display:flex;align-items:center;gap:4px;margin:0;font-size:14px;color:var(--text);
-            background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;}
-  .wd input{width:auto;}
-  .qr-sheet{background:#fff;border:2px solid #333;border-radius:6px;padding:24px;text-align:center;
-            max-width:420px;margin:0 auto 20px;}
-  .qr-sheet h2{font-size:26px;margin:0 0 4px;}
-  .qr-sheet .qbox{display:flex;justify-content:center;margin:16px 0;}
-  .qr-sheet p{font-size:14px;color:#333;margin:6px 0 0;}
-  .privacy{font-size:13px;color:var(--muted);}
-  @media print{
-    @page{size:A4 portrait;margin:12mm;}
-    body *{visibility:hidden;}
-    .print-target,.print-target *{visibility:visible;}
-    .print-target{position:absolute;top:0;left:0;width:100%;}
-    .no-print{display:none !important;}
-    .qr-sheet{page-break-after:always;border-color:#000;}
-  }
-  @media(max-width:700px){ .row > div{min-width:100%;} }
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;}
+.site-card{background:#fff;border:1px solid var(--border);border-left:8px solid var(--border);
+border-radius:12px;padding:14px 16px;}
+.site-card.ok{border-left-color:#4A7C6F;}
+.site-card.few{border-left-color:#C08A2B;}
+.site-card.wait{border-left-color:#C9C4B8;}
+.site-card.ng{border-left-color:#C65D4B;background:#FEF0EE;}
+.sc-name{font-size:17px;font-weight:700;}
+.sc-time{font-size:12px;color:var(--muted);margin-top:2px;}
+.sc-state{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;
+border-radius:20px;margin-top:8px;}
+.st-ok{background:#e3f3ea;color:var(--success);}
+.st-few{background:#fdf0d5;color:var(--warning);}
+.st-wait{background:#f0ece5;color:var(--muted);}
+.st-ng{background:#fbe6e4;color:var(--danger);}
+.sc-people{margin-top:10px;font-size:13px;}
+.sc-person{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #F5EFE4;}
+.sc-person:last-child{border-bottom:none;}
+.sc-person .t{color:var(--muted);}
+.sec-title{font-size:15px;font-weight:700;margin:22px 0 10px;}
+.memo-box{width:100%;min-height:70px;resize:vertical;}
+.sum{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;}
+.sum div{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 18px;}
+.sum .n{font-size:24px;font-weight:700;}
+.sum .l{font-size:12px;color:var(--muted);}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);}
+th{color:var(--muted);font-weight:700;font-size:12px;}
+.wd{display:flex;gap:6px;flex-wrap:wrap;}
+.wd label{display:flex;align-items:center;gap:4px;margin:0;font-size:14px;color:var(--text);
+background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;}
+.wd input{width:auto;}
+.qr-sheet{background:#fff;border:2px solid #333;border-radius:6px;padding:24px;text-align:center;
+max-width:420px;margin:0 auto 20px;}
+.qr-sheet h2{font-size:26px;margin:0 0 4px;}
+.qr-sheet .qbox{display:flex;justify-content:center;margin:16px 0;}
+.qr-sheet p{font-size:14px;color:#333;margin:6px 0 0;}
+.privacy{font-size:13px;color:var(--muted);}
+@media print{
+@page{size:A4 portrait;margin:12mm;}
+body *{visibility:hidden;}
+.print-target,.print-target *{visibility:visible;}
+.print-target{position:absolute;top:0;left:0;width:100%;}
+.no-print{display:none !important;}
+.qr-sheet{page-break-after:always;border-color:#000;}
+}
+@media(max-width:700px){ .row > div{min-width:100%;} }
 </style>
 </head>
 <body>
@@ -102,12 +104,12 @@
 
 <script>
 const firebaseConfig = {
-  apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
-  authDomain: "assist-roumu.firebaseapp.com",
-  projectId: "assist-roumu",
-  storageBucket: "assist-roumu.firebasestorage.app",
-  messagingSenderId: "919904591114",
-  appId: "1:919904591114:web:33d30e66ea4264e081eef3"
+apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
+authDomain: "assist-roumu.firebaseapp.com",
+projectId: "assist-roumu",
+storageBucket: "assist-roumu.firebasestorage.app",
+messagingSenderId: "919904591114",
+appId: "1:919904591114:web:33d30e66ea4264e081eef3"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
@@ -116,280 +118,294 @@ const WD = ["日","月","火","水","木","金","土"];
 const GRACE_MIN = 15;
 
 var state = {
-  user:null, tab:"board", sites:[], attend:[], memo:"", today:"",
-  editing:null, soundOn:false, privacy:false, redSet:{}, qrSite:null, unsub:[]
+user:null, tab:"board", sites:[], attend:[], memo:"", today:"",
+editing:null, soundOn:false, privacy:false, redSet:{}, qrSite:null, unsub:[]
 };
 
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
 function el(id){ return document.getElementById(id); }
 function todayStr(){ var d=new Date();
-  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function hhmm(ts){ if(!ts) return "";
-  var d = ts.toDate ? ts.toDate() : new Date(ts);
-  return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+var d = ts.toDate ? ts.toDate() : new Date(ts);
+return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
 function nowMin(){ var d=new Date(); return d.getHours()*60+d.getMinutes(); }
 function toMin(t){ if(!t) return null; var p=String(t).split(":"); return parseInt(p[0],10)*60+parseInt(p[1]||0,10); }
 
 /* ---------- ログイン ---------- */
 function renderLogin(msg){
-  el("app").innerHTML =
-    '<div class="center-screen"><div class="card login-card">' +
-      '<h1>信号板</h1><p class="sub">アシスト労務・本社用</p>' +
-      '<label>メールアドレス</label><input id="lgMail" type="email" autocomplete="username">' +
-      '<label style="margin-top:12px">パスワード</label><input id="lgPw" type="password" autocomplete="current-password">' +
-      '<label style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text)">' +
-        '<input type="checkbox" id="lgSave" style="width:auto" checked> パスワードを保存する</label>' +
-      '<button class="btn" style="width:100%;margin-top:16px" onclick="doLogin()">ログイン</button>' +
-      (msg ? '<p class="sub" style="color:var(--danger);margin-top:12px">'+esc(msg)+'</p>' : '') +
-    '</div></div>';
-  var m = localStorage.getItem("shingobanMail");
-  if (m) el("lgMail").value = m;
+el("app").innerHTML =
+'<div class="center-screen"><div class="card login-card">' +
+'<h1>信号板</h1><p class="sub">アシスト労務・本社用</p>' +
+'<label>メールアドレス</label><input id="lgMail" type="email" autocomplete="username">' +
+'<label style="margin-top:12px">パスワード</label><input id="lgPw" type="password" autocomplete="current-password">' +
+'<label style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text)">' +
+'<input type="checkbox" id="lgSave" style="width:auto" checked> パスワードを保存する</label>' +
+'<button class="btn" style="width:100%;margin-top:16px" onclick="doLogin()">ログイン</button>' +
+(msg ? '<p class="sub" style="color:var(--danger);margin-top:12px">'+esc(msg)+'</p>' : '') +
+'</div></div>';
+var m = localStorage.getItem("shingobanMail");
+if (m) el("lgMail").value = m;
 }
 function doLogin(){
-  var mail = el("lgMail").value.trim(), pw = el("lgPw").value;
-  var save = el("lgSave").checked;
-  firebase.auth().signInWithEmailAndPassword(mail, pw).then(function(){
-    if (save) localStorage.setItem("shingobanMail", mail); else localStorage.removeItem("shingobanMail");
-  }).catch(function(){ renderLogin("メールかパスワードが違います"); });
+var mail = el("lgMail").value.trim(), pw = el("lgPw").value;
+var save = el("lgSave").checked;
+firebase.auth().signInWithEmailAndPassword(mail, pw).then(function(){
+if (save) localStorage.setItem("shingobanMail", mail); else localStorage.removeItem("shingobanMail");
+}).catch(function(){ renderLogin("メールかパスワードが違います"); });
 }
 function doLogout(){ if(confirm("ログアウトしますか？")) firebase.auth().signOut(); }
 
 /* ---------- 購読 ---------- */
 function startWatch(){
-  state.today = todayStr();
-  state.unsub.forEach(function(u){ try{u();}catch(e){} });
-  state.unsub = [];
-  state.unsub.push(db.collection("sites").onSnapshot(function(s){
-    state.sites = s.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
-    render();
-  }));
-  state.unsub.push(db.collection("attendance").where("date","==",state.today).onSnapshot(function(s){
-    state.attend = s.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
-    render();
-  }));
-  state.unsub.push(db.collection("boardMemos").doc(state.today).onSnapshot(function(d){
-    state.memo = d.exists ? (d.data().text || "") : "";
-    var t = el("memoBox");
-    if (t && document.activeElement !== t) t.value = state.memo;
-  }));
-  setInterval(function(){
-    if (todayStr() !== state.today) startWatch(); else render();
-  }, 60000);
+state.today = todayStr();
+state.unsub.forEach(function(u){ try{u();}catch(e){} });
+state.unsub = [];
+state.unsub.push(db.collection("sites").onSnapshot(function(s){
+state.sites = s.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+render();
+}));
+state.unsub.push(db.collection("attendance").where("date","==",state.today).onSnapshot(function(s){
+state.attend = s.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+render();
+}));
+state.unsub.push(db.collection("boardMemos").doc(state.today).onSnapshot(function(d){
+state.memo = d.exists ? (d.data().text || "") : "";
+var t = el("memoBox");
+if (t && document.activeElement !== t) t.value = state.memo;
+}));
+setInterval(function(){
+if (todayStr() !== state.today) startWatch(); else render();
+}, 60000);
 }
 
 /* ---------- 判定 ---------- */
 function siteStatus(site){
-  var list = state.attend.filter(function(a){ return a.siteId === site.id; });
-  var wd = new Date().getDay();
-  var planned = Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
-  var need = parseInt(site.headcount,10) || 0;
-  var start = toMin(site.startTime);
-  var cls, label;
-  if (list.length > 0){
-    if (need && list.length < need){ cls="few"; label="出勤 "+list.length+"／"+need+"名"; }
-    else { cls="ok"; label="出勤 "+list.length+"名"; }
-  } else if (!planned){
-    cls="wait"; label="今日は予定なし";
-  } else if (start !== null && nowMin() >= start + GRACE_MIN){
-    cls="ng"; label="未出勤";
-  } else {
-    cls="wait"; label="まだ時間前";
-  }
-  return { cls:cls, label:label, list:list, planned:planned };
+var list = state.attend.filter(function(a){ return a.siteId === site.id; });
+var wd = new Date().getDay();
+var planned = Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
+var need = parseInt(site.headcount,10) || 0;
+var start = toMin(site.startTime);
+var cls, label;
+if (list.length > 0){
+if (need && list.length < need){ cls="few"; label="出勤 "+list.length+"／"+need+"名"; }
+else { cls="ok"; label="出勤 "+list.length+"名"; }
+} else if (!planned){
+cls="wait"; label="今日は予定なし";
+} else if (start !== null && nowMin() >= start + GRACE_MIN){
+cls="ng"; label="未出勤";
+} else {
+cls="wait"; label="まだ時間前";
+}
+return { cls:cls, label:label, list:list, planned:planned };
 }
 
 /* ---------- 音 ---------- */
 var audioCtx = null;
 function enableSound(){
-  try{
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    var o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    g.gain.value = 0.0001; o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.01);
-    state.soundOn = true; render();
-  }catch(e){ alert("この画面では音を出せませんでした"); }
+try{
+audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+g.gain.value = 0.0001; o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.01);
+state.soundOn = true; render();
+}catch(e){ alert("この画面では音を出せませんでした"); }
 }
 function beep(){
-  if (!state.soundOn || !audioCtx) return;
-  try{
-    var o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = "sine"; o.frequency.value = 880;
-    g.gain.setValueAtTime(0.25, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.7);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime+0.7);
-  }catch(e){}
+if (!state.soundOn || !audioCtx) return;
+try{
+var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+o.type = "sine"; o.frequency.value = 880;
+g.gain.setValueAtTime(0.25, audioCtx.currentTime);
+g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.7);
+o.connect(g); g.connect(audioCtx.destination);
+o.start(); o.stop(audioCtx.currentTime+0.7);
+}catch(e){}
+}
+
+/* ---------- ほかのページへ ---------- */
+function openIkkatsu(){
+var u = new URL("genba-ikkatsu.html", location.href).href + "?v=" + Date.now();
+window.open(u, "_blank");
+}
+function openShukei(){
+var u = new URL("shukei.html", location.href).href + "?v=" + Date.now();
+window.open(u, "_blank");
 }
 
 /* ---------- 画面 ---------- */
 function render(){
-  if (!state.user) return;
-  var head =
-    '<header class="topbar no-print"><h1>信号板<small>｜アシスト労務</small></h1><div class="hright">' +
-      '<span>' + esc(state.today) + '（' + WD[new Date().getDay()] + '）</span>' +
-      (state.soundOn ? '<span>🔔 音あり</span>' : '<button class="hbtn" onclick="enableSound()">🔕 音を出す</button>') +
-      '<button class="hbtn" onclick="state.privacy=!state.privacy;render()">' + (state.privacy?"名前を表示":"名前を隠す") + '</button>' +
-      '<button class="hbtn" onclick="doLogout()">ログアウト</button>' +
-    '</div></header>' +
-    '<main><div class="tabbar no-print">' +
-      tabBtn("board","🚦 信号板") + tabBtn("sites","📍 現場の登録") + tabBtn("qr","🖨️ QRを印刷") +
-    '</div>';
-  var body = state.tab==="board" ? viewBoard() : state.tab==="sites" ? viewSites() : viewQr();
-  el("app").innerHTML = head + body + '</main>';
-  if (state.tab === "qr") drawQr();
-  if (state.tab === "board"){ var t = el("memoBox"); if (t) t.value = state.memo; }
+if (!state.user) return;
+var head =
+'<header class="topbar no-print"><h1>信号板<small>｜アシスト労務</small></h1><div class="hright">' +
+'<span>' + esc(state.today) + '（' + WD[new Date().getDay()] + '）</span>' +
+(state.soundOn ? '<span>🔔 音あり</span>' : '<button class="hbtn" onclick="enableSound()">🔕 音を出す</button>') +
+'<button class="hbtn" onclick="state.privacy=!state.privacy;render()">' + (state.privacy?"名前を表示":"名前を隠す") + '</button>' +
+'<button class="hbtn" onclick="doLogout()">ログアウト</button>' +
+'</div></header>' +
+'<main><div class="tabbar no-print">' +
+tabBtn("board","🚦 信号板") + tabBtn("sites","📍 現場の登録") + tabBtn("qr","🖨️ QRを印刷") +
+'<button class="link" onclick="openIkkatsu()" title="アシストカレンダーから現場をまとめて登録／QRをまとめて印刷">📦 まとめて登録・QR一括 ↗</button>' +
+'<button class="link" onclick="openShukei()" title="月の出勤日数と実働時間を集計して弥生の取込CSVを作る">🧮 勤怠集計・弥生CSV ↗</button>' +
+'</div>';
+var body = state.tab==="board" ? viewBoard() : state.tab==="sites" ? viewSites() : viewQr();
+el("app").innerHTML = head + body + '</main>';
+if (state.tab === "qr") drawQr();
+if (state.tab === "board"){ var t = el("memoBox"); if (t) t.value = state.memo; }
 }
 function tabBtn(id,label){
-  return '<button class="'+(state.tab===id?"active":"")+'" onclick="state.tab=\''+id+'\';render()">'+label+'</button>';
+return '<button class="'+(state.tab===id?"active":"")+'" onclick="state.tab=\''+id+'\';render()">'+label+'</button>';
 }
 
 function viewBoard(){
-  var sites = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); });
-  if (!sites.length) return '<div class="card"><p class="muted">現場がまだ登録されていません。「現場の登録」から追加してください。</p></div>';
+var sites = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); });
+if (!sites.length) return '<div class="card"><p class="muted">現場がまだ登録されていません。「現場の登録」から追加してください。</p></div>';
 
-  var today = [], other = [], ng = 0, ok = 0;
-  sites.forEach(function(s){
-    var st = siteStatus(s);
-    if (st.cls === "ng") ng++;
-    if (st.cls === "ok" || st.cls === "few") ok++;
-    (st.planned || st.list.length ? today : other).push({ site:s, st:st });
-  });
+var today = [], other = [], ng = 0, ok = 0;
+sites.forEach(function(s){
+var st = siteStatus(s);
+if (st.cls === "ng") ng++;
+if (st.cls === "ok" || st.cls === "few") ok++;
+(st.planned || st.list.length ? today : other).push({ site:s, st:st });
+});
 
-  var newRed = {};
-  today.forEach(function(x){ if (x.st.cls === "ng") newRed[x.site.id] = 1; });
-  var appeared = Object.keys(newRed).some(function(k){ return !state.redSet[k]; });
-  state.redSet = newRed;
-  if (appeared) beep();
+var newRed = {};
+today.forEach(function(x){ if (x.st.cls === "ng") newRed[x.site.id] = 1; });
+var appeared = Object.keys(newRed).some(function(k){ return !state.redSet[k]; });
+state.redSet = newRed;
+if (appeared) beep();
 
-  var card = function(x){
-    var s = x.site, st = x.st;
-    var people = st.list.map(function(a){
-      var name = state.privacy ? "－" : esc(a.employeeName||"");
-      var time = hhmm(a.inAt) + (a.outAt ? " 〜 " + hhmm(a.outAt) : " 〜");
-      return '<div class="sc-person"><span>'+name+'</span><span class="t">'+time+'</span></div>';
-    }).join("");
-    return '<div class="site-card '+st.cls+'">' +
-      '<div class="sc-name">'+esc(s.name)+'</div>' +
-      '<div class="sc-time">'+ (s.startTime ? esc(s.startTime)+"〜"+esc(s.endTime||"") : "時間の予定なし") +
-        (s.headcount ? '　'+esc(s.headcount)+'名' : '') + '</div>' +
-      '<div class="sc-state st-'+st.cls+'">'+st.label+'</div>' +
-      (people ? '<div class="sc-people">'+people+'</div>' : '') +
-    '</div>';
-  };
+var card = function(x){
+var s = x.site, st = x.st;
+var people = st.list.map(function(a){
+var name = state.privacy ? "－" : esc(a.employeeName||"");
+var time = hhmm(a.inAt) + (a.outAt ? " 〜 " + hhmm(a.outAt) : " 〜");
+return '<div class="sc-person"><span>'+name+'</span><span class="t">'+time+'</span></div>';
+}).join("");
+return '<div class="site-card '+st.cls+'">' +
+'<div class="sc-name">'+esc(s.name)+'</div>' +
+'<div class="sc-time">'+ (s.startTime ? esc(s.startTime)+"〜"+esc(s.endTime||"") : "時間の予定なし") +
+(s.headcount ? ' '+esc(s.headcount)+'名' : '') + '</div>' +
+'<div class="sc-state st-'+st.cls+'">'+st.label+'</div>' +
+(people ? '<div class="sc-people">'+people+'</div>' : '') +
+'</div>';
+};
 
-  return '<div class="sum">' +
-      '<div><div class="n">'+today.length+'</div><div class="l">今日の現場</div></div>' +
-      '<div><div class="n" style="color:var(--success)">'+ok+'</div><div class="l">出勤あり</div></div>' +
-      '<div><div class="n" style="color:var(--danger)">'+ng+'</div><div class="l">未出勤</div></div>' +
-    '</div>' +
-    '<div class="card no-print"><label>今日の伝言（本社メモ）</label>' +
-      '<textarea id="memoBox" class="memo-box" placeholder="例：淀川は10時からに変更／松崎さん休み"></textarea>' +
-      '<button class="btn sm" style="margin-top:8px" onclick="saveMemo()">保存する</button>' +
-      '<span id="memoMsg" class="muted" style="margin-left:10px"></span></div>' +
-    '<div class="board">' + today.map(card).join("") + '</div>' +
-    (other.length ? '<div class="sec-title">今日は予定のない現場</div><div class="board">' + other.map(card).join("") + '</div>' : "");
+return '<div class="sum">' +
+'<div><div class="n">'+today.length+'</div><div class="l">今日の現場</div></div>' +
+'<div><div class="n" style="color:var(--success)">'+ok+'</div><div class="l">出勤あり</div></div>' +
+'<div><div class="n" style="color:var(--danger)">'+ng+'</div><div class="l">未出勤</div></div>' +
+'</div>' +
+'<div class="card no-print"><label>今日の伝言（本社メモ）</label>' +
+'<textarea id="memoBox" class="memo-box" placeholder="例：淀川は10時からに変更／松崎さん休み"></textarea>' +
+'<button class="btn sm" style="margin-top:8px" onclick="saveMemo()">保存する</button>' +
+'<span id="memoMsg" class="muted" style="margin-left:10px"></span></div>' +
+'<div class="board">' + today.map(card).join("") + '</div>' +
+(other.length ? '<div class="sec-title">今日は予定のない現場</div><div class="board">' + other.map(card).join("") + '</div>' : "");
 }
 function saveMemo(){
-  var t = el("memoBox").value;
-  db.collection("boardMemos").doc(state.today).set({ text:t, updatedAt:firebase.firestore.FieldValue.serverTimestamp() })
-    .then(function(){ el("memoMsg").textContent = "保存しました"; setTimeout(function(){ var m=el("memoMsg"); if(m) m.textContent=""; },2000); })
-    .catch(function(){ el("memoMsg").textContent = "保存できませんでした"; });
+var t = el("memoBox").value;
+db.collection("boardMemos").doc(state.today).set({ text:t, updatedAt:firebase.firestore.FieldValue.serverTimestamp() })
+.then(function(){ el("memoMsg").textContent = "保存しました"; setTimeout(function(){ var m=el("memoMsg"); if(m) m.textContent=""; },2000); })
+.catch(function(){ el("memoMsg").textContent = "保存できませんでした"; });
 }
 
 function viewSites(){
-  var e = state.editing;
-  var form = e ? '<div class="card">' +
-      '<div style="font-size:15px;font-weight:700;margin-bottom:12px">' + (e.id ? "現場をなおす" : "新しい現場") + '</div>' +
-      '<div class="row"><div><label>現場名</label><input id="fName" value="'+esc(e.name||"")+'"></div>' +
-      '<div><label>エリア</label><input id="fArea" value="'+esc(e.area||"")+'"></div></div>' +
-      '<label style="margin-top:12px">入る曜日</label><div class="wd">' +
-        WD.map(function(w,i){
-          var on = Array.isArray(e.weekdays) && e.weekdays.indexOf(i)>=0;
-          return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":"")+'>'+w+'</label>';
-        }).join("") +
-      '</div>' +
-      '<div class="row" style="margin-top:12px">' +
-        '<div><label>開始</label><input id="fStart" type="time" value="'+esc(e.startTime||"")+'"></div>' +
-        '<div><label>終了</label><input id="fEnd" type="time" value="'+esc(e.endTime||"")+'"></div>' +
-        '<div><label>人数</label><input id="fNum" type="number" min="0" value="'+esc(e.headcount||"")+'"></div>' +
-      '</div>' +
-      '<label style="margin-top:12px">メモ</label><input id="fMemo" value="'+esc(e.memo||"")+'">' +
-      '<div style="display:flex;gap:10px;margin-top:16px">' +
-        '<button class="btn" onclick="saveSite()">保存</button>' +
-        '<button class="btn sec" onclick="state.editing=null;render()">やめる</button>' +
-        (e.id ? '<button class="btn del" style="margin-left:auto" onclick="delSite(\''+e.id+'\')">この現場を消す</button>' : '') +
-      '</div></div>' : '';
+var e = state.editing;
+var form = e ? '<div class="card">' +
+'<div style="font-size:15px;font-weight:700;margin-bottom:12px">' + (e.id ? "現場をなおす" : "新しい現場") + '</div>' +
+'<div class="row"><div><label>現場名</label><input id="fName" value="'+esc(e.name||"")+'"></div>' +
+'<div><label>エリア</label><input id="fArea" value="'+esc(e.area||"")+'"></div></div>' +
+'<label style="margin-top:12px">入る曜日</label><div class="wd">' +
+WD.map(function(w,i){
+var on = Array.isArray(e.weekdays) && e.weekdays.indexOf(i)>=0;
+return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":"")+'>'+w+'</label>';
+}).join("") +
+'</div>' +
+'<div class="row" style="margin-top:12px">' +
+'<div><label>開始</label><input id="fStart" type="time" value="'+esc(e.startTime||"")+'"></div>' +
+'<div><label>終了</label><input id="fEnd" type="time" value="'+esc(e.endTime||"")+'"></div>' +
+'<div><label>人数</label><input id="fNum" type="number" min="0" value="'+esc(e.headcount||"")+'"></div>' +
+'</div>' +
+'<label style="margin-top:12px">メモ</label><input id="fMemo" value="'+esc(e.memo||"")+'">' +
+'<div style="display:flex;gap:10px;margin-top:16px">' +
+'<button class="btn" onclick="saveSite()">保存</button>' +
+'<button class="btn sec" onclick="state.editing=null;render()">やめる</button>' +
+(e.id ? '<button class="btn del" style="margin-left:auto" onclick="delSite(\''+e.id+'\')">この現場を消す</button>' : '') +
+'</div></div>' : '';
 
-  var rows = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); })
-    .map(function(s){
-      var wds = Array.isArray(s.weekdays) ? s.weekdays.map(function(i){return WD[i];}).join("・") : "－";
-      return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span></td>' +
-        '<td>'+wds+'</td><td>'+esc(s.startTime||"")+(s.endTime?"〜"+esc(s.endTime):"")+'</td>' +
-        '<td>'+(s.headcount||"")+'</td>' +
-        '<td style="text-align:right"><button class="btn sec sm" onclick=\'editSite("'+s.id+'")\'>なおす</button></td></tr>';
-    }).join("");
+var rows = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); })
+.map(function(s){
+var wds = Array.isArray(s.weekdays) ? s.weekdays.map(function(i){return WD[i];}).join("・") : "－";
+return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span></td>' +
+'<td>'+wds+'</td><td>'+esc(s.startTime||"")+(s.endTime?"〜"+esc(s.endTime):"")+'</td>' +
+'<td>'+(s.headcount||"")+'</td>' +
+'<td style="text-align:right"><button class="btn sec sm" onclick=\'editSite("'+s.id+'")\'>なおす</button></td></tr>';
+}).join("");
 
-  return (e ? form : '<div class="card"><button class="btn" onclick="newSite()">＋ 現場を追加する</button></div>') +
-    '<div class="card"><table><thead><tr><th>現場</th><th>曜日</th><th>時間</th><th>人数</th><th></th></tr></thead>' +
-    '<tbody>' + (rows || '<tr><td colspan="5" class="muted">まだありません</td></tr>') + '</tbody></table></div>';
+return (e ? form : '<div class="card"><button class="btn" onclick="newSite()">＋ 現場を追加する</button>' +
+'<button class="btn sec" style="margin-left:10px" onclick="openIkkatsu()">📦 まとめて登録する ↗</button></div>') +
+'<div class="card"><table><thead><tr><th>現場</th><th>曜日</th><th>時間</th><th>人数</th><th></th></tr></thead>' +
+'<tbody>' + (rows || '<tr><td colspan="5" class="muted">まだありません</td></tr>') + '</tbody></table></div>';
 }
 function newSite(){ state.editing = { name:"", area:"", weekdays:[1,2,3,4,5], startTime:"", endTime:"", headcount:"", memo:"" }; render(); }
 function editSite(id){ var s = state.sites.filter(function(x){return x.id===id;})[0]; if(s) state.editing = JSON.parse(JSON.stringify(s)); render(); }
 function saveSite(){
-  var wds = [];
-  Array.prototype.forEach.call(document.querySelectorAll(".fWd"), function(c){ if(c.checked) wds.push(parseInt(c.value,10)); });
-  var data = {
-    name: el("fName").value.trim(), area: el("fArea").value.trim(), weekdays: wds,
-    startTime: el("fStart").value, endTime: el("fEnd").value,
-    headcount: parseInt(el("fNum").value,10) || 0, memo: el("fMemo").value.trim(), active:true
-  };
-  if (!data.name) return alert("現場名を入れてください");
-  var p = state.editing.id
-    ? db.collection("sites").doc(state.editing.id).set(data,{merge:true})
-    : db.collection("sites").add(data);
-  p.then(function(){ state.editing = null; render(); }).catch(function(err){ alert("保存できませんでした：" + err.message); });
+var wds = [];
+Array.prototype.forEach.call(document.querySelectorAll(".fWd"), function(c){ if(c.checked) wds.push(parseInt(c.value,10)); });
+var data = {
+name: el("fName").value.trim(), area: el("fArea").value.trim(), weekdays: wds,
+startTime: el("fStart").value, endTime: el("fEnd").value,
+headcount: parseInt(el("fNum").value,10) || 0, memo: el("fMemo").value.trim(), active:true
+};
+if (!data.name) return alert("現場名を入れてください");
+var p = state.editing.id
+? db.collection("sites").doc(state.editing.id).set(data,{merge:true})
+: db.collection("sites").add(data);
+p.then(function(){ state.editing = null; render(); }).catch(function(err){ alert("保存できませんでした：" + err.message); });
 }
 function delSite(id){
-  if (!confirm("この現場を消します。よろしいですか？（貼ってあるQRは使えなくなります）")) return;
-  db.collection("sites").doc(id).delete().then(function(){ state.editing=null; render(); });
+if (!confirm("この現場を消します。よろしいですか？（貼ってあるQRは使えなくなります）")) return;
+db.collection("sites").doc(id).delete().then(function(){ state.editing=null; render(); });
 }
 
 function dakokuUrl(id){ return new URL("dakoku.html", location.href).href + "?site=" + id; }
 function viewQr(){
-  var sites = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); });
-  if (!sites.length) return '<div class="card"><p class="muted">先に現場を登録してください。</p></div>';
-  var opts = sites.map(function(s){ return '<option value="'+s.id+'"'+(state.qrSite===s.id?" selected":"")+'>'+esc(s.name)+'</option>'; }).join("");
-  var cur = state.qrSite || sites[0].id;
-  state.qrSite = cur;
-  var site = sites.filter(function(s){return s.id===cur;})[0];
-  return '<div class="card no-print"><div class="row">' +
-      '<div><label>現場をえらぶ</label><select onchange="state.qrSite=this.value;render()">'+opts+'</select></div>' +
-      '<div style="flex:0 0 auto"><button class="btn" onclick="printQr()">🖨️ この貼り紙を印刷</button></div>' +
-    '</div><p class="muted" style="margin-top:10px">A4で印刷して、現場のよく見える場所に貼ってください。行きも帰りも同じ1枚を読みます。</p></div>' +
-    '<div id="qrArea" class="qr-sheet">' +
-      '<h2>'+esc(site.name)+'</h2>' +
-      '<p>出勤・退勤はこちらを読んでください</p>' +
-      '<div class="qbox"><div id="qrBox"></div></div>' +
-      '<p>スマホのカメラを向けてタップするだけです</p>' +
-      '<p style="font-size:12px;color:#666;margin-top:10px">合同会社／株式会社ホームメンテナンス</p>' +
-    '</div>';
+var sites = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); });
+if (!sites.length) return '<div class="card"><p class="muted">先に現場を登録してください。</p></div>';
+var opts = sites.map(function(s){ return '<option value="'+s.id+'"'+(state.qrSite===s.id?" selected":"")+'>'+esc(s.name)+'</option>'; }).join("");
+var cur = state.qrSite || sites[0].id;
+state.qrSite = cur;
+var site = sites.filter(function(s){return s.id===cur;})[0];
+return '<div class="card no-print"><div class="row">' +
+'<div><label>現場をえらぶ</label><select onchange="state.qrSite=this.value;render()">'+opts+'</select></div>' +
+'<div style="flex:0 0 auto"><button class="btn" onclick="printQr()">🖨️ この貼り紙を印刷</button></div>' +
+'<div style="flex:0 0 auto"><button class="btn sec" onclick="openIkkatsu()">📦 全部まとめて印刷 ↗</button></div>' +
+'</div><p class="muted" style="margin-top:10px">A4で印刷して、現場のよく見える場所に貼ってください。行きも帰りも同じ1枚を読みます。何枚もいるときは「全部まとめて印刷」が早いです。</p></div>' +
+'<div id="qrArea" class="qr-sheet">' +
+'<h2>'+esc(site.name)+'</h2>' +
+'<p>出勤・退勤はこちらを読んでください</p>' +
+'<div class="qbox"><div id="qrBox"></div></div>' +
+'<p>スマホのカメラを向けてタップするだけです</p>' +
+'<p style="font-size:12px;color:#666;margin-top:10px">合同会社／株式会社ホームメンテナンス</p>' +
+'</div>';
 }
 function drawQr(){
-  var box = el("qrBox"); if (!box || !state.qrSite) return;
-  box.innerHTML = "";
-  new QRCode(box, { text: dakokuUrl(state.qrSite), width:240, height:240, correctLevel: QRCode.CorrectLevel.M });
+var box = el("qrBox"); if (!box || !state.qrSite) return;
+box.innerHTML = "";
+new QRCode(box, { text: dakokuUrl(state.qrSite), width:240, height:240, correctLevel: QRCode.CorrectLevel.M });
 }
 function printQr(){
-  var a = el("qrArea"); a.classList.add("print-target");
-  window.print();
-  setTimeout(function(){ a.classList.remove("print-target"); }, 500);
+var a = el("qrArea"); a.classList.add("print-target");
+window.print();
+setTimeout(function(){ a.classList.remove("print-target"); }, 500);
 }
 
 firebase.auth().onAuthStateChanged(function(u){
-  state.user = u;
-  if (!u) return renderLogin("");
-  state.today = todayStr();
-  startWatch();
-  render();
+state.user = u;
+if (!u) return renderLogin("");
+state.today = todayStr();
+startWatch();
+render();
 });
 </script>
 </body>

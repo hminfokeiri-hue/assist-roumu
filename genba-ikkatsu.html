@@ -236,15 +236,25 @@ $("btnLoad").onclick = async function(){
   show($("cMsg"),"inf","読み込んでいます…");
   try{
     var mail = id.indexOf("@")>=0 ? id : (id.toLowerCase()+"@"+ID_DOMAIN);
-    await authC.signInWithEmailAndPassword(mail, pw);
+    try{ await authC.signInWithEmailAndPassword(mail, pw); }
+    catch(e){ throw new Error("【アシストカレンダー】ログインできませんでした。IDか暗証番号を確かめてください。（"+(e.message||e)+"）"); }
 
-    var d = await dbC.collection("config").doc("sites").get();
-    var list = ((d.exists ? d.data() : {}) || {}).list || [];
+    var list;
+    try{
+      var d = await dbC.collection("config").doc("sites").get();
+      list = ((d.exists ? d.data() : {}) || {}).list || [];
+    }catch(e){
+      throw new Error("【アシストカレンダー】契約先のデータが読めませんでした。カレンダー側のルールで止められています。（"+(e.message||e)+"）");
+    }
     if(!list.length){ show($("cMsg"),"err","契約先が読み取れませんでした（0件）。"); $("btnLoad").disabled=false; return; }
 
-    var cur = await dbR.collection("sites").get();
     var have = {};
-    cur.forEach(function(s){ have[norm((s.data()||{}).name)] = true; });
+    try{
+      var cur = await dbR.collection("sites").get();
+      cur.forEach(function(s){ have[norm((s.data()||{}).name)] = true; });
+    }catch(e){
+      throw new Error("【アシスト労務】現場マスタ（sites）が読めませんでした。Firestoreのルールに sites がまだ入っていないと思われます。（"+(e.message||e)+"）");
+    }
 
     ROWS = list.map(function(o){
       var nm = pickName(o);

@@ -84,6 +84,7 @@ if (!ts) return "";
 var d = ts.toDate ? ts.toDate() : new Date(ts);
 return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
 }
+function nospace(s){ return String(s==null?"":s).replace(/[\s　]/g,""); }
 function last3(code){ return String(code||"").replace(/[^0-9]/g,"").slice(-3); }
 
 function render(html){ el("main").innerHTML = html; }
@@ -272,14 +273,32 @@ return;
 }
 }
 
+// 現場名で指定されたとき（?g=松原警察署）
+var gname = params.get("g");
+if (!state.siteId && gname){
+try{
+var q = await db.collection("sites").where("name","==",gname).limit(1).get();
+if (!q.empty){ state.siteId = q.docs[0].id; state.site = q.docs[0].data(); }
+else{
+var all = await db.collection("sites").get();
+var t = nospace(gname);
+all.forEach(function(d){
+if (!state.siteId && nospace((d.data()||{}).name) === t){ state.siteId = d.id; state.site = d.data(); }
+});
+}
+}catch(e){}
+}
+
 if (!state.siteId){
 render('<div class="card center"><p class="muted">現場のQRコードを読み取って開いてください。</p></div>');
 return;
 }
+if (!state.site){
 try{
 var d = await db.collection("sites").doc(state.siteId).get();
 if (d.exists) state.site = d.data();
 }catch(e){}
+}
 if (!state.site){
 render('<div class="card center"><p class="muted">この現場は登録されていません。<br>本社にお知らせください。</p></div>');
 return;

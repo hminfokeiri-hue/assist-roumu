@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>現場のまとめて登録・QRまとめ印刷｜アシスト労務</title>
+<title>現場のまとめて登録・QR印刷｜アシスト労務</title>
 <style>
   :root{--bg:#f4f6f8;--card:#fff;--line:#dde3e9;--ink:#1c2530;--sub:#5f7183;--key:#0b6fb8;--key-d:#095c98;}
   *{box-sizing:border-box}
@@ -16,7 +16,7 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
   .card h2{margin:0 0 12px;font-size:16px;border-left:5px solid var(--key);padding-left:9px}
   label{font-size:13px;color:var(--sub);display:block;margin-bottom:4px}
-  input[type=text],input[type=email],input[type=password],input[type=number],input[type=time]{
+  input[type=text],input[type=email],input[type=password],input[type=number],input[type=time],select{
     font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px;background:#fff;width:100%}
   button{font:inherit;font-weight:700;padding:10px 18px;border:0;border-radius:8px;background:var(--key);color:#fff;cursor:pointer}
   button:hover{background:var(--key-d)} button.sub{background:#e8edf2;color:#33404e} button.sub:hover{background:#dae1e8}
@@ -27,12 +27,17 @@
   .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
   .tabs button{background:#e8edf2;color:#33404e}
   .tabs button.on{background:var(--key);color:#fff}
+  .modes{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .modes label{display:flex;align-items:center;gap:7px;margin:0;font-size:15px;color:var(--ink);
+    background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:700}
+  .modes label.on{border-color:var(--key);background:#eaf3fb;color:var(--key-d)}
+  .modes input{width:17px;height:17px}
   table{border-collapse:collapse;width:100%;font-size:13.5px}
   th,td{border:1px solid var(--line);padding:5px 7px;text-align:center}
   th{background:#eef3f7;font-size:12.5px;white-space:nowrap;position:sticky;top:0;z-index:1}
   td.l{text-align:left}
   td input{padding:4px 6px}
-  .tblbox{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  .tblbox{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
   .wd{display:flex;gap:2px;justify-content:center}
   .wd label{margin:0;font-size:11px;color:var(--ink);cursor:pointer;user-select:none}
   .wd input{width:14px;height:14px;display:block;margin:0 auto}
@@ -46,64 +51,55 @@
   .dup{background:#f3f5f7;color:#8a97a4}
   .sum{font-size:14px;color:var(--sub);margin-bottom:10px}
   .sum b{color:var(--ink);font-size:16px}
-  /* 印刷用 */
-  .qrgrid{display:grid;grid-template-columns:1fr 1fr;gap:8mm}
-  .qrgrid.one{grid-template-columns:1fr}
-  .qrcard{border:1.5px dashed #999;border-radius:8px;padding:10mm 8mm;text-align:center;
-          break-inside:avoid;page-break-inside:avoid;background:#fff}
-  .qrcard .nm {font-size:30pt;font-weight:800;line-height:1.25;margin:0 0 2mm}
-  .qrcard .job{font-size:17pt;font-weight:700;color:#333;margin:0 0 6mm}
-  .qrcard .qr {display:flex;justify-content:center;margin:0 0 6mm}
-  .qrcard .act{font-size:32pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
-  .qrcard .cam{font-size:17pt;font-weight:700;color:#333;margin:0}
-  .qrcard .hint{font-size:10pt;color:#555;margin-top:5mm;line-height:1.5}
-  .qrgrid.one .qrcard .nm {font-size:44pt}
-  .qrgrid.one .qrcard .job{font-size:24pt}
-  .qrgrid.one .qrcard .act{font-size:46pt}
-  .qrgrid.one .qrcard .cam{font-size:24pt}
-  .qrgrid.one .qrcard .hint{font-size:12pt}
-  .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:6mm}
-  .pcard{border:1.5px dashed #999;border-radius:8px;padding:6mm 5mm;text-align:center;background:#fff;
-         break-inside:avoid;page-break-inside:avoid;height:126mm;
-         display:flex;flex-direction:column;align-items:center;justify-content:center}
-  .pgrid.eight .pcard{height:62mm;padding:3mm 4mm}
-  .pcard .pn  {font-size:22pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
-  .pcard .pt  {font-size:11pt;font-weight:700;color:#555;margin:0 0 4mm}
-  .pcard .pq  {display:flex;justify-content:center;margin:0 0 4mm}
-  .pcard .ph  {font-size:11pt;font-weight:700;color:#333;line-height:1.5;margin:0}
-  .pcard .pid {font-size:8.5pt;color:#888;margin:2mm 0 0}
-  .pgrid.eight .pcard .pn{font-size:15pt;margin-bottom:0}
-  .pgrid.eight .pcard .pt{font-size:8.5pt;margin-bottom:2mm}
-  .pgrid.eight .pcard .pq{margin-bottom:2mm}
-  .pgrid.eight .pcard .ph{font-size:8.5pt}
-  .pgrid.eight .pcard .pid{font-size:7.5pt}
   .chk{display:flex;align-items:center;gap:7px;font-size:14px;margin:7px 0}
   .chk input{width:17px;height:17px}
-  select{font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px;background:#fff;width:100%}
+
+  /* ===== 印刷まわり ===== */
+  .sheet{display:grid;grid-template-columns:1fr 1fr;gap:8mm}
+  .sheet.one{grid-template-columns:1fr}
+  .pc{border:1.5px dashed #999;border-radius:8px;padding:9mm 6mm;text-align:center;background:#fff;
+      break-inside:avoid;page-break-inside:avoid}
+  .pc .site{font-size:26pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
+  .pc .job {font-size:14pt;font-weight:700;color:#444;margin:0 0 3mm}
+  .pc .who {font-size:21pt;font-weight:800;color:#0b3c5d;margin:0 0 5mm;
+            border-top:1px solid #e2e6ea;border-bottom:1px solid #e2e6ea;padding:2.5mm 0}
+  .pc .qr  {display:flex;justify-content:center;margin:0 0 5mm}
+  .pc .act {font-size:26pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
+  .pc .cam {font-size:14pt;font-weight:700;color:#444;margin:0}
+  .pc .hint{font-size:10pt;color:#666;margin-top:4mm;line-height:1.5}
+  .sheet.one .pc .site{font-size:42pt}
+  .sheet.one .pc .job {font-size:22pt}
+  .sheet.one .pc .who {font-size:32pt}
+  .sheet.one .pc .act {font-size:44pt}
+  .sheet.one .pc .cam {font-size:22pt}
+  .sheet.four .pc{padding:6mm 5mm}
+  .sheet.four .pc .site{font-size:19pt}
+  .sheet.four .pc .job {font-size:10.5pt;margin-bottom:2mm}
+  .sheet.four .pc .who {font-size:15pt;margin-bottom:3mm;padding:1.5mm 0}
+  .sheet.four .pc .qr  {margin-bottom:3mm}
+  .sheet.four .pc .act {font-size:18pt}
+  .sheet.four .pc .cam {font-size:10.5pt}
+  .sheet.four .pc .hint{font-size:8pt}
   @media print{
     body{background:#fff}
     header,.tabs,.noprint{display:none !important}
     .wrap{padding:0;max-width:none}
     .card{border:0;padding:0;margin:0}
-    .qrgrid{gap:8mm}
-    .qrcard{border:1px dashed #bbb}
-    .pgrid{gap:6mm}
-    .pcard{border:1px dashed #bbb}
-    .qrgrid.one .qrcard{page-break-after:always}
+    .pc{border:1px dashed #bbb}
+    .sheet.one .pc{page-break-after:always}
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>現場のまとめて登録・QRまとめ印刷</h1>
-  <p>アシストカレンダーの契約先を、アシスト労務の現場マスタへ取り込みます</p>
+  <h1>現場のまとめて登録・QR印刷</h1>
+  <p>アシストカレンダーの契約先の取り込みと、現場の貼り紙・本人カードの印刷</p>
 </header>
 
 <div class="wrap">
 
-  <!-- ログイン -->
   <div class="card" id="loginCard">
-    <h2>1. アシスト労務に本社ログイン</h2>
+    <h2>アシスト労務に本社ログイン</h2>
     <div class="row">
       <div><label>メールアドレス</label><input type="email" id="rEmail" autocomplete="username"></div>
       <div><label>パスワード</label><input type="password" id="rPass" autocomplete="current-password"></div>
@@ -115,15 +111,14 @@
   <div id="main" class="hide">
     <div class="tabs noprint">
       <button id="tab1" class="on">現場をまとめて登録</button>
-      <button id="tab2">現場のQRをまとめて印刷</button>
-      <button id="tab3">個人用QR（本人カード）</button>
+      <button id="tab2">QRを印刷する</button>
       <button class="sub" id="btnLogout" style="margin-left:auto">ログアウト</button>
     </div>
 
-    <!-- ========== タブ1 ========== -->
+    <!-- ========== タブ1：現場のまとめて登録 ========== -->
     <div id="pane1">
       <div class="card">
-        <h2>2. アシストカレンダーから契約先を読み込む</h2>
+        <h2>1. アシストカレンダーから契約先を読み込む</h2>
         <p class="note" style="margin:0 0 10px">アシストカレンダーのログインID（数字）と暗証番号を入れてください。読み取るだけで、カレンダー側は何も変わりません。</p>
         <div class="row">
           <div><label>ログインID</label><input type="text" id="cId" inputmode="numeric"></div>
@@ -135,7 +130,7 @@
       </div>
 
       <div class="card hide" id="listCard">
-        <h2>3. 登録する現場をえらぶ</h2>
+        <h2>2. 登録する現場をえらぶ</h2>
         <div class="sum" id="sum1"></div>
         <p class="note" style="margin:0 0 10px">
           曜日は<b>月〜土</b>、時刻は<b>7:30〜11:00</b>、人数は<b>1人</b>を初めから入れてあります。ちがう現場は表の上で直してください。
@@ -161,56 +156,61 @@
       </div>
     </div>
 
-    <!-- ========== タブ2 ========== -->
+    <!-- ========== タブ2：QRを印刷する ========== -->
     <div id="pane2" class="hide">
       <div class="card noprint">
-        <h2>QRをまとめて印刷</h2>
-        <div class="row" style="margin-bottom:6px">
-          <div><label>現場名の下に出す文字</label><input type="text" id="qJob" value="日常清掃業務"></div>
-          <div><label>1枚あたりの大きさ</label>
-            <select id="qSize">
-              <option value="2">A4に2枚（切って貼る）</option>
-              <option value="1">A4に1枚（大きく貼る）</option>
-            </select></div>
+        <h2>どちらを印刷しますか</h2>
+        <div class="modes">
+          <label id="mSiteL" class="on"><input type="radio" name="mode" id="mSite" value="site" checked>🏢 現場の貼り紙（現場に貼る）</label>
+          <label id="mCardL"><input type="radio" name="mode" id="mCard" value="card">👤 本人カード（一人ずつ渡す）</label>
         </div>
-        <div class="chk"><input type="checkbox" id="qHint" checked>
-          <label for="qHint" style="margin:0">下に小さく「はじめの1回だけ…」の案内を入れる</label></div>
-        <div class="btns" style="margin:8px 0 0">
-          <button id="btnQr">登録ずみの現場のQRを出す</button>
-          <button class="sub" id="btnPrint">印刷する</button>
+
+        <!-- 現場の貼り紙 -->
+        <div id="optSite">
+          <p class="note" style="margin:0 0 10px">現場に貼る用です。<b>誰でも</b>読めます。カードを持っていない方・応援の方・新しく入った方は、こちらから番号を入れて打刻します。</p>
+          <div class="row">
+            <div><label>現場名の下に出す文字</label><input type="text" id="sJob" value="日常清掃業務"></div>
+            <div><label>1枚あたりの大きさ</label>
+              <select id="sSize"><option value="2">A4に2枚</option><option value="1">A4に1枚（大きく）</option></select></div>
+          </div>
+          <div class="chk"><input type="checkbox" id="sHint" checked>
+            <label for="sHint" style="margin:0">下に小さく「はじめの1回だけ…」の案内を入れる</label></div>
+          <div class="btns"><button id="btnSiteMake">貼り紙を出す</button>
+            <button class="sub" id="btnPrint1">印刷する</button></div>
         </div>
-        <p class="note">文字や大きさを変えたら、もう一度「登録ずみの現場のQRを出す」を押してください。QRの中身は現場ごとに違います。<b>貼ったあとで中身は変えられません。</b></p>
+
+        <!-- 本人カード -->
+        <div id="optCard" class="hide">
+          <p class="note" style="margin:0 0 10px">「その現場 × その人」専用のカードです。<b>毎日これを1回読むだけ</b>で出勤・退勤ができます。現場の貼り紙を読む必要はありません。</p>
+          <div class="row">
+            <div><label>現場をえらぶ</label><select id="cSite"></select></div>
+            <div><label>現場名の下に出す文字</label><input type="text" id="cJob" value="日常清掃業務"></div>
+            <div><label>1枚あたりの大きさ</label>
+              <select id="cSize"><option value="2">A4に2枚</option><option value="4">A4に4枚</option></select></div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div><label>エリアでしぼる</label><select id="cArea"><option value="">全部</option></select></div>
+            <div><label>名前でさがす</label><input type="text" id="cFind" placeholder="一部でも大丈夫"></div>
+            <div style="flex:1 1 220px"><label>&nbsp;</label>
+              <div class="btns" style="margin:0">
+                <button class="sub" id="btnEmpAll">全部えらぶ</button>
+                <button class="sub" id="btnEmpNone">全部はずす</button>
+              </div></div>
+          </div>
+          <div class="sum" id="sum2" style="margin-top:12px"></div>
+          <div class="tblbox" style="max-height:40vh"><table><thead><tr>
+            <th style="width:38px">作る</th>
+            <th style="min-width:150px">氏名</th>
+            <th style="width:90px">エリア</th>
+            <th style="min-width:160px">カードに出す名前</th>
+          </tr></thead><tbody id="tb2"></tbody></table></div>
+          <div class="btns"><button id="btnCardMake">カードを出す</button>
+            <button class="sub" id="btnPrint2">印刷する</button></div>
+          <p class="note"><b>このカードは、拾った人が使えてしまいます。</b>本人にだけ手渡して、財布などに入れて持っていてもらってください。なくしたときは本社に言ってもらう約束にしておくと安心です。</p>
+        </div>
         <div class="msg" id="qMsg"></div>
       </div>
-      <div class="card"><div class="qrgrid" id="qrgrid"></div></div>
-    </div>
-
-    <!-- ========== タブ3：個人用QR ========== -->
-    <div id="pane3" class="hide">
-      <div class="card noprint">
-        <h2>個人用QR（本人カード）</h2>
-        <p class="note" style="margin:0 0 10px">
-          1人1枚のカードです。<b>はじめの1回だけ</b>このQRを読んでもらうと、そのスマホがその人を覚えます。
-          あとは現場のQRを読むだけで、番号を打たずに出勤・退勤ができます。
-        </p>
-        <div class="row">
-          <div><label>エリアでしぼる</label><select id="pArea"><option value="">全部</option></select></div>
-          <div><label>名前でさがす</label><input type="text" id="pFind" placeholder="一部でも大丈夫"></div>
-          <div><label>1枚あたりの大きさ</label>
-            <select id="pSize">
-              <option value="4">A4に4枚</option>
-              <option value="8">A4に8枚（名刺くらい）</option>
-            </select></div>
-        </div>
-        <div class="btns">
-          <button id="btnEmp">従業員を読み込む</button>
-          <button id="btnPCard">カードを出す</button>
-          <button class="sub" id="btnPPrint">印刷する</button>
-        </div>
-        <div class="msg" id="pMsg"></div>
-        <p class="note"><b>このカードは、拾った人が使えてしまいます。</b>本人にだけ手渡して、財布などに入れて持っていてもらってください。なくしたときは本社に言ってもらう、という約束にしておくと安心です。</p>
-      </div>
-      <div class="card"><div class="pgrid" id="pgrid"></div></div>
+      <div class="card"><div class="sheet" id="sheet"></div></div>
     </div>
   </div>
 </div>
@@ -221,9 +221,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* =====================================================================
-   現場のまとめて登録 ＋ QRまとめ印刷
-   ・アシストカレンダー（読むだけ）→ アシスト労務の sites に追加
-   ・本体(assist-roumu.html / shingoban.html / dakoku.html)は触りません
+   現場のまとめて登録 ＋ QRの印刷（現場の貼り紙／本人カード）
+   本体(assist-roumu.html / shingoban.html / dakoku.html)は触りません
    ===================================================================== */
 
 var CFG_ROUMU = {
@@ -245,8 +244,7 @@ var CFG_CAL = {
 var ID_DOMAIN = "assist.local";
 var GROUP_LABEL = {"国":"国（国土交通省）","府":"大阪府","市":"大阪市","社協":"社会福祉協議会","民間":"民間病院","鳥取":"鳥取県","独法":"独立行政法人"};
 var WD = ["日","月","火","水","木","金","土"];
-/* ---- 登録するときの初期値（ここを変えれば既定が変わります） ---- */
-var DEF_WD = [1,2,3,4,5,6];   // 月〜土（0=日 … 6=土）
+var DEF_WD = [1,2,3,4,5,6];
 var DEF_ST = "07:30";
 var DEF_ET = "11:00";
 var DEF_HC = 1;
@@ -261,6 +259,7 @@ function show(el,cls,t){ el.className="msg "+cls+" on"; el.textContent=t; }
 function hide(el){ el.className="msg"; el.textContent=""; }
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function norm(s){ return String(s==null?"":s).replace(/[\s　]/g,"").toLowerCase(); }
+function last3(c){ return String(c==null?"":c).replace(/[^0-9]/g,"").slice(-3); }
 
 /* ---------- ログイン ---------- */
 $("btnRLogin").onclick = async function(){
@@ -281,25 +280,26 @@ authR.onAuthStateChanged(function(u){
 
 /* ---------- タブ ---------- */
 function goTab(n){
-  [1,2,3].forEach(function(i){
+  [1,2].forEach(function(i){
     $("tab"+i).classList.toggle("on", i===n);
     $("pane"+i).classList.toggle("hide", i!==n);
   });
+  if(n===2) prepPrint();
 }
 $("tab1").onclick=function(){ goTab(1); };
 $("tab2").onclick=function(){ goTab(2); };
-$("tab3").onclick=function(){ goTab(3); };
 
-/* ---------- カレンダーから読み込む ---------- */
+/* =====================================================================
+   タブ1：カレンダーから読み込んで登録
+   ===================================================================== */
 var ROWS = [];
-
 function pickName(o){
   if(typeof o === "string") return o;
   return o.name || o.title || o.siteName || o.facility || o.施設名 || o.現場名 || "";
 }
 function pickArea(o){
   var nm = pickName(o);
-  if(/鳥取|米子|境港|倉吉|八頭/.test(nm)) return "鳥取";   // 独法など、区分が鳥取でなくても名前で拾う
+  if(/鳥取|米子|境港|倉吉|八頭/.test(nm)) return "鳥取";
   if(typeof o === "string") return "";
   var g = o.group || o.grp || o.kind || "";
   if(g === "鳥取") return "鳥取";
@@ -328,7 +328,7 @@ $("btnLoad").onclick = async function(){
       var d = await dbC.collection("config").doc("sites").get();
       list = ((d.exists ? d.data() : {}) || {}).list || [];
     }catch(e){
-      throw new Error("【アシストカレンダー】契約先のデータが読めませんでした。カレンダー側のルールで止められています。（"+(e.message||e)+"）");
+      throw new Error("【アシストカレンダー】契約先のデータが読めませんでした。（"+(e.message||e)+"）");
     }
     if(!list.length){ show($("cMsg"),"err","契約先が読み取れませんでした（0件）。"); $("btnLoad").disabled=false; return; }
 
@@ -337,7 +337,7 @@ $("btnLoad").onclick = async function(){
       var cur = await dbR.collection("sites").get();
       cur.forEach(function(s){ have[norm((s.data()||{}).name)] = true; });
     }catch(e){
-      throw new Error("【アシスト労務】現場マスタ（sites）が読めませんでした。Firestoreのルールに sites がまだ入っていないと思われます。（"+(e.message||e)+"）");
+      throw new Error("【アシスト労務】現場マスタ（sites）が読めませんでした。Firestoreのルールをご確認ください。（"+(e.message||e)+"）");
     }
 
     ROWS = list.map(function(o){
@@ -347,7 +347,7 @@ $("btnLoad").onclick = async function(){
                dup: !!have[norm(nm)], sel: !have[norm(nm)] && !!nm };
     }).filter(function(r){ return r.name; });
 
-    draw();
+    draw1();
     $("listCard").classList.remove("hide");
     var dn=ROWS.filter(function(r){return r.dup;}).length;
     show($("cMsg"),"ok","契約先を "+ROWS.length+" 件よみこみました。"+(dn?("うち "+dn+" 件はすでに登録ずみなので、はじめからチェックを外してあります。"):""));
@@ -357,7 +357,7 @@ $("btnLoad").onclick = async function(){
   $("btnLoad").disabled=false;
 };
 
-function draw(){
+function draw1(){
   var tb=$("tb1"); tb.innerHTML="";
   ROWS.forEach(function(r,i){
     var tr=document.createElement("tr");
@@ -389,23 +389,22 @@ function draw(){
                    : (f==="headcount") ? (Number(e.target.value)||0)
                    : e.target.value;
       }
-      sum();
+      sum1();
     };
   });
-  sum();
+  sum1();
 }
-function sum(){
+function sum1(){
   var n=ROWS.filter(function(r){return r.sel;}).length;
   var d=ROWS.filter(function(r){return r.dup;}).length;
   $("sum1").innerHTML="全 <b>"+ROWS.length+"</b> 件　登録する <b>"+n+"</b> 件　登録ずみ "+d+" 件";
 }
-$("btnAll").onclick=function(){ ROWS.forEach(function(r){ r.sel=true; }); draw(); };
-$("btnNone").onclick=function(){ ROWS.forEach(function(r){ r.sel=false; }); draw(); };
-$("btnWdOn").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=DEF_WD.slice(); }); draw(); };
-$("btnWdOff").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=[]; }); draw(); };
-$("btnTime").onclick=function(){ ROWS.forEach(function(r){ r.startTime=DEF_ST; r.endTime=DEF_ET; r.headcount=DEF_HC; }); draw(); };
+$("btnAll").onclick=function(){ ROWS.forEach(function(r){ r.sel=true; }); draw1(); };
+$("btnNone").onclick=function(){ ROWS.forEach(function(r){ r.sel=false; }); draw1(); };
+$("btnWdOn").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=DEF_WD.slice(); }); draw1(); };
+$("btnWdOff").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=[]; }); draw1(); };
+$("btnTime").onclick=function(){ ROWS.forEach(function(r){ r.startTime=DEF_ST; r.endTime=DEF_ET; r.headcount=DEF_HC; }); draw1(); };
 
-/* ---------- 登録 ---------- */
 $("btnSave").onclick = async function(){
   hide($("sMsg"));
   var targets=ROWS.filter(function(r){ return r.sel && r.name; });
@@ -413,7 +412,6 @@ $("btnSave").onclick = async function(){
   var dups=targets.filter(function(r){ return r.dup; }).length;
   var msg="現場を "+targets.length+" 件、登録します。"+(dups?("\n※すでに同じ名前で登録されているものが "+dups+" 件ふくまれています。二重になります。"):"")+"\nよろしいですか？";
   if(!confirm(msg)) return;
-
   $("btnSave").disabled=true;
   show($("sMsg"),"inf","登録しています…");
   var done=0, ng=0, lastErr="";
@@ -424,14 +422,10 @@ $("btnSave").onclick = async function(){
       chunk.forEach(function(r){
         var ref=dbR.collection("sites").doc();
         batch.set(ref,{
-          name:String(r.name).trim(),
-          area:String(r.area||"").trim(),
+          name:String(r.name).trim(), area:String(r.area||"").trim(),
           weekdays:r.weekdays.slice().sort(function(a,b){return a-b;}),
-          startTime:r.startTime||"",
-          endTime:r.endTime||"",
-          headcount:Number(r.headcount)||0,
-          memo:String(r.memo||"").trim(),
-          active:true
+          startTime:r.startTime||"", endTime:r.endTime||"",
+          headcount:Number(r.headcount)||0, memo:String(r.memo||"").trim(), active:true
         });
       });
       try{ await batch.commit(); done+=chunk.length; }
@@ -439,112 +433,175 @@ $("btnSave").onclick = async function(){
     }
     if(ng) show($("sMsg"),"err","登録できたのは "+done+" 件、できなかったのが "+ng+" 件です。"+lastErr);
     else{
-      show($("sMsg"),"ok",done+" 件を登録しました。信号板の「現場の登録」で確認できます。QRは上の「QRをまとめて印刷」から出せます。");
+      show($("sMsg"),"ok",done+" 件を登録しました。信号板の「現場の登録」で確認できます。QRは「QRを印刷する」から出せます。");
       ROWS.forEach(function(r){ if(r.sel){ r.dup=true; r.sel=false; } });
-      draw();
+      draw1(); SITES=null;
     }
   }catch(e){ show($("sMsg"),"err","登録できませんでした。"+(e.message||e)); }
   $("btnSave").disabled=false;
 };
 
-/* ---------- QRまとめ印刷 ---------- */
-function dakokuUrl(id){ return new URL("dakoku.html", location.href).href + "?site=" + id; }
+/* =====================================================================
+   タブ2：QRの印刷
+   ===================================================================== */
+var SITES = null, EMPS = null, EROWS = [];
 
-$("btnQr").onclick = async function(){
+function dakokuUrl(siteId, me){
+  var u = new URL("dakoku.html", location.href).href + "?site=" + siteId;
+  if(me) u += "&me=" + me;
+  return u;
+}
+function kanaSurname(v){
+  var k = v.kana || v.furigana || v.nameKana || v.kanaName || v.ruby || v.katakana || v["フリガナ"] || "";
+  k = String(k).trim();
+  if(k){
+    var head = k.split(/[\s　]+/)[0];
+    if(head) return head;
+  }
+  var n = String(v.name||"").trim();
+  var h = n.split(/[\s　]+/)[0];
+  return h || n;
+}
+
+function setMode(){
+  var card = $("mCard").checked;
+  $("mSiteL").classList.toggle("on", !card);
+  $("mCardL").classList.toggle("on", card);
+  $("optSite").classList.toggle("hide", card);
+  $("optCard").classList.toggle("hide", !card);
+  $("sheet").innerHTML=""; hide($("qMsg"));
+}
+$("mSite").onchange=setMode;
+$("mCard").onchange=setMode;
+
+async function prepPrint(){
+  if(SITES && EMPS) return;
   hide($("qMsg"));
-  $("btnQr").disabled=true;
   show($("qMsg"),"inf","読み込んでいます…");
   try{
-    var snap=await dbR.collection("sites").get();
-    var arr=[];
-    snap.forEach(function(d){ var v=d.data()||{}; arr.push({id:d.id, name:v.name||"(名前なし)", area:v.area||""}); });
-    arr.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
-    var g=$("qrgrid"); g.innerHTML="";
-    if(!arr.length){ show($("qMsg"),"err","現場がまだ登録されていません。"); $("btnQr").disabled=false; return; }
-    var job=($("qJob").value||"").trim();
-    var one=($("qSize").value==="1");
-    var wantHint=$("qHint").checked;
-    var px=one?300:200;
-    g.className="qrgrid"+(one?" one":"");
-    arr.forEach(function(s){
-      var c=document.createElement("div"); c.className="qrcard";
-      c.innerHTML='<div class="nm">'+esc(s.name)+'</div>'+
-                  (job?'<div class="job">'+esc(job)+'</div>':'')+
-                  '<div class="qr"></div>'+
-                  '<div class="act">出勤 / 退勤</div>'+
-                  '<div class="cam">カメラで読み込む</div>'+
-                  (wantHint?'<div class="hint">はじめの1回だけ、ログインID（8けた）と管理番号の下3けたを入れます</div>':'');
-      g.appendChild(c);
-      new QRCode(c.querySelector(".qr"), { text:dakokuUrl(s.id), width:px, height:px,
-        correctLevel: (window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
-    });
-    show($("qMsg"),"ok",arr.length+" 件ぶんのQRを出しました。「印刷する」を押してください。");
-  }catch(e){ show($("qMsg"),"err","出せませんでした。"+(e.message||e)); }
-  $("btnQr").disabled=false;
-};
-$("btnPrint").onclick=function(){ window.print(); };
-
-/* ---------- 個人用QR（本人カード） ---------- */
-var EMPS = [];
-function last3(c){ return String(c==null?"":c).replace(/[^0-9]/g,"").slice(-3); }
-function meUrl(loginId, code){ return new URL("dakoku.html", location.href).href + "?me=" + loginId + "-" + last3(code); }
-
-$("btnEmp").onclick = async function(){
-  hide($("pMsg"));
-  $("btnEmp").disabled=true;
-  show($("pMsg"),"inf","読み込んでいます…");
-  try{
-    var snap = await dbR.collection("employees").get();
-    EMPS = [];
-    snap.forEach(function(d){
-      var v = d.data() || {};
-      if(!v.loginId || !v.name) return;
-      EMPS.push({ name:String(v.name), loginId:String(v.loginId).trim(),
-                  code3:last3(v.employeeCode), area:String(v.area||"") });
-    });
-    EMPS = EMPS.filter(function(e){ return e.code3; });
-    EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
-    var areas = {}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
-    var sel = $("pArea");
-    sel.innerHTML = '<option value="">全部</option>' +
-      Object.keys(areas).sort().map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join("");
-    show($("pMsg"),"ok","従業員を "+EMPS.length+" 名よみこみました。「カードを出す」を押してください。");
+    if(!SITES){
+      var ss = await dbR.collection("sites").get();
+      SITES = [];
+      ss.forEach(function(d){ var v=d.data()||{}; SITES.push({id:d.id, name:v.name||"(名前なし)", area:v.area||""}); });
+      SITES.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
+      $("cSite").innerHTML = SITES.map(function(s){
+        return '<option value="'+esc(s.id)+'">'+esc(s.name)+(s.area?('（'+esc(s.area)+'）'):'')+'</option>'; }).join("");
+    }
+    if(!EMPS){
+      var es = await dbR.collection("employees").get();
+      EMPS = [];
+      es.forEach(function(d){
+        var v=d.data()||{};
+        if(!v.loginId || !v.name) return;
+        var c3 = last3(v.employeeCode);
+        if(!c3) return;
+        EMPS.push({ name:String(v.name), loginId:String(v.loginId).trim(), code3:c3,
+                    area:String(v.area||""), workplace:String(v.workplace||""),
+                    card:kanaSurname(v)+"さん用" });
+      });
+      EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
+      var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
+      $("cArea").innerHTML = '<option value="">全部</option>' +
+        Object.keys(areas).sort().map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join("");
+      drawEmp();
+    }
+    show($("qMsg"),"ok","現場 "+SITES.length+" 件、従業員 "+EMPS.length+" 名を読み込みました。");
   }catch(e){
-    show($("pMsg"),"err","読み込めませんでした。"+(e.message||e));
+    show($("qMsg"),"err","読み込めませんでした。"+(e.message||e));
   }
-  $("btnEmp").disabled=false;
-};
+}
 
-$("btnPCard").onclick = function(){
-  hide($("pMsg"));
-  if(!EMPS.length) return show($("pMsg"),"err","先に「従業員を読み込む」を押してください。");
-  var ar = $("pArea").value;
-  var kw = norm($("pFind").value);
-  var eight = ($("pSize").value === "8");
-  var list = EMPS.filter(function(e){
-    if(ar && e.area !== ar) return false;
-    if(kw && norm(e.name).indexOf(kw) < 0) return false;
+function drawEmp(){
+  if(!EMPS) return;
+  var ar=$("cArea").value, kw=norm($("cFind").value);
+  var siteName = "";
+  var so = $("cSite").options[$("cSite").selectedIndex];
+  if(so) siteName = norm(so.textContent.replace(/（.*?）$/,""));
+  EROWS = EMPS.filter(function(e){
+    if(ar && e.area!==ar) return false;
+    if(kw && norm(e.name).indexOf(kw)<0 && norm(e.card).indexOf(kw)<0) return false;
     return true;
   });
-  var g = $("pgrid");
-  g.className = "pgrid" + (eight ? " eight" : "");
-  g.innerHTML = "";
-  if(!list.length) return show($("pMsg"),"err","あてはまる人がいませんでした。");
-  var px = eight ? 110 : 160;
-  list.forEach(function(e){
-    var c = document.createElement("div"); c.className = "pcard";
-    c.innerHTML = '<div class="pn">'+esc(e.name)+'</div>'+
-                  '<div class="pt">出勤の記録　本人カード</div>'+
-                  '<div class="pq"></div>'+
-                  '<div class="ph">はじめに1回だけ<br>これを読んでください</div>'+
-                  '<div class="pid">ログインID '+esc(e.loginId)+'</div>';
-    g.appendChild(c);
-    new QRCode(c.querySelector(".pq"), { text:meUrl(e.loginId, e.code3), width:px, height:px,
-      correctLevel: (window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
+  // 従業員に workplace が入っていて、えらんだ現場と同じ人は初めからチェック
+  EROWS.forEach(function(e){
+    if(e.sel===undefined) e.sel = (siteName && norm(e.workplace) && norm(e.workplace).indexOf(siteName)>=0) ? true : false;
   });
-  show($("pMsg"),"ok",list.length+" 名ぶんのカードを出しました。「印刷する」を押してください。");
+  var tb=$("tb2"); tb.innerHTML="";
+  EROWS.forEach(function(e,i){
+    var tr=document.createElement("tr");
+    tr.innerHTML='<td><input type="checkbox" data-i="'+i+'" data-f="sel"'+(e.sel?" checked":"")+'></td>'+
+      '<td class="l">'+esc(e.name)+'</td>'+
+      '<td>'+esc(e.area)+'</td>'+
+      '<td class="l"><input type="text" data-i="'+i+'" data-f="card" value="'+esc(e.card)+'"></td>';
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll("input").forEach(function(inp){
+    inp.onchange=function(ev){
+      var i=+ev.target.dataset.i, f=ev.target.dataset.f;
+      EROWS[i][f] = (f==="sel") ? ev.target.checked : ev.target.value;
+      sum2();
+    };
+  });
+  sum2();
+}
+function sum2(){
+  var n=EROWS.filter(function(e){return e.sel;}).length;
+  $("sum2").innerHTML="出ている人 <b>"+EROWS.length+"</b> 名　カードを作る <b>"+n+"</b> 名";
+}
+$("cArea").onchange=drawEmp;
+$("cFind").oninput=drawEmp;
+$("cSite").onchange=function(){ EMPS && EMPS.forEach(function(e){ e.sel=undefined; }); drawEmp(); };
+$("btnEmpAll").onclick=function(){ EROWS.forEach(function(e){ e.sel=true; }); drawEmp(); };
+$("btnEmpNone").onclick=function(){ EROWS.forEach(function(e){ e.sel=false; }); drawEmp(); };
+
+function makeCard(siteName, job, who, url, px, hint){
+  var c=document.createElement("div"); c.className="pc";
+  c.innerHTML='<div class="site">'+esc(siteName)+'</div>'+
+              (job?'<div class="job">'+esc(job)+'</div>':'')+
+              (who?'<div class="who">'+esc(who)+'</div>':'')+
+              '<div class="qr"></div>'+
+              '<div class="act">出勤 / 退勤</div>'+
+              '<div class="cam">カメラで読み込む</div>'+
+              (hint?'<div class="hint">'+esc(hint)+'</div>':'');
+  $("sheet").appendChild(c);
+  new QRCode(c.querySelector(".qr"), { text:url, width:px, height:px,
+    correctLevel:(window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
+}
+
+$("btnSiteMake").onclick = async function(){
+  hide($("qMsg"));
+  await prepPrint();
+  if(!SITES || !SITES.length) return show($("qMsg"),"err","現場がまだ登録されていません。");
+  var job=$("sJob").value.trim();
+  var one=($("sSize").value==="1");
+  var hint=$("sHint").checked ? "はじめの1回だけ、ログインID（8けた）と管理番号の下3けたを入れます" : "";
+  var px=one?300:200;
+  var sh=$("sheet"); sh.className="sheet"+(one?" one":""); sh.innerHTML="";
+  SITES.forEach(function(s){ makeCard(s.name, job, "", dakokuUrl(s.id), px, hint); });
+  show($("qMsg"),"ok",SITES.length+" 件ぶんの貼り紙を出しました。「印刷する」を押してください。");
 };
-$("btnPPrint").onclick = function(){ window.print(); };
+
+$("btnCardMake").onclick = async function(){
+  hide($("qMsg"));
+  await prepPrint();
+  var so=$("cSite").options[$("cSite").selectedIndex];
+  if(!so) return show($("qMsg"),"err","先に現場をえらんでください。");
+  var siteId=so.value;
+  var site=SITES.filter(function(s){ return s.id===siteId; })[0];
+  var targets=EROWS.filter(function(e){ return e.sel; });
+  if(!targets.length) return show($("qMsg"),"err","カードを作る人がえらばれていません。");
+  var job=$("cJob").value.trim();
+  var four=($("cSize").value==="4");
+  var px=four?130:190;
+  var sh=$("sheet"); sh.className="sheet"+(four?" four":""); sh.innerHTML="";
+  targets.forEach(function(e){
+    makeCard(site.name, job, e.card, dakokuUrl(siteId, e.loginId+"-"+e.code3), px, "");
+  });
+  show($("qMsg"),"ok",site.name+" の本人カードを "+targets.length+" 枚出しました。「印刷する」を押してください。");
+};
+
+$("btnPrint1").onclick=function(){ window.print(); };
+$("btnPrint2").onclick=function(){ window.print(); };
 </script>
 </body>
 </html>

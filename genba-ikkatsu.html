@@ -207,6 +207,7 @@
               <select id="cSize"><option value="2">A4に2枚</option><option value="4">A4に4枚</option></select></div>
           </div>
           <div class="row" style="margin-top:10px">
+            <div><label>フリガナに使う項目</label><select id="cKana"></select></div>
             <div><label>エリアでしぼる</label><select id="cArea"><option value="">全部</option></select></div>
             <div><label>名前でさがす</label><input type="text" id="cFind" placeholder="一部でも大丈夫"></div>
             <div style="flex:1 1 220px"><label>&nbsp;</label>
@@ -469,56 +470,102 @@ $("btnSave").onclick = async function(){
 /* =====================================================================
    タブ2：QRの印刷
    ===================================================================== */
-var SITES = null, EMPS = null, EROWS = [], KANA_KEY = null;
+var SITES = null, EMPS = null, EROWS = [], KANA_KEY = null, EMP_RAW = [];
 
 function dakokuUrl(siteId, me){
   var u = new URL("dakoku.html", location.href).href + "?site=" + siteId;
   if(me) u += "&me=" + me;
   return u;
 }
-function isKana(t){ return /^[ァ-ヶー][ァ-ヶー\s　]*$/.test(t); }
-/* 名簿ぜんぶを見て、「人によって中身が違うカタカナの項目」をフリガナだと判断する。
-   クリーンスタッフ・パートのように全員同じ値の項目は名前ではないので外れる。 */
+/* ---- 半角カナ → 全角カナ ---- */
+var HANKAKU = {"ｶﾞ":"ガ","ｷﾞ":"ギ","ｸﾞ":"グ","ｹﾞ":"ゲ","ｺﾞ":"ゴ","ｻﾞ":"ザ","ｼﾞ":"ジ","ｽﾞ":"ズ","ｾﾞ":"ゼ","ｿﾞ":"ゾ",
+"ﾀﾞ":"ダ","ﾁﾞ":"ヂ","ﾂﾞ":"ヅ","ﾃﾞ":"デ","ﾄﾞ":"ド","ﾊﾞ":"バ","ﾋﾞ":"ビ","ﾌﾞ":"ブ","ﾍﾞ":"ベ","ﾎﾞ":"ボ",
+"ﾊﾟ":"パ","ﾋﾟ":"ピ","ﾌﾟ":"プ","ﾍﾟ":"ペ","ﾎﾟ":"ポ","ｳﾞ":"ヴ",
+"ｱ":"ア","ｲ":"イ","ｳ":"ウ","ｴ":"エ","ｵ":"オ","ｶ":"カ","ｷ":"キ","ｸ":"ク","ｹ":"ケ","ｺ":"コ",
+"ｻ":"サ","ｼ":"シ","ｽ":"ス","ｾ":"セ","ｿ":"ソ","ﾀ":"タ","ﾁ":"チ","ﾂ":"ツ","ﾃ":"テ","ﾄ":"ト",
+"ﾅ":"ナ","ﾆ":"ニ","ﾇ":"ヌ","ﾈ":"ネ","ﾉ":"ノ","ﾊ":"ハ","ﾋ":"ヒ","ﾌ":"フ","ﾍ":"ヘ","ﾎ":"ホ",
+"ﾏ":"マ","ﾐ":"ミ","ﾑ":"ム","ﾒ":"メ","ﾓ":"モ","ﾔ":"ヤ","ﾕ":"ユ","ﾖ":"ヨ",
+"ﾗ":"ラ","ﾘ":"リ","ﾙ":"ル","ﾚ":"レ","ﾛ":"ロ","ﾜ":"ワ","ｦ":"ヲ","ﾝ":"ン",
+"ｧ":"ァ","ｨ":"ィ","ｩ":"ゥ","ｪ":"ェ","ｫ":"ォ","ｬ":"ャ","ｭ":"ュ","ｮ":"ョ","ｯ":"ッ","ｰ":"ー"};
+/* ひらがな・半角カナ・全角カナ、どれで入っていてもカタカナにそろえる */
+function toKatakana(x){
+  var t = String(x==null?"":x);
+  t = t.replace(/[ｦ-ﾟ]{1,2}/g, function(m){
+    if(m.length===2 && HANKAKU[m]) return HANKAKU[m];
+    return (HANKAKU[m[0]]||m[0]) + (m.length>1 ? (HANKAKU[m[1]]||m[1]) : "");
+  });
+  t = t.replace(/[ぁ-ゖ]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)+0x60); });
+  return t.trim();
+}
+function hasKana(x){ return /[ァ-ヶ]/.test(toKatakana(x)); }
+/* かな（ひらがな・カタカナ）だけで出来ているか */
+function kanaOnly(x){
+  var t = toKatakana(x);
+  return t.length>=2 && /^[ァ-ヶー][ァ-ヶー\s　・]*$/.test(t);
+}
+
+/* 名簿ぜんぶを見て、フリガナが入っている項目をさがす。
+   ① よくある項目名（furigana など）に、かなが1人でも入っていればそれ
+   ② 見つからなければ、かなだけの項目のうち「人によって中身が違う」ものを選ぶ
+      （クリーンスタッフ・パートのように全員同じ値の項目は名前ではないので外れる） */
 function detectKanaKey(list){
-  var known = ["kana","furigana","nameKana","kanaName","ruby","katakana","yomi","yomigana","phonetic","フリガナ","ふりがな","カナ"];
+  var known = ["furigana","kana","nameKana","kanaName","ruby","katakana","yomi","yomigana","phonetic",
+               "フリガナ","ふりがな","カナ","かな","氏名カナ","氏名フリガナ"];
   for(var i=0;i<known.length;i++){
     var k=known[i], n=0;
-    list.forEach(function(v){ var t=String(v[k]||"").trim(); if(t && isKana(t)) n++; });
-    if(n >= Math.max(1, list.length*0.5)) return k;
+    list.forEach(function(v){ if(kanaOnly(v[k])) n++; });
+    if(n>0) return k;
   }
   var stat={};
   list.forEach(function(v){
     for(var key in v){
       if(key==="name") continue;
-      var t=String(v[key]==null?"":v[key]).trim();
-      if(typeof v[key]!=="string" || t.length<2 || !isKana(t)) continue;
+      if(typeof v[key]!=="string") continue;
+      if(!kanaOnly(v[key])) continue;
+      var t=toKatakana(v[key]);
       if(!stat[key]) stat[key]={n:0,set:{},sp:0};
-      stat[key].n++;
-      stat[key].set[t]=1;
-      if(/[\s　]/.test(t)) stat[key].sp++;
+      stat[key].n++; stat[key].set[t]=1;
+      if(/[\s　・]/.test(t)) stat[key].sp++;
     }
   });
-  var best=null, bestScore=0;
+  var best=null,bestScore=0;
   for(var key in stat){
-    var st=stat[key];
-    if(st.n < Math.max(2, list.length*0.4)) continue;
-    var distinct=Object.keys(st.set).length;
-    var ratio=distinct/st.n;              // 人ごとに違うほど1に近づく
-    if(ratio < 0.5) continue;             // 全員同じ・数種類しかない項目は名前ではない
-    var score=ratio + (st.sp/st.n)*0.3;   // 姓名が分かれているものを少し優先
+    var st=stat[key], distinct=Object.keys(st.set).length, ratio=distinct/st.n;
+    if(st.n<2 || ratio<0.5) continue;
+    var score=ratio+(st.sp/st.n)*0.3+Math.min(st.n/Math.max(1,list.length),1)*0.2;
     if(score>bestScore){ bestScore=score; best=key; }
   }
   return best;
 }
+/* 選んだ項目からカタカナの名字を作る。入っていない人は漢字の名字にする */
 function kanaSurname(v, key){
-  var k = key ? String(v[key]||"").trim() : "";
-  if(k && isKana(k)){
-    var head=k.split(/[\s　]+/)[0];
+  var k = key ? toKatakana(v[key]) : "";
+  if(hasKana(k)){
+    var head = k.split(/[\s　・]+/)[0];
     if(head) return head;
   }
-  var n=String(v.name||"").trim();
-  var h=n.split(/[\s　]+/)[0];
-  return h || n;
+  var n = String(v.name||"").trim();
+  return n.split(/[\s　]+/)[0] || n;
+}
+/* 名簿にある項目を、見本つきで一覧にする。
+   人によって中身が違うかなの項目だけを「フリガナに使えそう」として上に出す。
+   職種（全員クリーンスタッフ）のように全員同じ値のものは、そこには出さない。 */
+function fieldChoices(list){
+  var keys={};
+  list.forEach(function(v){ for(var k in v){ if(typeof v[k]==="string" && String(v[k]).trim()) keys[k]=1; } });
+  return Object.keys(keys).sort().map(function(k){
+    var ex="", n=0, set={};
+    for(var i=0;i<list.length;i++){
+      var t=String(list[i][k]||"").trim();
+      if(!t) continue;
+      if(!ex) ex=t;
+      if(kanaOnly(t)){ n++; set[toKatakana(t)]=1; }
+    }
+    var distinct=Object.keys(set).length;
+    var likely = (k!=="name") && n>=2 && (distinct/n)>=0.5;
+    if(ex.length>12) ex=ex.slice(0,12)+"…";
+    return { key:k, sample:ex, likely:likely };
+  });
 }
 
 function setMode(){
@@ -554,12 +601,18 @@ async function prepPrint(){
         if(!last3(v.employeeCode)) return;
         raw.push(v);
       });
-      var kkey = detectKanaKey(raw); KANA_KEY = kkey;
-      EMPS = raw.map(function(v){
-        return { name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
-                 area:String(v.area||""), workplace:String(v.workplace||""),
-                 card:kanaSurname(v, kkey)+"さん" };
-      });
+      EMP_RAW = raw;
+      KANA_KEY = detectKanaKey(raw);
+      var ch = fieldChoices(raw);
+      var opt = function(c){ return '<option value="'+esc(c.key)+'"'+(c.key===KANA_KEY?" selected":"")+'>'+
+                                    esc(c.key)+'　例：'+esc(c.sample)+'</option>'; };
+      var yes = ch.filter(function(c){ return c.likely; });
+      var no  = ch.filter(function(c){ return !c.likely; });
+      $("cKana").innerHTML =
+        (yes.length ? '<optgroup label="フリガナに使えそうな項目">'+yes.map(opt).join("")+'</optgroup>' : '') +
+        '<option value="">（フリガナを使わない：漢字のまま）</option>' +
+        (no.length ? '<optgroup label="そのほかの項目（ふつうは使いません）">'+no.map(opt).join("")+'</optgroup>' : '');
+      rebuildEmps();
       EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
       var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
       $("cArea").innerHTML = '<option value="">全部</option>' +
@@ -570,6 +623,25 @@ async function prepPrint(){
   }catch(e){
     show($("qMsg"),"err","読み込めませんでした。"+(e.message||e));
   }
+}
+
+/* 選んだ項目でカードの名前を作り直す */
+function rebuildEmps(){
+  EMPS = EMP_RAW.map(function(v){
+    return { name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
+             area:String(v.area||""), workplace:String(v.workplace||""),
+             card:kanaSurname(v, KANA_KEY)+"さん" };
+  });
+  EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
+  var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
+  var cur=$("cArea").value;
+  $("cArea").innerHTML = '<option value="">全部</option>' +
+    Object.keys(areas).sort().map(function(a){ return '<option value="'+esc(a)+'"'+(a===cur?" selected":"")+'>'+esc(a)+'</option>'; }).join("");
+  drawEmp();
+  var kana=EMPS.filter(function(e){ return /^[ァ-ヶー]/.test(e.card); }).length;
+  show($("qMsg"), kana?"ok":"err",
+    "フリガナの項目："+(KANA_KEY||"使わない")+"　→　カタカナで出せた人 "+kana+" 名／全 "+EMPS.length+" 名。"+
+    (kana<EMPS.length ? "残りは名簿にフリガナが入っていない方です。表の上で直せます。" : ""));
 }
 
 function drawEmp(){
@@ -609,6 +681,7 @@ function sum2(){
   var n=EROWS.filter(function(e){return e.sel;}).length;
   $("sum2").innerHTML="出ている人 <b>"+EROWS.length+"</b> 名　カードを作る <b>"+n+"</b> 名";
 }
+$("cKana").onchange=function(){ KANA_KEY=$("cKana").value||null; EMP_RAW.length && rebuildEmps(); };
 $("cArea").onchange=drawEmp;
 $("cFind").oninput=drawEmp;
 $("cSite").onchange=function(){ EMPS && EMPS.forEach(function(e){ e.sel=undefined; }); drawEmp(); };

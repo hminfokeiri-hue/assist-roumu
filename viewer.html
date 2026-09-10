@@ -45,6 +45,10 @@
   .pill.on { background:#E4F0EC; color:var(--success); }
   .pill.wait { background:#FFF1DC; color:var(--blue-dark); }
   .pill.no { background:#FBE7E3; color:var(--danger); }
+  .status-pill { display:inline-block; font-size:12px; padding:3px 10px; border-radius:20px; font-weight:700; white-space:nowrap; }
+  .status-pending { background:#fdf0d5; color:#C08A2E; }
+  .status-approved { background:#e3f3ea; color:var(--success); }
+  .status-rejected { background:#fbe6e4; color:var(--danger); }
   .row { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer; }
   .tel { flex-shrink:0; display:flex; align-items:center; gap:5px; padding:8px 12px; border:1.5px solid var(--success); border-radius:10px; color:var(--success); text-decoration:none; font-weight:700; font-size:13px; white-space:nowrap; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
@@ -98,7 +102,7 @@
    ・従業員画面に出す項目は VIEWER_FIELDS で決めています。増やしたいときは
      ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
    ========================================================= */
-const APP_VERSION = "閲覧用 2026-09-10(4)";
+const APP_VERSION = "閲覧用 2026-09-10(5)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -126,6 +130,37 @@ const WEEKDAY_FIELDS = [
   ["shiftFri","金"],["shiftSat","土"],["shiftSun","日"]
 ];
 
+/* 有給の付与日数（本体アプリと同じ計算です） */
+const GRANT_TABLE = {
+  1: [1, 2, 2, 3, 3, 3, 3],
+  2: [3, 4, 4, 5, 6, 6, 7],
+  3: [5, 6, 6, 8, 9, 10, 11],
+  4: [7, 8, 9, 10, 12, 13, 15],
+  5: [10, 11, 12, 14, 16, 18, 20]
+};
+function monthsBetween(hireDateStr, now) {
+  const hire = new Date(hireDateStr);
+  return (now.getFullYear() - hire.getFullYear()) * 12 + (now.getMonth() - hire.getMonth());
+}
+function calcAnnualGrant(hireDateStr, weeklyDays) {
+  if (!hireDateStr || !weeklyDays) return 0;
+  const months = monthsBetween(hireDateStr, new Date());
+  if (months < 6) return 0;
+  let bracket = Math.floor((months - 6) / 12) + 1;
+  bracket = Math.min(bracket, 7) - 1;
+  const table = GRANT_TABLE[weeklyDays] || GRANT_TABLE[4];
+  return table[Math.max(0, Math.min(bracket, table.length - 1))];
+}
+function usedPaidLeaveFor(empId) {
+  return (state.leaves || [])
+    .filter(r => r.employeeId === empId && r.type === "有給休暇" && r.status !== "rejected")
+    .reduce((sum, r) => sum + (typeof r.days === "number" ? r.days : 1), 0);
+}
+function remainingLeaveFor(emp) {
+  const remaining = calcAnnualGrant(emp.hireDate, emp.weeklyDays) - usedPaidLeaveFor(emp.id);
+  return remaining >= 0 ? Math.round(remaining * 10) / 10 : 0;
+}
+
 const PRESET_PHRASES = ["承知しました", "確認します", "少々お待ちください", "対応しました", "ありがとうございます"];
 
 /* リーダーさんのログインは、裏側でこの形のメールアドレスに変換しています。
@@ -144,7 +179,7 @@ const state = {
   employees: [], leaves: [], messages: [],
   empId: null,
   search: "", area: "", sort: "code",
-  leaveStatus: "all", leaveArea: "",
+  leaveStatus: "pending", leaveArea: "",
   chatEmpId: null, chatSearch: "", chatDraft: "",
   loading: false, busy: false,
   notesDraft: null
@@ -538,10 +573,7 @@ function renderDetail(e) {
     .filter(([, v]) => v);
   const shift = shiftSummary(e);
   const stamp = fmtStamp(e.notesUpdatedAt);
-  const myLeaves = (state.leaves || [])
-    .filter(r => r.employeeId === e.id)
-    .sort((a, b) => (b.date || "").localeCompare(a.date || ""))
-    .slice(0, 5);
+
   return `
     <div class="card">
       <button class="link" style="margin-bottom:10px;" onclick="state.empId=null; state.notesDraft=null; render();">← 一覧にもどる</button>
@@ -557,16 +589,7 @@ function renderDetail(e) {
         ${cell("住所（町名まで）", addr ? esc(addr) + `<span class="muted" style="font-size:11px; font-weight:400;">　※以降は非表示</span>` : "—")}
       </div>
 
-      ${myLeaves.length ? `
-        <div style="margin-top:16px;">
-          <label style="margin-bottom:4px;">最近のお休み</label>
-          ${myLeaves.map(r => `
-            <div style="display:flex; gap:8px; align-items:center; padding:7px 4px; border-bottom:1px solid var(--border); font-size:13.5px;">
-              <span style="font-weight:600;">${esc(r.date || "")}</span>
-              <span>${esc(r.type || "")}</span>
-              ${leaveStatusPill(r.status)}
-            </div>`).join("")}
-        </div>` : ""}
+      ${renderEmpAttendanceHistory(e)}
 
       <div style="margin-top:18px;">
         <label style="margin-bottom:6px;">備考（ここだけ書き込めます）</label>
@@ -585,11 +608,48 @@ function renderDetail(e) {
   `;
 }
 
+/* 本体アプリの「過去の勤怠」と同じ表示（見るだけ・記録や削除はできません） */
+function renderEmpAttendanceHistory(emp) {
+  const records = (state.leaves || [])
+    .filter(r => r.employeeId === emp.id)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const granted = calcAnnualGrant(emp.hireDate, emp.weeklyDays);
+  const used = usedPaidLeaveFor(emp.id);
+  return `
+    <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+      <p class="title" style="font-size:15px; margin:0 0 10px;">過去の勤怠（休み・有給・忌引き・早退）</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+        <span class="status-pill status-approved">付与 ${granted}日</span>
+        <span class="status-pill status-pending">有給の消化 ${Math.round(used * 10) / 10}日</span>
+        <span class="status-pill status-approved">残り ${remainingLeaveFor(emp)}日</span>
+      </div>
+      <table>
+        <thead><tr><th>日付</th><th>区分</th><th>日数</th><th class="hide-narrow">理由</th><th>状態</th></tr></thead>
+        <tbody>
+          ${records.map(r => {
+            const isPaid = r.type === "有給休暇";
+            const days = typeof r.days === "number" ? r.days : 1;
+            return `
+            <tr>
+              <td style="white-space:nowrap;">${esc(r.date || "")}</td>
+              <td>${esc(r.type || "")}${r.enteredBy === "admin" ? ` <span class="muted" style="font-size:10px;">(会社入力)</span>` : ""}</td>
+              <td>${isPaid ? days + "日" : "—"}</td>
+              <td class="hide-narrow">${esc(r.reason || "")}</td>
+              <td>${leaveStatusPill(r.status)}</td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="5" class="muted">記録はまだありません</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 /* ---------- お休みタブ（見るだけ） ---------- */
+const LEAVE_STATUS_LABEL = { pending: "確認中", approved: "決裁", rejected: "否決" };
 function leaveStatusPill(status) {
-  if (status === "approved") return `<span class="pill on">決裁</span>`;
-  if (status === "rejected") return `<span class="pill no">否決</span>`;
-  return `<span class="pill wait">決裁待ち</span>`;
+  const key = (status === "approved" || status === "rejected") ? status : "pending";
+  return `<span class="status-pill status-${key}">${LEAVE_STATUS_LABEL[key]}</span>`;
 }
 function pendingLeaveCount() {
   return (state.leaves || []).filter(r => r.status !== "approved" && r.status !== "rejected").length;
@@ -611,33 +671,32 @@ function renderLeaveTab() {
   const areas = [...new Set((state.leaves || []).map(r => r.area).filter(Boolean))];
   const chip = (k, l) => `<button class="chip ${state.leaveStatus === k ? "on" : ""}" onclick="state.leaveStatus='${k}'; render();">${l}</button>`;
   const list = computeLeaveList();
+  const titles = { pending: "決裁待ちの休暇申請", approved: "決裁ずみの休暇申請", rejected: "否決した休暇申請", all: "休暇申請（すべて）" };
   return `
     <div class="card">
-      <p class="title">お休みの申請一覧</p>
+      <p class="title">${titles[state.leaveStatus] || titles.all}</p>
       <p class="note" style="margin-bottom:12px;">決裁・否決は本社で行います。この画面では内容を見るだけです。</p>
       <div class="chips">
-        ${chip("all","すべて")}${chip("pending",`決裁待ち${pendingLeaveCount() ? `（${pendingLeaveCount()}）` : ""}`)}${chip("approved","決裁ずみ")}${chip("rejected","否決")}
+        ${chip("pending", `決裁待ち${pendingLeaveCount() ? `（${pendingLeaveCount()}）` : ""}`)}${chip("approved","決裁ずみ")}${chip("rejected","否決")}${chip("all","すべて")}
       </div>
       <select style="margin-bottom:12px;" onchange="state.leaveArea=this.value; render();">
         <option value="">エリア：すべて</option>
         ${areas.map(a => `<option value="${esc(a)}" ${a === state.leaveArea ? "selected" : ""}>${esc(a)}</option>`).join("")}
       </select>
-      ${list.length ? `
-        <table>
-          <thead><tr><th>日付</th><th>氏名</th><th class="hide-narrow">エリア</th><th>区分</th><th class="hide-narrow">理由</th><th>状態</th></tr></thead>
-          <tbody>
-            ${list.map(r => `
-              <tr>
-                <td style="white-space:nowrap;">${esc(r.date || "")}</td>
-                <td>${esc(r.employeeName || "")}</td>
-                <td class="hide-narrow">${esc(r.area || "")}</td>
-                <td>${esc(r.type || "")}</td>
-                <td class="hide-narrow">${esc(r.reason || "")}</td>
-                <td>${leaveStatusPill(r.status)}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      ` : `<p class="muted" style="padding:16px 4px;">該当するお休みはありません</p>`}
+      <table>
+        <thead><tr><th>氏名</th><th class="hide-narrow">エリア</th><th>日付</th><th>区分</th><th>理由</th><th>状態</th></tr></thead>
+        <tbody>
+          ${list.map(r => `
+            <tr>
+              <td>${esc(r.employeeName || "")}</td>
+              <td class="hide-narrow">${esc(r.area || "")}</td>
+              <td style="white-space:nowrap;">${esc(r.date || "")}</td>
+              <td>${esc(r.type || "")}${r.enteredBy === "admin" ? ` <span class="muted" style="font-size:10px;">(会社入力)</span>` : ""}</td>
+              <td>${esc(r.reason || "")}</td>
+              <td>${leaveStatusPill(r.status)}</td>
+            </tr>`).join("") || `<tr><td colspan="6" class="muted">該当する休暇申請はありません</td></tr>`}
+        </tbody>
+      </table>
     </div>
   `;
 }

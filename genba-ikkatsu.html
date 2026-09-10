@@ -223,6 +223,20 @@
             <th style="width:90px">エリア</th>
             <th style="min-width:160px">カードに出す名前</th>
           </tr></thead><tbody id="tb2"></tbody></table></div>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;font-weight:700;color:var(--key)">Excelから名前を貼り付ける／いまの名前を名簿に保存する</summary>
+            <p class="note" style="margin:10px 0">
+              従業員名簿のExcelから<b>氏名とフリガナの2列</b>をコピーして、下の枠に貼り付けて「名前を入れる」を押してください。
+              氏名で照らし合わせて、カードの名前を一度に入れます（ひらがな・半角カナでも大丈夫です）。
+            </p>
+            <textarea id="cPaste" rows="5" style="width:100%;font:inherit;padding:9px 10px;border:1px solid #c3ccd6;border-radius:7px"
+              placeholder="近藤美智子（タブ）こんどう みちこ&#10;金森 悠成（タブ）かなもり ゆうせい"></textarea>
+            <div class="btns" style="margin-top:8px">
+              <button class="sub" id="btnPaste">名前を入れる</button>
+              <button class="sub" id="btnSaveNames">いまの名前を名簿に保存する</button>
+            </div>
+            <p class="note">「保存する」を押すと、次からはこの名前がそのまま出ます。入力しなおす必要はありません。</p>
+          </details>
           <div class="btns"><button id="btnCardMake">カードを出す</button>
             <button class="sub" id="btnPrint2">印刷する</button></div>
           <p class="note"><b>このカードは、拾った人が使えてしまいます。</b>本人にだけ手渡して、財布などに入れて持っていてもらってください。なくしたときは本社に言ってもらう約束にしておくと安心です。</p>
@@ -599,6 +613,7 @@ async function prepPrint(){
         var v=d.data()||{};
         if(!v.loginId || !v.name) return;
         if(!last3(v.employeeCode)) return;
+        v.__id = d.id;
         raw.push(v);
       });
       EMP_RAW = raw;
@@ -628,9 +643,10 @@ async function prepPrint(){
 /* 選んだ項目でカードの名前を作り直す */
 function rebuildEmps(){
   EMPS = EMP_RAW.map(function(v){
-    return { name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
+    var saved = String(v.cardName||"").trim();
+    return { id:v.__id, name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
              area:String(v.area||""), workplace:String(v.workplace||""),
-             card:kanaSurname(v, KANA_KEY)+"さん" };
+             card: saved || (kanaSurname(v, KANA_KEY)+"さん") };
   });
   EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
   var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
@@ -641,7 +657,7 @@ function rebuildEmps(){
   var kana=EMPS.filter(function(e){ return /^[ァ-ヶー]/.test(e.card); }).length;
   show($("qMsg"), kana?"ok":"err",
     "フリガナの項目："+(KANA_KEY||"使わない")+"　→　カタカナで出せた人 "+kana+" 名／全 "+EMPS.length+" 名。"+
-    (kana<EMPS.length ? "残りは名簿にフリガナが入っていない方です。表の上で直せます。" : ""));
+    (kana<EMPS.length ? "残りは名簿にフリガナが入っていない方です。下の「Excelから貼り付け」を使うと一度にそろいます。" : ""));
 }
 
 function drawEmp(){
@@ -754,6 +770,67 @@ $("btnCardMake").onclick = async function(){
     makeCard(site.name, job, e.card, dakokuUrl(siteId, e.loginId+"-"+e.code3), px, "");
   });
   show($("qMsg"),"ok",site.name+" の本人カードを "+targets.length+" 枚出しました。「印刷する」を押してください。");
+};
+
+/* ---- Excelから貼り付けて、カードの名前を入れる ---- */
+$("btnPaste").onclick = function(){
+  var txt=$("cPaste").value||"";
+  if(!txt.trim()) return show($("qMsg"),"err","貼り付ける中身が空です。");
+  var map={};
+  txt.split(/\r?\n/).forEach(function(line){
+    if(!line.trim()) return;
+    var cols=line.split(/\t|,|、|\s{2,}/).map(function(x){ return x.trim(); }).filter(function(x){ return x; });
+    if(cols.length<2) return;
+    map[norm(cols[0])] = cols[1];
+  });
+  var hit=0, miss=[];
+  EMP_RAW.forEach(function(v){
+    var k=norm(v.name);
+    if(map[k]!=null){
+      var kana=toKatakana(map[k]);
+      var head=kana.split(/[\s　・]+/)[0];
+      v.cardName = (head||kana)+"さん";
+      hit++;
+    }
+  });
+  Object.keys(map).forEach(function(k){
+    var found=EMP_RAW.some(function(v){ return norm(v.name)===k; });
+    if(!found) miss.push(k);
+  });
+  rebuildEmps();
+  show($("qMsg"), hit?"ok":"err",
+    hit+" 名の名前を入れました。"+(miss.length?("名簿に見あたらなかったのが "+miss.length+" 行あります（"+miss.slice(0,3).join("・")+(miss.length>3?" ほか":"")+"）。氏名の書き方が名簿と違うかもしれません。"):"")+
+    "　このあと「いまの名前を名簿に保存する」を押すと、次から入力なしで出ます。");
+};
+
+/* ---- いまの名前を名簿に保存する ---- */
+$("btnSaveNames").onclick = async function(){
+  if(!EMPS || !EMPS.length) return show($("qMsg"),"err","先に読み込んでください。");
+  var targets=EMPS.filter(function(e){ return e.id && e.card; });
+  if(!confirm("カードに出す名前 "+targets.length+" 名ぶんを名簿に保存します。\n（名簿のほかの項目はさわりません）\nよろしいですか？")) return;
+  $("btnSaveNames").disabled=true;
+  show($("qMsg"),"inf","保存しています…");
+  var done=0, ng=0, lastErr="";
+  try{
+    for(var i=0;i<targets.length;i+=400){
+      var chunk=targets.slice(i,i+400);
+      var batch=dbR.batch();
+      chunk.forEach(function(e){
+        batch.set(dbR.collection("employees").doc(e.id), { cardName:e.card }, { merge:true });
+      });
+      try{ await batch.commit(); done+=chunk.length; }
+      catch(err){ ng+=chunk.length; lastErr=err.message||String(err); }
+    }
+    if(ng) show($("qMsg"),"err","保存できたのは "+done+" 名、できなかったのが "+ng+" 名です。"+lastErr);
+    else{
+      EMP_RAW.forEach(function(v){
+        var e=EMPS.filter(function(x){ return x.id===v.__id; })[0];
+        if(e) v.cardName=e.card;
+      });
+      show($("qMsg"),"ok",done+" 名ぶんを名簿に保存しました。次からはこの名前がそのまま出ます。");
+    }
+  }catch(e){ show($("qMsg"),"err","保存できませんでした。"+(e.message||e)); }
+  $("btnSaveNames").disabled=false;
 };
 
 $("btnPrint1").onclick=function(){ window.print(); };

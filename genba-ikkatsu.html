@@ -67,6 +67,19 @@
   .pc .act {font-size:26pt;font-weight:800;line-height:1.2;margin:0 0 1mm}
   .pc .cam {font-size:14pt;font-weight:700;color:#444;margin:0}
   .pc .hint{font-size:10pt;color:#666;margin-top:4mm;line-height:1.5}
+  .pc .ttl {font-size:16pt;font-weight:800;color:#0b3c5d;margin:0 0 4mm;
+            border-top:2px solid #0b3c5d;border-bottom:2px solid #0b3c5d;padding:2mm 0}
+  .pc .steps{list-style:none;margin:0 0 4mm;padding:0;text-align:left;display:inline-block}
+  .pc .steps li{font-size:17pt;font-weight:700;line-height:1.5;margin:0 0 3mm;
+                display:flex;align-items:flex-start;gap:3mm}
+  .pc .steps .no{flex:none;width:9mm;height:9mm;border-radius:50%;background:#0b3c5d;color:#fff;
+                 font-size:13pt;display:flex;align-items:center;justify-content:center}
+  .pc .warn{font-size:12pt;font-weight:700;color:#96271b;background:#fdecea;border-radius:6px;
+            padding:3mm 4mm;margin-top:4mm;line-height:1.6}
+  .sheet.one .pc .ttl{font-size:26pt}
+  .sheet.one .pc .steps li{font-size:26pt;margin-bottom:5mm}
+  .sheet.one .pc .steps .no{width:13mm;height:13mm;font-size:19pt}
+  .sheet.one .pc .warn{font-size:16pt}
   .sheet.one .pc .site{font-size:42pt}
   .sheet.one .pc .job {font-size:22pt}
   .sheet.one .pc .who {font-size:32pt}
@@ -168,14 +181,18 @@
 
         <!-- 現場の貼り紙 -->
         <div id="optSite">
-          <p class="note" style="margin:0 0 10px">現場に貼る用です。<b>誰でも</b>読めます。カードを持っていない方・応援の方・新しく入った方は、こちらから番号を入れて打刻します。</p>
+          <p class="note" style="margin:0 0 10px">現場に貼る「やり方の手順」です。QRは入れず、手順だけを大きく出します。カードをなくした方・応援の方への連絡先も入ります。</p>
           <div class="row">
             <div><label>現場名の下に出す文字</label><input type="text" id="sJob" value="日常清掃業務"></div>
             <div><label>1枚あたりの大きさ</label>
-              <select id="sSize"><option value="2">A4に2枚</option><option value="1">A4に1枚（大きく）</option></select></div>
+              <select id="sSize"><option value="1">A4に1枚（大きく貼る）</option><option value="2">A4に2枚</option></select></div>
           </div>
-          <div class="chk"><input type="checkbox" id="sHint" checked>
-            <label for="sHint" style="margin:0">下に小さく「はじめの1回だけ…」の案内を入れる</label></div>
+          <div class="row" style="margin-top:10px">
+            <div><label>下に出す注意書き</label>
+              <input type="text" id="sWarn" value="カードを忘れた方・はじめての方は 本社（06-6654-7812）までお電話ください"></div>
+          </div>
+          <div class="chk"><input type="checkbox" id="sQr">
+            <label for="sQr" style="margin:0">この現場のQRコードも入れる（カードがない方でも打刻できるようにする）</label></div>
           <div class="btns"><button id="btnSiteMake">貼り紙を出す</button>
             <button class="sub" id="btnPrint1">印刷する</button></div>
         </div>
@@ -452,44 +469,55 @@ $("btnSave").onclick = async function(){
 /* =====================================================================
    タブ2：QRの印刷
    ===================================================================== */
-var SITES = null, EMPS = null, EROWS = [];
+var SITES = null, EMPS = null, EROWS = [], KANA_KEY = null;
 
 function dakokuUrl(siteId, me){
   var u = new URL("dakoku.html", location.href).href + "?site=" + siteId;
   if(me) u += "&me=" + me;
   return u;
 }
-var KANA_NG = /^(パート|アルバイト|バイト|スタッフ|シルバー|フルタイム|フリー|リーダー|サブ|メイン|ナシ|アリ)$/;
-function findKana(v){
-  // ① 名前らしい項目名から
-  var k = v.kana || v.furigana || v.nameKana || v.kanaName || v.nameKana2 ||
-          v.ruby || v.katakana || v.yomi || v.yomigana || v.phonetic ||
-          v["フリガナ"] || v["ふりがな"] || v["カナ"] || "";
-  k = String(k||"").trim();
-  if(k) return k;
-  // ② 見つからないときは、カタカナだけの項目をさがす
-  var best = "";
-  for(var key in v){
-    if(key === "name") continue;
-    var val = v[key];
-    if(typeof val !== "string") continue;
-    var t = val.trim();
-    if(t.length < 2) continue;
-    if(!/^[ァ-ヶー][ァ-ヶー\s　]*$/.test(t)) continue;
-    if(KANA_NG.test(t.replace(/[\s　]/g,""))) continue;
-    if(/[\s　]/.test(t)) return t;          // 姓と名が分かれているものを優先
-    if(t.length > best.length) best = t;
+function isKana(t){ return /^[ァ-ヶー][ァ-ヶー\s　]*$/.test(t); }
+/* 名簿ぜんぶを見て、「人によって中身が違うカタカナの項目」をフリガナだと判断する。
+   クリーンスタッフ・パートのように全員同じ値の項目は名前ではないので外れる。 */
+function detectKanaKey(list){
+  var known = ["kana","furigana","nameKana","kanaName","ruby","katakana","yomi","yomigana","phonetic","フリガナ","ふりがな","カナ"];
+  for(var i=0;i<known.length;i++){
+    var k=known[i], n=0;
+    list.forEach(function(v){ var t=String(v[k]||"").trim(); if(t && isKana(t)) n++; });
+    if(n >= Math.max(1, list.length*0.5)) return k;
+  }
+  var stat={};
+  list.forEach(function(v){
+    for(var key in v){
+      if(key==="name") continue;
+      var t=String(v[key]==null?"":v[key]).trim();
+      if(typeof v[key]!=="string" || t.length<2 || !isKana(t)) continue;
+      if(!stat[key]) stat[key]={n:0,set:{},sp:0};
+      stat[key].n++;
+      stat[key].set[t]=1;
+      if(/[\s　]/.test(t)) stat[key].sp++;
+    }
+  });
+  var best=null, bestScore=0;
+  for(var key in stat){
+    var st=stat[key];
+    if(st.n < Math.max(2, list.length*0.4)) continue;
+    var distinct=Object.keys(st.set).length;
+    var ratio=distinct/st.n;              // 人ごとに違うほど1に近づく
+    if(ratio < 0.5) continue;             // 全員同じ・数種類しかない項目は名前ではない
+    var score=ratio + (st.sp/st.n)*0.3;   // 姓名が分かれているものを少し優先
+    if(score>bestScore){ bestScore=score; best=key; }
   }
   return best;
 }
-function kanaSurname(v){
-  var k = findKana(v);
-  if(k){
-    var head = k.split(/[\s　]+/)[0];
+function kanaSurname(v, key){
+  var k = key ? String(v[key]||"").trim() : "";
+  if(k && isKana(k)){
+    var head=k.split(/[\s　]+/)[0];
     if(head) return head;
   }
-  var n = String(v.name||"").trim();
-  var h = n.split(/[\s　]+/)[0];
+  var n=String(v.name||"").trim();
+  var h=n.split(/[\s　]+/)[0];
   return h || n;
 }
 
@@ -519,15 +547,18 @@ async function prepPrint(){
     }
     if(!EMPS){
       var es = await dbR.collection("employees").get();
-      EMPS = [];
+      var raw = [];
       es.forEach(function(d){
         var v=d.data()||{};
         if(!v.loginId || !v.name) return;
-        var c3 = last3(v.employeeCode);
-        if(!c3) return;
-        EMPS.push({ name:String(v.name), loginId:String(v.loginId).trim(), code3:c3,
-                    area:String(v.area||""), workplace:String(v.workplace||""),
-                    card:kanaSurname(v)+"さん" });
+        if(!last3(v.employeeCode)) return;
+        raw.push(v);
+      });
+      var kkey = detectKanaKey(raw); KANA_KEY = kkey;
+      EMPS = raw.map(function(v){
+        return { name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
+                 area:String(v.area||""), workplace:String(v.workplace||""),
+                 card:kanaSurname(v, kkey)+"さん" };
       });
       EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
       var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
@@ -598,16 +629,38 @@ function makeCard(siteName, job, who, url, px, hint){
     correctLevel:(window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
 }
 
+function makePoster(siteName, job, warn, withQr, url, px){
+  var c=document.createElement("div"); c.className="pc";
+  var steps=[
+    "自分の<b>カード</b>を出す",
+    "スマホの<b>カメラ</b>でQRを読む",
+    "来たとき「<b>出勤</b>」<br>帰るとき「<b>退勤</b>」を押す"
+  ];
+  c.innerHTML='<div class="site">'+esc(siteName)+'</div>'+
+              (job?'<div class="job">'+esc(job)+'</div>':'')+
+              '<div class="ttl">出勤・退勤のしかた</div>'+
+              '<ul class="steps">'+steps.map(function(t,i){
+                 return '<li><span class="no">'+(i+1)+'</span><span>'+t+'</span></li>'; }).join("")+'</ul>'+
+              (withQr?'<div class="qr"></div><div class="cam">カードがない方はこちらを読む</div>':'')+
+              (warn?'<div class="warn">'+esc(warn)+'</div>':'');
+  $("sheet").appendChild(c);
+  if(withQr){
+    new QRCode(c.querySelector(".qr"), { text:url, width:px, height:px,
+      correctLevel:(window.QRCode && QRCode.CorrectLevel) ? QRCode.CorrectLevel.M : undefined });
+  }
+}
+
 $("btnSiteMake").onclick = async function(){
   hide($("qMsg"));
   await prepPrint();
   if(!SITES || !SITES.length) return show($("qMsg"),"err","現場がまだ登録されていません。");
   var job=$("sJob").value.trim();
+  var warn=$("sWarn").value.trim();
   var one=($("sSize").value==="1");
-  var hint=$("sHint").checked ? "はじめの1回だけ、ログインID（8けた）と管理番号の下3けたを入れます" : "";
-  var px=one?300:200;
+  var withQr=$("sQr").checked;
+  var px=one?240:170;
   var sh=$("sheet"); sh.className="sheet"+(one?" one":""); sh.innerHTML="";
-  SITES.forEach(function(s){ makeCard(s.name, job, "", dakokuUrl(s.id), px, hint); });
+  SITES.forEach(function(s){ makePoster(s.name, job, warn, withQr, dakokuUrl(s.id), px); });
   show($("qMsg"),"ok",SITES.length+" 件ぶんの貼り紙を出しました。「印刷する」を押してください。");
 };
 

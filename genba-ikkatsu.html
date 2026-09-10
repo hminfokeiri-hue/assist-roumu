@@ -142,6 +142,7 @@
           <button class="sub" id="btnWdOn">曜日を月〜土にする</button>
           <button class="sub" id="btnWdOff">曜日を全部空にする</button>
           <button class="sub" id="btnTime">時刻と人数を入れ直す</button>
+          <button class="sub" id="btnAddOne">＋ 現場を手で足す（本社など）</button>
         </div>
         <div class="tblbox"><table><thead><tr>
           <th style="width:38px">登録</th>
@@ -404,6 +405,13 @@ $("btnNone").onclick=function(){ ROWS.forEach(function(r){ r.sel=false; }); draw
 $("btnWdOn").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=DEF_WD.slice(); }); draw1(); };
 $("btnWdOff").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=[]; }); draw1(); };
 $("btnTime").onclick=function(){ ROWS.forEach(function(r){ r.startTime=DEF_ST; r.endTime=DEF_ET; r.headcount=DEF_HC; }); draw1(); };
+$("btnAddOne").onclick=function(){
+  ROWS.unshift({ name:"本社", area:"大阪", memo:"", weekdays:DEF_WD.slice(),
+                 startTime:DEF_ST, endTime:DEF_ET, headcount:DEF_HC, dup:false, sel:true });
+  $("listCard").classList.remove("hide");
+  draw1();
+  var f=$("tb1").querySelector('input[data-f="name"]'); if(f){ f.focus(); f.select(); }
+};
 
 $("btnSave").onclick = async function(){
   hide($("sMsg"));
@@ -451,9 +459,31 @@ function dakokuUrl(siteId, me){
   if(me) u += "&me=" + me;
   return u;
 }
+var KANA_NG = /^(パート|アルバイト|バイト|スタッフ|シルバー|フルタイム|フリー|リーダー|サブ|メイン|ナシ|アリ)$/;
+function findKana(v){
+  // ① 名前らしい項目名から
+  var k = v.kana || v.furigana || v.nameKana || v.kanaName || v.nameKana2 ||
+          v.ruby || v.katakana || v.yomi || v.yomigana || v.phonetic ||
+          v["フリガナ"] || v["ふりがな"] || v["カナ"] || "";
+  k = String(k||"").trim();
+  if(k) return k;
+  // ② 見つからないときは、カタカナだけの項目をさがす
+  var best = "";
+  for(var key in v){
+    if(key === "name") continue;
+    var val = v[key];
+    if(typeof val !== "string") continue;
+    var t = val.trim();
+    if(t.length < 2) continue;
+    if(!/^[ァ-ヶー][ァ-ヶー\s　]*$/.test(t)) continue;
+    if(KANA_NG.test(t.replace(/[\s　]/g,""))) continue;
+    if(/[\s　]/.test(t)) return t;          // 姓と名が分かれているものを優先
+    if(t.length > best.length) best = t;
+  }
+  return best;
+}
 function kanaSurname(v){
-  var k = v.kana || v.furigana || v.nameKana || v.kanaName || v.ruby || v.katakana || v["フリガナ"] || "";
-  k = String(k).trim();
+  var k = findKana(v);
   if(k){
     var head = k.split(/[\s　]+/)[0];
     if(head) return head;
@@ -497,7 +527,7 @@ async function prepPrint(){
         if(!c3) return;
         EMPS.push({ name:String(v.name), loginId:String(v.loginId).trim(), code3:c3,
                     area:String(v.area||""), workplace:String(v.workplace||""),
-                    card:kanaSurname(v)+"さん用" });
+                    card:kanaSurname(v)+"さん" });
       });
       EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
       var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });

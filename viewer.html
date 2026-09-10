@@ -92,12 +92,13 @@
        - お休みの申請一覧を見る（決裁・否決は本社だけ）
        - 個人チャットを読んで、返信する（一斉送信は本社だけ）
    ・ログインID＝その方の8桁ログインID。パスワードは本社が発行します。
-   ・本社の管理者メールでログインすると、この画面から
-     「誰に閲覧用を使わせるか」を選んでパスワードを発行できます。
+   ・誰に使わせるかの許可とパスワードの発行は、本体アプリ（本社）の
+     「従業員管理」から行います。この画面では発行できません。
+   ・本社の管理者メールでもログインでき、リーダーさんに見える画面を確認できます。
    ・従業員画面に出す項目は VIEWER_FIELDS で決めています。増やしたいときは
      ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
    ========================================================= */
-const APP_VERSION = "閲覧用 2026-09-10(3)";
+const APP_VERSION = "閲覧用 2026-09-10(4)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -137,7 +138,6 @@ function leaderEmail(loginId, version) {
 }
 
 let db = null;
-let issuerApp = null; // 権限を発行するとき専用のFirebase接続（本社のログインを保ったまま作業するため）
 const state = {
   user: null,            // { name, isAdmin, employeeId }
   tab: "emp",            // emp / leave / chat
@@ -153,11 +153,6 @@ const appEl = document.getElementById("app");
 
 firebase.initializeApp(firebaseConfig);
 db = firebase.firestore();
-
-function getIssuerAuth() {
-  if (!issuerApp) issuerApp = firebase.initializeApp(firebaseConfig, "issuer");
-  return issuerApp.auth();
-}
 
 /* ---------- 小さな道具 ---------- */
 function esc(s) {
@@ -377,64 +372,6 @@ async function sendReply(empId) {
   }
 }
 
-/* ---------- 本社だけ：閲覧用の権限を発行する ---------- */
-async function issueViewer(id, again) {
-  const emp = state.employees.find(e => e.id === id);
-  if (!emp) return;
-  const loginId = (emp.loginId || "").replace(/[^\d]/g, "");
-  if (!loginId) return alert("この方にはログインID（8桁）が登録されていません。先に本体アプリで登録してください。");
-  const box = document.getElementById("newPass");
-  const pass = (box ? box.value : "").trim();
-  if (pass.length < 6) return alert("パスワードは6文字以上で入力してください（英字と数字を混ぜると安心です）");
-
-  const nextVersion = again ? (Number(emp.viewerAuthVersion) || 1) + 1 : (Number(emp.viewerAuthVersion) || 1);
-  const email = leaderEmail(loginId, nextVersion);
-  state.busy = true; render();
-  try {
-    const issuer = getIssuerAuth();
-    const cred = await issuer.createUserWithEmailAndPassword(email, pass);
-    const uid = cred.user.uid;
-    await issuer.signOut();
-
-    await db.collection("viewers").doc(uid).set({
-      employeeId: id,
-      loginId: loginId,
-      name: emp.name || "",
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    if (emp.viewerUid && emp.viewerUid !== uid) {
-      await db.collection("viewers").doc(emp.viewerUid).delete().catch(() => {});
-    }
-    await db.collection("employees").doc(id).update({
-      viewerEnabled: true,
-      viewerUid: uid,
-      viewerAuthVersion: nextVersion,
-      viewerIssuedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    state.busy = false; render();
-    alert(`${emp.name} さんの閲覧用ログインを発行しました。\n\nログインID：${loginId}\nパスワード：${pass}\n\nこの内容を控えて、ご本人にお渡しください。`);
-  } catch (e) {
-    state.busy = false; render();
-    alert(authErrorMessage(e));
-  }
-}
-
-async function revokeViewer(id) {
-  const emp = state.employees.find(e => e.id === id);
-  if (!emp) return;
-  if (!confirm(`${emp.name} さんの閲覧用ログインを止めます。すぐに入れなくなります。よろしいですか？`)) return;
-  state.busy = true; render();
-  try {
-    if (emp.viewerUid) await db.collection("viewers").doc(emp.viewerUid).delete().catch(() => {});
-    await db.collection("employees").doc(id).update({ viewerEnabled: false });
-    state.busy = false; render();
-    alert("止めました。");
-  } catch (e) {
-    state.busy = false; render();
-    alert("うまくいきませんでした: " + e.message);
-  }
-}
-
 /* ---------- 画面 ---------- */
 /* 他の人の書き込みが届いたときも、入力中の文字とカーソル位置が消えないようにする */
 function render() {
@@ -579,7 +516,6 @@ function renderRows() {
           <div style="display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;">
             <span style="font-weight:700; font-size:16px;">${esc(e.name || "(名前未登録)")}</span>
             ${age !== null ? `<span class="pill">満${age}歳</span>` : ""}
-            ${e.viewerEnabled ? `<span class="pill on">閲覧用</span>` : ""}
             ${(e.notes || "").trim() ? `<span class="muted" style="font-size:11px;">📝備考あり</span>` : ""}
           </div>
           <div class="muted" style="font-size:12px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(meta)}</div>
@@ -644,9 +580,7 @@ function renderDetail(e) {
         </div>
       </div>
 
-      ${state.user.isAdmin ? renderAdminPanel(e) : `
-        <p class="note" style="margin-top:16px;">この画面で書き込めるのは備考欄だけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
-      `}
+      <p class="note" style="margin-top:16px;">この画面で書き込めるのは備考欄だけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
     </div>
   `;
 }
@@ -791,36 +725,6 @@ function renderBubble(m) {
         <div class="meta">${mine ? esc(m.senderName || "本社") + "　" : ""}${fmtChatTime(m.createdAt)}</div>
       </div>
     </div>`;
-}
-
-/* ---------- 本社（管理者）でログインしたときだけ出る、権限の発行パネル ---------- */
-function renderAdminPanel(e) {
-  const on = !!e.viewerEnabled;
-  const issued = fmtStamp(e.viewerIssuedAt);
-  const hasLoginId = !!(e.loginId || "").trim();
-  return `
-    <div class="panel">
-      <p class="title" style="font-size:14px; margin-bottom:8px;">閲覧用の権限（本社のみ）</p>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">
-        状態：${on ? `<span class="pill on">使えます</span>${issued ? `　${issued} 発行` : ""}` : "使えません"}<br>
-        ログインID：${hasLoginId ? esc(e.loginId) : "未登録（先に本体アプリで登録してください）"}
-      </p>
-      ${hasLoginId ? `
-        <label style="margin-top:4px;">${on ? "新しいパスワード（作り直すとき）" : "発行するパスワード（6文字以上）"}</label>
-        <input id="newPass" type="text" placeholder="例：leader2026" />
-        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
-          <button class="small" ${state.busy ? "disabled" : ""} onclick="issueViewer('${e.id}', ${on ? "true" : "false"})">
-            ${on ? "パスワードを作り直す" : "この人に発行する"}
-          </button>
-          ${on ? `<button class="ghost" ${state.busy ? "disabled" : ""} onclick="revokeViewer('${e.id}')">権限を止める</button>` : ""}
-        </div>
-        <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
-          発行するとパスワードが画面に出ます。控えてご本人にお渡しください（あとから見ることはできません）。<br>
-          作り直すと、前のパスワードはその場で使えなくなります。
-        </p>
-      ` : ""}
-    </div>
-  `;
 }
 
 render();

@@ -220,7 +220,8 @@
           <div class="tblbox" style="max-height:40vh"><table><thead><tr>
             <th style="width:38px">作る</th>
             <th style="min-width:150px">氏名</th>
-            <th style="width:90px">エリア</th>
+            <th style="width:70px">エリア</th>
+            <th style="width:96px">印</th>
             <th style="min-width:160px">カードに出す名前</th>
           </tr></thead><tbody id="tb2"></tbody></table></div>
           <details style="margin-top:12px">
@@ -551,16 +552,57 @@ function detectKanaKey(list){
   }
   return best;
 }
-/* 選んだ項目からカタカナの名字を作る。入っていない人は漢字の名字にする */
-function kanaSurname(v, key){
-  var k = key ? toKatakana(v[key]) : "";
-  if(hasKana(k)){
-    var head = k.split(/[\s　・]+/)[0];
-    if(head) return head;
+/* ---- よくある名字の読み（姓名が続けて書かれているフリガナを切るのに使う） ---- */
+var SEI_SRC = "佐藤:サトウ|鈴木:スズキ|高橋:タカハシ|田中:タナカ|伊藤:イトウ|渡辺:ワタナベ|渡邊:ワタナベ|渡邉:ワタナベ|山本:ヤマモト|中村:ナカムラ|小林:コバヤシ|加藤:カトウ|吉田:ヨシダ|山田:ヤマダ|佐々木:ササキ|山口:ヤマグチ|松本:マツモト|井上:イノウエ|木村:キムラ|林:ハヤシ|斎藤:サイトウ|齋藤:サイトウ|斉藤:サイトウ|清水:シミズ|山崎:ヤマザキ,ヤマサキ|阿部:アベ|森:モリ|池田:イケダ|橋本:ハシモト|山下:ヤマシタ|石川:イシカワ|中島:ナカジマ,ナカシマ|前田:マエダ|藤田:フジタ|後藤:ゴトウ|小川:オガワ|岡田:オカダ|村上:ムラカミ|長谷川:ハセガワ|近藤:コンドウ|石井:イシイ|斎木:サイキ|坂本:サカモト|遠藤:エンドウ|藤井:フジイ|青木:アオキ|福田:フクダ|三浦:ミウラ|西村:ニシムラ|藤原:フジワラ|太田:オオタ|松田:マツダ|原田:ハラダ|岡本:オカモト|中野:ナカノ|中川:ナカガワ|小野:オノ|田村:タムラ|竹内:タケウチ|金子:カネコ|和田:ワダ|中山:ナカヤマ|石田:イシダ|上田:ウエダ|森田:モリタ|原:ハラ|柴田:シバタ|酒井:サカイ|工藤:クドウ|横山:ヨコヤマ|宮崎:ミヤザキ|宮本:ミヤモト|内田:ウチダ|高木:タカギ|安藤:アンドウ|島田:シマダ|谷口:タニグチ|大野:オオノ|高田:タカダ,タカタ|丸山:マルヤマ|今井:イマイ|河野:コウノ,カワノ|藤本:フジモト|村田:ムラタ|武田:タケダ|上野:ウエノ|杉山:スギヤマ|増田:マスダ|小島:コジマ|平野:ヒラノ|大塚:オオツカ|千葉:チバ|久保:クボ|松井:マツイ|岩崎:イワサキ|桜井:サクライ|木下:キノシタ|野口:ノグチ|松尾:マツオ|野村:ノムラ|菊地:キクチ|菊池:キクチ|佐野:サノ|大西:オオニシ|杉本:スギモト|新井:アライ|浜田:ハマダ|市川:イチカワ|水野:ミズノ|小松:コマツ|島崎:シマザキ|川口:カワグチ|田口:タグチ|関:セキ|中田:ナカタ,ナカダ|久保田:クボタ|東:ヒガシ,アズマ|荒木:アラキ|大久保:オオクボ|松岡:マツオカ|菅原:スガワラ|平田:ヒラタ|小山:コヤマ|白石:シライシ|岩田:イワタ|上原:ウエハラ|大谷:オオタニ|川崎:カワサキ|飯田:イイダ|川上:カワカミ|土屋:ツチヤ|星野:ホシノ|本田:ホンダ|吉川:ヨシカワ|辻:ツジ|永井:ナガイ|川村:カワムラ|坂口:サカグチ|大島:オオシマ|小田:オダ|北村:キタムラ|安田:ヤスダ|平井:ヒライ|尾崎:オザキ|松下:マツシタ|吉村:ヨシムラ|馬場:ババ|野田:ノダ|片山:カタヤマ|吉岡:ヨシオカ|秋山:アキヤマ|三宅:ミヤケ|中西:ナカニシ|服部:ハットリ|北川:キタガワ|荒井:アライ|大石:オオイシ|栗原:クリハラ|奥村:オクムラ|本間:ホンマ|関口:セキグチ|富田:トミタ|岡:オカ|西田:ニシダ|山内:ヤマウチ|矢野:ヤノ|浅野:アサノ|西川:ニシカワ|大森:オオモリ|杉浦:スギウラ|石橋:イシバシ|堀:ホリ|樋口:ヒグチ|田原:タハラ|檜垣:ヒガキ|國山:クニヤマ|国山:クニヤマ|豊口:トヨグチ|尾藤:ビトウ,オビトウ|金森:カナモリ|熊井:クマイ|兼村:カネムラ|向井:ムカイ|江口:エグチ|寺本:テラモト|立花:タチバナ|松原:マツバラ|山根:ヤマネ|米田:ヨネダ|福井:フクイ|奥田:オクダ|梅田:ウメダ|竹本:タケモト|中原:ナカハラ|藤川:フジカワ|今西:イマニシ|南:ミナミ|北:キタ|西:ニシ|柏原:カシハラ,カシワバラ|川本:カワモト|小西:コニシ|三上:ミカミ|中尾:ナカオ|梶原:カジワラ|中森:ナカモリ|大山:オオヤマ|坂田:サカタ|藤岡:フジオカ|松村:マツムラ|宮田:ミヤタ|森本:モリモト|山中:ヤマナカ|吉本:ヨシモト|渡部:ワタナベ,ワタベ|岸本:キシモト|黒田:クロダ|下村:シモムラ|竹田:タケダ|田島:タジマ|土井:ドイ|永田:ナガタ|西尾:ニシオ|沼田:ヌマタ|畑中:ハタナカ|東山:ヒガシヤマ|福本:フクモト|堀内:ホリウチ|前川:マエカワ|松浦:マツウラ|水田:ミズタ|宮下:ミヤシタ|村井:ムライ|森下:モリシタ|安井:ヤスイ|山川:ヤマカワ|横田:ヨコタ|吉野:ヨシノ";
+var SEI = (function(){
+  var m={};
+  SEI_SRC.split("|").forEach(function(p){
+    var a=p.split(":"); if(a.length!==2) return;
+    m[a[0]] = a[1].split(",");
+  });
+  return m;
+})();
+
+/* 名字の読みを決める。
+   returns { text:"ヒグチ", how:"kana"|"guess"|"none" }
+   kana  … 名簿のフリガナから確実に取れた
+   guess … 漢字の名字から読みを当てた（要確認）
+   none  … 取れなかった（漢字のまま） */
+function surnameOf(v, key){
+  var full = String(v.name||"").trim();
+  var kana = key ? toKatakana(v[key]) : "";
+
+  // ① フリガナにスペースがあれば、その最初のかたまり
+  if(hasKana(kana) && /[\s　・]/.test(kana)){
+    var h = kana.split(/[\s　・]+/)[0];
+    if(h) return { text:h, how:"kana" };
   }
-  var n = String(v.name||"").trim();
-  return n.split(/[\s　]+/)[0] || n;
+  // ② フリガナが続けて書かれている → 漢字の名字の読みで頭を切る
+  if(hasKana(kana)){
+    var base = full.split(/[\s　]+/)[0] || full;
+    for(var len=Math.min(4, base.length); len>=1; len--){
+      var kanji = base.slice(0,len);
+      var yomis = SEI[kanji];
+      if(!yomis) continue;
+      for(var i=0;i<yomis.length;i++){
+        if(kana.indexOf(yomis[i])===0) return { text:yomis[i], how:"kana" };
+      }
+    }
+    // 漢字にスペースがあるなら、そこが名字。読みは切れないのでフリガナ全部を使う
+    return { text:kana, how:"long" };
+  }
+  // ③ フリガナが空 → 漢字の名字から読みを当てる（1通りしかないときだけ）
+  var b = full.split(/[\s　]+/)[0] || full;
+  var kanjiSei = "";
+  for(var l=Math.min(4, b.length); l>=1; l--){
+    var kj = b.slice(0,l), ys = SEI[kj];
+    if(!ys) continue;
+    if(ys.length===1) return { text:ys[0], how:"guess" };   // 読みが1通りなら当てる
+    kanjiSei = kj; break;                                    // 読みが複数 → 漢字の名字だけ切る
+  }
+  return { text:(kanjiSei || b), how:"none" };
 }
+function kanaSurname(v, key){ return surnameOf(v, key).text; }
 /* 名簿にある項目を、見本つきで一覧にする。
    人によって中身が違うかなの項目だけを「フリガナに使えそう」として上に出す。
    職種（全員クリーンスタッフ）のように全員同じ値のものは、そこには出さない。 */
@@ -644,9 +686,11 @@ async function prepPrint(){
 function rebuildEmps(){
   EMPS = EMP_RAW.map(function(v){
     var saved = String(v.cardName||"").trim();
+    var r = surnameOf(v, KANA_KEY);
     return { id:v.__id, name:String(v.name), loginId:String(v.loginId).trim(), code3:last3(v.employeeCode),
              area:String(v.area||""), workplace:String(v.workplace||""),
-             card: saved || (kanaSurname(v, KANA_KEY)+"さん") };
+             how: saved ? "saved" : r.how,
+             card: saved || (r.text+"さん") };
   });
   EMPS.sort(function(a,b){ return String(a.area).localeCompare(String(b.area),"ja") || String(a.name).localeCompare(String(b.name),"ja"); });
   var areas={}; EMPS.forEach(function(e){ if(e.area) areas[e.area]=1; });
@@ -654,10 +698,16 @@ function rebuildEmps(){
   $("cArea").innerHTML = '<option value="">全部</option>' +
     Object.keys(areas).sort().map(function(a){ return '<option value="'+esc(a)+'"'+(a===cur?" selected":"")+'>'+esc(a)+'</option>'; }).join("");
   drawEmp();
-  var kana=EMPS.filter(function(e){ return /^[ァ-ヶー]/.test(e.card); }).length;
-  show($("qMsg"), kana?"ok":"err",
-    "フリガナの項目："+(KANA_KEY||"使わない")+"　→　カタカナで出せた人 "+kana+" 名／全 "+EMPS.length+" 名。"+
-    (kana<EMPS.length ? "残りは名簿にフリガナが入っていない方です。下の「Excelから貼り付け」を使うと一度にそろいます。" : ""));
+  var c={saved:0,kana:0,guess:0,long:0,none:0};
+  EMPS.forEach(function(e){ c[e.how]=(c[e.how]||0)+1; });
+  var ng=c.guess+c.long+c.none;
+  show($("qMsg"), ng?"inf":"ok",
+    "フリガナの項目："+(KANA_KEY||"使わない")+"　／　全 "+EMPS.length+" 名　"+
+    "そのまま使える "+(c.saved+c.kana)+" 名"+
+    (c.guess?("　⚠推定 "+c.guess+" 名"):"")+
+    (c.long?("　⚠フルネーム "+c.long+" 名"):"")+
+    (c.none?("　⚠漢字のまま "+c.none+" 名"):"")+
+    (ng?"　→　表の「印」の列を見て、⚠のところだけ直してください。":""));
 }
 
 function drawEmp(){
@@ -678,9 +728,12 @@ function drawEmp(){
   var tb=$("tb2"); tb.innerHTML="";
   EROWS.forEach(function(e,i){
     var tr=document.createElement("tr");
+    var mark = {saved:"", kana:"", guess:"⚠推定", long:"⚠フルネーム", none:"⚠要入力"}[e.how] || "";
+    if(mark) tr.style.background="#fffbe9";
     tr.innerHTML='<td><input type="checkbox" data-i="'+i+'" data-f="sel"'+(e.sel?" checked":"")+'></td>'+
       '<td class="l">'+esc(e.name)+'</td>'+
       '<td>'+esc(e.area)+'</td>'+
+      '<td style="font-size:11.5px;color:#8a6d1f">'+mark+'</td>'+
       '<td class="l"><input type="text" data-i="'+i+'" data-f="card" value="'+esc(e.card)+'"></td>';
     tb.appendChild(tr);
   });
@@ -688,6 +741,7 @@ function drawEmp(){
     inp.onchange=function(ev){
       var i=+ev.target.dataset.i, f=ev.target.dataset.f;
       EROWS[i][f] = (f==="sel") ? ev.target.checked : ev.target.value;
+      if(f==="card"){ EROWS[i].how="saved"; }
       sum2();
     };
   });
@@ -781,7 +835,7 @@ $("btnPaste").onclick = function(){
     if(!line.trim()) return;
     var cols=line.split(/\t|,|、|\s{2,}/).map(function(x){ return x.trim(); }).filter(function(x){ return x; });
     if(cols.length<2) return;
-    map[norm(cols[0])] = cols[1];
+    map[norm(cols[0])] = cols[1];  // 3列（氏名・姓カナ・名カナ）でも2列目＝姓カナでよい
   });
   var hit=0, miss=[];
   EMP_RAW.forEach(function(v){
@@ -790,6 +844,7 @@ $("btnPaste").onclick = function(){
       var kana=toKatakana(map[k]);
       var head=kana.split(/[\s　・]+/)[0];
       v.cardName = (head||kana)+"さん";
+      v.__pasted = true;
       hit++;
     }
   });

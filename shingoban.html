@@ -31,8 +31,12 @@ main{padding:20px;}
 padding:9px 14px;font-size:13px;font-weight:700;color:var(--text);
 font-family:inherit;cursor:pointer;}
 .tabbar button.active{background:var(--blue);color:#fff;border-color:var(--blue);}
-.tabbar button.link{background:transparent;border-style:dashed;color:var(--muted);}
-.tabbar button.link:hover{color:var(--blue);border-color:var(--blue);}
+.tabbar a{background:#fff;border:1.5px solid var(--border);border-radius:10px;
+padding:9px 14px;font-size:13px;font-weight:700;color:var(--text);
+text-decoration:none;display:inline-block;line-height:1.4;}
+.tabbar a.link{background:transparent;border-style:dashed;color:var(--muted);}
+.tabbar a.link:hover{color:var(--blue);border-color:var(--blue);}
+a.btn{display:inline-block;text-decoration:none;line-height:1.4;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px;}
 label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px;}
 input,select,textarea{width:100%;font-size:15px;padding:10px;border-radius:10px;
@@ -223,14 +227,7 @@ o.start(); o.stop(audioCtx.currentTime+0.7);
 }
 
 /* ---------- ほかのページへ ---------- */
-function openIkkatsu(){
-var u = new URL("genba-ikkatsu.html", location.href).href + "?v=" + Date.now();
-window.open(u, "_blank");
-}
-function openShukei(){
-var u = new URL("shukei.html", location.href).href + "?v=" + Date.now();
-window.open(u, "_blank");
-}
+function pageUrl(f){ return new URL(f, location.href).href + "?v=" + Date.now(); }
 
 /* ---------- 画面 ---------- */
 function render(){
@@ -244,8 +241,8 @@ var head =
 '</div></header>' +
 '<main><div class="tabbar no-print">' +
 tabBtn("board","🚦 信号板") + tabBtn("sites","📍 現場の登録") + tabBtn("qr","🖨️ QRを印刷") +
-'<button class="link" onclick="openIkkatsu()" title="アシストカレンダーから現場をまとめて登録／QRをまとめて印刷">📦 まとめて登録・QR一括 ↗</button>' +
-'<button class="link" onclick="openShukei()" title="月の出勤日数と実働時間を集計して弥生の取込CSVを作る">🧮 勤怠集計・弥生CSV ↗</button>' +
+'<a class="link" href="'+pageUrl("genba-ikkatsu.html")+'" target="_blank" rel="noopener" title="アシストカレンダーから現場をまとめて登録／QRをまとめて印刷">📦 まとめて登録・QR一括 ↗</a>' +
+'<a class="link" href="'+pageUrl("shukei.html")+'" target="_blank" rel="noopener" title="月の出勤日数と実働時間を集計して弥生の取込CSVを作る">🧮 勤怠集計・弥生CSV ↗</a>' +
 '</div>';
 var body = state.tab==="board" ? viewBoard() : state.tab==="sites" ? viewSites() : viewQr();
 el("app").innerHTML = head + body + '</main>';
@@ -343,7 +340,7 @@ return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span
 }).join("");
 
 return (e ? form : '<div class="card"><button class="btn" onclick="newSite()">＋ 現場を追加する</button>' +
-'<button class="btn sec" style="margin-left:10px" onclick="openIkkatsu()">📦 まとめて登録する ↗</button></div>') +
+'<a class="btn sec" style="margin-left:10px" href="'+pageUrl("genba-ikkatsu.html")+'" target="_blank" rel="noopener">📦 まとめて登録する ↗</a></div>') +
 '<div class="card"><table><thead><tr><th>現場</th><th>曜日</th><th>時間</th><th>人数</th><th></th></tr></thead>' +
 '<tbody>' + (rows || '<tr><td colspan="5" class="muted">まだありません</td></tr>') + '</tbody></table></div>';
 }
@@ -379,7 +376,7 @@ var site = sites.filter(function(s){return s.id===cur;})[0];
 return '<div class="card no-print"><div class="row">' +
 '<div><label>現場をえらぶ</label><select onchange="state.qrSite=this.value;render()">'+opts+'</select></div>' +
 '<div style="flex:0 0 auto"><button class="btn" onclick="printQr()">🖨️ この貼り紙を印刷</button></div>' +
-'<div style="flex:0 0 auto"><button class="btn sec" onclick="openIkkatsu()">📦 全部まとめて印刷 ↗</button></div>' +
+'<div style="flex:0 0 auto"><a class="btn sec" href="'+pageUrl("genba-ikkatsu.html")+'" target="_blank" rel="noopener">📦 全部まとめて印刷 ↗</a></div>' +
 '</div><p class="muted" style="margin-top:10px">A4で印刷して、現場のよく見える場所に貼ってください。行きも帰りも同じ1枚を読みます。何枚もいるときは「全部まとめて印刷」が早いです。</p></div>' +
 '<div id="qrArea" class="qr-sheet">' +
 '<h2>'+esc(site.name)+'</h2>' +

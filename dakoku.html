@@ -87,7 +87,14 @@ return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padSt
 function nospace(s){ return String(s==null?"":s).replace(/[\s　]/g,""); }
 function last3(code){ return String(code||"").replace(/[^0-9]/g,"").slice(-3); }
 
-function render(html){ el("main").innerHTML = html; }
+var booted = false;
+function render(html){ booted = true; el("main").innerHTML = html; }
+setTimeout(function(){
+if (booted) return;
+el("main").innerHTML =
+'<div class="card center"><p class="muted">つながりにくいようです。<br>' +
+'電波のよい場所で、画面を下に引っぱって<br>読み込み直してください。</p></div>';
+}, 12000);
 
 function renderLogin(){
 var saved = localStorage.getItem(LS_LOGIN) || "";
@@ -256,11 +263,12 @@ state.today = todayStr();
 
 try{ await firebase.auth().signInAnonymously(); }catch(e){}
 
+var gname = params.get("g");
 var me = params.get("me");
 if (me){
 var r = await useMeCard(me);
 if (r === "stop") return;
-if (r === true && !state.siteId){
+if (r === true && !state.siteId && !gname){
 render(
 '<div class="card"><div class="done">' +
 '<div class="mark">✓</div>' +
@@ -274,7 +282,6 @@ return;
 }
 
 // 現場名で指定されたとき（?g=松原警察署）
-var gname = params.get("g");
 if (!state.siteId && gname){
 try{
 var q = await db.collection("sites").where("name","==",gname).limit(1).get();

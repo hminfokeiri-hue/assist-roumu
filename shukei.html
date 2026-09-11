@@ -46,11 +46,55 @@
   .msg.err{background:#fdecea;color:#96271b;border:1px solid #f3c2bd}
   .msg.inf{background:#eaf3fb;color:#0b4f7d;border:1px solid #bcd9ef}
   .warnrow{background:#fffbe9}
+  tr.grp td{background:#0b3c5d;color:#fff;text-align:left;font-weight:700;font-size:14px;padding:7px 10px}
+  tr.grp td span{font-weight:400;font-size:12.5px;opacity:.9;margin-left:14px}
   .badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:#f0e0b8;color:#7a5b00;margin-left:5px}
   details{margin-top:10px}
   summary{cursor:pointer;font-size:14px;color:var(--key);font-weight:700}
   pre{background:#0f1b26;color:#d6e4ef;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.55}
   .hide{display:none}
+  /* ===== 出勤表（紙と同じ形） ===== */
+  .ts{background:#fff;color:#000;width:190mm;margin:0 auto 10mm;padding:6mm 5mm;
+      font-family:"Yu Mincho","MS PMincho","Hiragino Mincho ProN",serif;}
+  .ts h3{text-align:center;font-size:17pt;letter-spacing:.6em;margin:0 0 5mm;font-weight:700}
+  .ts .hd{display:flex;align-items:flex-end;justify-content:space-between;margin:0 0 2mm;font-size:10.5pt}
+  .ts .hd .l div{margin-bottom:1.5mm}
+  .ts .hd .r{display:flex;align-items:center;gap:2mm;font-size:10.5pt;white-space:nowrap}
+  .ts .hd .r img{height:7mm}
+  .ts table{width:100%;border-collapse:collapse;font-size:8.6pt;
+            font-family:"Yu Gothic","Meiryo",sans-serif}
+  .ts th,.ts td{border:1px solid #000;padding:0.6mm 1mm;text-align:center;line-height:1.35}
+  .ts thead th{font-weight:700;background:#fff}
+  .ts td.d{width:7mm}
+  .ts td.w{width:7mm}
+  .ts td.t{width:31%}
+  .ts td.h{width:17%}
+  .ts .sun{color:#c0392b}
+  .ts .sat{color:#1f6fb2}
+  .ts .ft{margin-top:3mm}
+  .ts .ft td{height:9mm}
+  .ts .ft .v{font-size:11pt;font-weight:700;font-family:"Yu Gothic","Meiryo",sans-serif}
+  .ts .stamp{width:16mm}
+  .tsWrap{background:#f4f6f8;padding:10px 0}
+
+  @media print{
+    body{background:#fff}
+    header, .card:not(#detailCard):not(#sheetCard), #detailCard .row, #detailCard .btns,
+    #sheetCard .row, #sheetCard .btns, #sheetCard h2, #sheetCard .note, .msg{display:none !important}
+    .tsWrap{background:#fff;padding:0}
+    .ts{width:auto;margin:0;padding:0;page-break-after:always}
+    .ts:last-child{page-break-after:auto}
+    .wrap{padding:0;max-width:none}
+    #detailCard{border:0;padding:0;margin:0}
+    #detailCard h2{font-size:14pt;border:0;padding:0;margin:0 0 6px}
+    .tblbox{max-height:none;overflow:visible;border:0}
+    th{position:static;background:#eef3f7 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    tr.grp td{background:#dfe7ee !important;color:#000 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    tr.grp.br{page-break-before:always}
+    tr.grp.br.first{page-break-before:auto}
+    table{font-size:9.5pt}
+    @page{size:A4 portrait;margin:12mm}
+  }
   .sum{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:10px;color:var(--sub)}
   .sum b{color:var(--ink);font-size:16px}
 </style>
@@ -119,6 +163,51 @@
         <th class="tateColH hide">立替金</th>
         <th style="min-width:230px">気になるところ</th>
       </tr></thead><tbody id="tbody"></tbody></table></div>
+    </div>
+
+    <div class="card hide" id="detailCard">
+      <h2>日ごとの明細（出勤簿）</h2>
+      <p class="note" style="margin:0 0 10px">誰が・いつ・どこで・何時から何時まで働いたかの一覧です。紙の出勤表のかわりに使えます。</p>
+      <div class="row">
+        <div><label>名前でさがす</label><input type="text" id="dFind" placeholder="一部でも大丈夫（例：おとう／尾藤）"></div>
+        <div><label>氏名でしぼる</label><select id="dName"><option value="">全員</option></select></div>
+        <div><label>現場でしぼる</label><select id="dSite"><option value="">全部</option></select></div>
+        <div><label>並び順</label><select id="dSort">
+          <option value="name">氏名 → 日付</option>
+          <option value="date">日付 → 氏名</option>
+          <option value="site">現場 → 日付</option>
+        </select></div>
+      </div>
+      <div class="chk" style="margin-top:8px"><input type="checkbox" id="dBreak" checked>
+        <label for="dBreak" style="margin:0">印刷するとき、一人（または一現場）ごとに改ページする</label></div>
+      <div class="sum" id="dSum" style="margin-top:8px"></div>
+      <div class="tblbox"><table><thead><tr>
+        <th style="width:92px">日付</th><th style="width:36px">曜</th>
+        <th style="min-width:120px">氏名</th><th style="min-width:140px">現場</th>
+        <th style="width:64px">出勤</th><th style="width:64px">退勤</th>
+        <th style="width:74px">実働</th><th style="min-width:140px">気になるところ</th>
+      </tr></thead><tbody id="dBody"></tbody></table></div>
+      <div class="btns">
+        <button id="btnDetailCsv">この明細をCSVで保存</button>
+        <button class="sub" id="btnDetailPrint">印刷する</button>
+      </div>
+    </div>
+
+    <div class="card hide" id="sheetCard">
+      <h2>出勤表（紙と同じ形・一人ずつ）</h2>
+      <p class="note" style="margin:0 0 10px">いま手書きで出してもらっている出勤表と同じ形に、打刻から自動で入れたものです。1人1枚でA4に出ます。</p>
+      <div class="row">
+        <div><label>誰の分を出しますか</label><select id="sWho"><option value="">全員ぶん</option></select></div>
+        <div><label>立替金・欠勤・遅刻・早退の欄</label>
+          <select id="sBlank"><option value="1">空けておく（手で書く）</option><option value="0">0を入れる</option></select></div>
+        <div style="flex:1 1 220px"><label>&nbsp;</label>
+          <div class="btns" style="margin:0">
+            <button id="btnSheet">出勤表を出す</button>
+            <button class="sub" id="btnSheetPrint">印刷する</button>
+          </div></div>
+      </div>
+      <div class="msg" id="sheetMsg"></div>
+      <div class="tsWrap hide" id="tsWrap"></div>
     </div>
 
     <div class="card hide" id="csvCard">
@@ -351,6 +440,7 @@ function isInPunch(rec,s){
    集計
    =================================================================== */
 let ROWS = [];   // 画面の行
+let DETAIL = []; // 日ごとの明細
 
 async function loadEmployees(){
   const map={byId:{},byLogin:{},byCode:{},byName:{}};
@@ -467,8 +557,9 @@ async function run(){
       const bkey = (s.siteKey && rec[s.siteKey]!=null && String(rec[s.siteKey])!=='')
                      ? String(rec[s.siteKey])
                      : (s.perPunch ? '_' : String(rec.__id));
-      if(!day.blocks[bkey]) day.blocks[bkey]={ins:[],outs:[],mins:null};
+      if(!day.blocks[bkey]) day.blocks[bkey]={ins:[],outs:[],mins:null,site:''};
       const b=day.blocks[bkey];
+      if(!b.site){ b.site = String(rec.siteName || rec.site || rec.genba || rec['現場'] || ''); }
 
       if(s.minKey && rec[s.minKey]!=null && !isNaN(Number(rec[s.minKey]))){
         b.mins = (b.mins||0) + Number(rec[s.minKey]);
@@ -487,7 +578,7 @@ async function run(){
     }
 
     // 人ごとに合計
-    ROWS = [];
+    ROWS = []; DETAIL = [];
     const mn = a => new Date(Math.min.apply(null,a.map(x=>x.getTime())));
     const mx = a => new Date(Math.max.apply(null,a.map(x=>x.getTime())));
 
@@ -515,25 +606,35 @@ async function run(){
         }
       }
 
+      const nmForDetail = (p.emp && p.emp.name) ? String(p.emp.name) : (p.rawName || (p.raw||'不明'));
       for(const ymd of ymds){
         const bs=p.days[ymd].blocks;
         let gross=0, net=0, worked=false;
+        const line=[];
         for(const bk in bs){
           const b=bs[bk];
-          if(b.mins!=null){ net+=b.mins; worked=true; continue; }
+          if(b.mins!=null){
+            net+=b.mins; worked=true;
+            line.push({site:b.site, inT:null, outT:null, g:0, fixed:b.mins, note:''});
+            continue;
+          }
           const inT  = b.ins.length  ? mn(b.ins)  : null;
           const outT = b.outs.length ? mx(b.outs) : null;
           if(!inT && !outT) continue;
           worked=true;
+          let note='';
           if(inT && outT){
             let g=(outT-inT)/60000;
             if(g<0 && kuri) g+=24*60;
-            if(g<0){ issues.push(ymd.slice(5)+' 退勤が出勤より前'); g=0; }
-            if(g>capMin) issues.push(ymd.slice(5)+' 勤務'+(g/60).toFixed(1)+'時間（打刻ミス？）');
+            if(g<0){ note='退勤が出勤より前'; issues.push(ymd.slice(5)+' 退勤が出勤より前'); g=0; }
+            if(g>capMin){ note='勤務'+(g/60).toFixed(1)+'時間（打刻ミス？）'; issues.push(ymd.slice(5)+' '+note); }
             gross+=g;
+            line.push({site:b.site, inT, outT, g, fixed:null, note});
           }else{
-            issues.push(ymd.slice(5)+(inT?' 退勤の打刻なし':' 出勤の打刻なし'));
+            note = inT ? '退勤の打刻なし' : '出勤の打刻なし';
+            issues.push(ymd.slice(5)+' '+note);
             gross+=noOutMin;
+            line.push({site:b.site, inT, outT, g:noOutMin, fixed:null, note});
           }
         }
         if(!worked) continue;
@@ -542,6 +643,14 @@ async function run(){
         if(g<0) g=0;
         if(round15) g=Math.floor(g/15)*15;
         mins += g + net;
+        // 休憩を引いたぶんを、その日の勤務に按分して明細にする
+        const ratio = gross>0 ? (g/gross) : 0;
+        for(const L of line){
+          const m = (L.fixed!=null) ? L.fixed : L.g*ratio;
+          DETAIL.push({ ymd, name:nmForDetail, site:L.site,
+                        inT:L.inT, outT:L.outT,
+                        hours: Math.round(m/60*100)/100, note:L.note });
+        }
       }
 
       const nm = (p.emp && p.emp.name) ? String(p.emp.name) : (p.rawName || '');
@@ -562,7 +671,11 @@ async function run(){
     draw();
     show($('runMsg'),'ok',
       ym+' の集計ができました。打刻 '+used+' 件を使いました（対象外 '+skipped+' 件／読み方：'+got.mode+'）。');
+    drawDetail(true);
     $('resultCard').classList.remove('hide');
+    $('detailCard').classList.remove('hide');
+    $('sheetCard').classList.remove('hide');
+    buildWhoList();
     $('csvCard').classList.remove('hide');
   }catch(e){
     show($('runMsg'),'err','集計できませんでした。'+(e.message||e));
@@ -571,6 +684,188 @@ async function run(){
   $('btnRun').disabled=false;
 }
 $('btnRun').onclick = run;
+
+/* ---------- 日ごとの明細 ---------- */
+const WDJ = ['日','月','火','水','木','金','土'];
+function wdOf(ymd){ const a=ymd.split('-').map(Number); return WDJ[new Date(a[0],a[1]-1,a[2]).getDay()]; }
+function hm(d){ if(!d) return ''; return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+
+function drawDetail(rebuildSelects){
+  if(rebuildSelects){
+    const ns={}, ss={};
+    DETAIL.forEach(d=>{ if(d.name) ns[d.name]=1; if(d.site) ss[d.site]=1; });
+    $('dName').innerHTML = '<option value="">全員</option>' +
+      Object.keys(ns).sort((a,b)=>a.localeCompare(b,'ja')).map(x=>'<option>'+esc(x)+'</option>').join('');
+    $('dSite').innerHTML = '<option value="">全部</option>' +
+      Object.keys(ss).sort((a,b)=>a.localeCompare(b,'ja')).map(x=>'<option>'+esc(x)+'</option>').join('');
+  }
+  const fn=$('dName').value, fs=$('dSite').value, so=$('dSort').value;
+  const kw=String($('dFind').value||'').replace(/[\s　]/g,'').toLowerCase();
+  let list = DETAIL.filter(d =>
+    (!fn || d.name===fn) && (!fs || d.site===fs) &&
+    (!kw || String(d.name).replace(/[\s　]/g,'').toLowerCase().indexOf(kw)>=0));
+  const byName = (a,b)=> String(a.name).localeCompare(String(b.name),'ja');
+  const byDate = (a,b)=> a.ymd.localeCompare(b.ymd);
+  const bySite = (a,b)=> String(a.site).localeCompare(String(b.site),'ja');
+  list = list.slice().sort(
+    so==='date' ? ((a,b)=> byDate(a,b) || byName(a,b))
+  : so==='site' ? ((a,b)=> bySite(a,b) || byDate(a,b) || byName(a,b))
+  :               ((a,b)=> byName(a,b) || byDate(a,b)));
+
+  const tb=$('dBody'); tb.innerHTML='';
+  const grouped = (so==='name' || so==='site');
+  const br = $('dBreak').checked;
+  // まとまりごとの小計を先に出しておく
+  const sub={};
+  if(grouped) list.forEach(d=>{
+    const k = so==='name' ? d.name : (d.site||'（現場なし）');
+    if(!sub[k]) sub[k]={h:0, days:new Set()};
+    sub[k].h += d.hours; sub[k].days.add(d.name+'|'+d.ymd);
+  });
+  let prev=null, firstGrp=true;
+  list.forEach(d=>{
+    const head = (so==='name') ? d.name : (so==='site' ? (d.site||'（現場なし）') : d.ymd);
+    if(grouped && head!==prev){
+      const g=document.createElement('tr');
+      g.className='grp'+(br?' br':'')+(firstGrp?' first':'');
+      firstGrp=false;
+      const st=sub[head];
+      g.innerHTML='<td colspan="8">'+esc(head)+
+        '<span>出勤 '+st.days.size+' 日　実働 '+(Math.round(st.h*100)/100).toFixed(2)+' 時間</span></td>';
+      tb.appendChild(g);
+    }
+    const tr=document.createElement('tr');
+    if(d.note) tr.className='warnrow';
+    if(!grouped && prev!==null && head!==prev) tr.style.borderTop='2px solid #b9c4ce';
+    prev=head;
+    tr.innerHTML =
+      '<td>'+esc(d.ymd)+'</td>'+
+      '<td>'+wdOf(d.ymd)+'</td>'+
+      '<td class="l">'+esc(d.name)+'</td>'+
+      '<td class="l">'+esc(d.site||'')+'</td>'+
+      '<td>'+hm(d.inT)+'</td>'+
+      '<td>'+hm(d.outT)+'</td>'+
+      '<td>'+d.hours.toFixed(2)+'</td>'+
+      '<td class="l" style="font-size:12px;color:#8a6d1f">'+esc(d.note||'')+'</td>';
+    tb.appendChild(tr);
+  });
+  const th=list.reduce((a,d)=>a+d.hours,0);
+  const dd=new Set(list.map(d=>d.name+'|'+d.ymd)).size;
+  $('dSum').innerHTML = '件数 <b>'+list.length+'</b>　のべ出勤 <b>'+dd+'</b> 日　実働合計 <b>'+(Math.round(th*100)/100)+'</b> 時間';
+}
+$('dName').onchange=()=>drawDetail(false);
+$('dFind').oninput=()=>drawDetail(false);
+$('dBreak').onchange=()=>drawDetail(false);
+$('dSite').onchange=()=>drawDetail(false);
+$('dSort').onchange=()=>drawDetail(false);
+$('btnDetailPrint').onclick=()=>window.print();
+$('btnDetailCsv').onclick=()=>{
+  if(!DETAIL.length) return show($('csvMsg'),'err','先に集計してください。');
+  const fn=$('dName').value, fs=$('dSite').value;
+  const kw=String($('dFind').value||'').replace(/[\s　]/g,'').toLowerCase();
+  const list=DETAIL.filter(d=>(!fn||d.name===fn)&&(!fs||d.site===fs)&&
+    (!kw||String(d.name).replace(/[\s　]/g,'').toLowerCase().indexOf(kw)>=0));
+  const h=['日付','曜日','氏名','現場','出勤','退勤','実働時間','気になるところ'];
+  const lines=[h.join(',')];
+  list.forEach(d=>lines.push([
+    d.ymd, wdOf(d.ymd),
+    '"'+String(d.name).replace(/"/g,'""')+'"',
+    '"'+String(d.site||'').replace(/"/g,'""')+'"',
+    hm(d.inT), hm(d.outT), d.hours.toFixed(2),
+    '"'+String(d.note||'').replace(/"/g,'""')+'"'
+  ].join(',')));
+  const ym=$('ym').value.replace('-','');
+  download(lines.join('\r\n')+'\r\n','出勤簿_'+ym+'.csv',true);
+  show($('csvMsg'),'ok','日ごとの明細を保存しました。Excelでそのまま開けます。');
+};
+
+/* ---------- 出勤表（紙と同じ形） ---------- */
+const HPM_LOGO = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAA0JCgsKCA0LCwsPDg0QFCEVFBISFCgdHhghMCoyMS8qLi00O0tANDhHOS0uQllCR05QVFVUMz9dY1xSYktTVFH/2wBDAQ4PDxQRFCcVFSdRNi42UVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVH/wAARCAA7AGcDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD06vLviVqV/aeI4o7a9uIENspKxysozubnANeo15J8U/8AkaIv+vVf/QmoAm+HOpahd+JxFc31zNH5LnbJKzDPHYmvVa8S8Fara6NrT3t2xEaQOAFGSxOMAVsXnxM1WSYm0tbaGLsHBdvxOR/KgD1WiuF8KePjql9HYalDHDNIcRyR52sfQg9Kqa38QtQ07WbuyjsrZ0gkKBmLZIH40Aei0V5/bfEhBoslzdW0ZvDKUjgiJAIwDuJPQZNYr/ErXDLuWGzVf7uxj+u6gD1qiuL0n4h2Fxpc9xqC/Z7iEDMSc+Znpt/zxXO3nxM1WSYm1tbaGLPAYF2/E5H8qAPVqK4bwp4+Oq3yWGowRwzScRyR52sfQg9DXc0AFFFFABXknxT/AORoi/69V/8AQmr1uvJPin/yNEX/AF6r/wChNQBzej6e2p6glsBIVwWfyk3vtHJwO5rb8UeGrXS7MXVkt+qKyK4u4wAdykjaRjpjBHY1U8H7P7RuvM8vZ9lfPmbtvUddvzflW/4sMP8AYd35X2fO+2z5Xm5+4cZ38fTH480AcPaSNDeQSocMkisD7g1peLf+Rq1P/r4b+dZUX+uT/eFavi3/AJGrU/8Ar4b+dAx/hvSrPUJpZNRnnitIsAmCJnZmOcDgHHQ84pniTTLTTb2P7BNLLazJvQzIUcckEEED064rS8KypFpV6XmSIGaLl7p7fPyv3UHP0qDxdIsn9nssiyDym+Zbhph98/xNzQIydIsV1HU4bV51gjYkvK/RFAJJ/IVv+K/DelaXZR3Ol6l9pIKiSNnViAwyrDHY/wBaoeDYpJvEMcUMUM0jRShY5xlGOxuG9q6Xxtbz2+jN59ppsGfIUG2GJCQuCD/sjoPbFAHCWcrQ3sEqHDJIrA+4NfQ9fOsP+uj/AN4fzr6KHSgAooooAr3t/Z2EPm3lzFAnrIwGa8g8f6pZavr6XFhN50SwLGW2kcgse/1Feutp1i8xmktIZJT/AMtHQM35mpTa25XaYIiPTYKAPDvDWow6ZfzTzPKoaBkUxOUbJx0YA4+uK6TxPqEN/wCHLiSG5aVDJBtDXYlxhTn5cArz1PfrXfXnhvRL0EXGmWxJ/iVArfmMGuS1j4aQOrSaTctE/wDzym5U/Ruo/WgDzWL/AFyf7wrV8W/8jVqf/Xw386rX2mXuk36299btDIGBGejDPUHoRVjxYc+KdTI/57t/OgZt+B4ruXTdQFmt0zCWMt9nmSMgYfqXBGKy/FV/He3FuqyzSPAjI5lkWQ53E/eUAH8KZ4fg1nUUn0rStwiuCpnYcKAM43N6cnjvXaaV4b0fSFnVUXVtXt4/MMbKdg6fdGME4IPc/SgRw+k6HrV8RLYW0yqflExPlrzxjccVrjwUIZGXVNctLaQKHZUBkYAnHt3ruTpOt6oF+33i2kQz+6gH5cdODyD7DjrV+18MaTbIqi28zHdznPCjp0/hFAHnv/CMeHkO1tbuZCGCkpb4HJK5GeoyCMjPSrmnxRWS+Zp3ie/t1VPMKzQbkC7dw+XdzkHsDXo6WdqmNltCuPRB7/4n86eYIWGDChGMcqOnSgDN0S71C4tUkuRBPG2Qs0IKE4OOUbp07GitSONIoxHGioi8BVGAKKAHUUUUAFFFFAFLVtJstYs2tb2ESIeh/iU+oPY15beeB7+31t4J5SLBVMrXpGQIx1z/ALXt/SvX6CARgjIoA4fTYzd2yaRolu9nYKR58+cNJ153A8hgFwR/e64BFdTpej2WlRBbaFBIRhpNoDN/gPYcVatbeG1gWG3jWONc4VRgDvUtABRRRQAUUUUAFFFFAH//2Q==";
+function reiwa(y){ return y-2018; }
+function pad2(n){ return String(n).padStart(2,'0'); }
+
+function buildWhoList(){
+  const ns={}; DETAIL.forEach(d=>{ if(d.name) ns[d.name]=1; });
+  $('sWho').innerHTML = '<option value="">全員ぶん</option>' +
+    Object.keys(ns).sort((a,b)=>a.localeCompare(b,'ja')).map(x=>'<option>'+esc(x)+'</option>').join('');
+}
+
+function sheetFor(name, ym, blank){
+  const [Y,M] = ym.split('-').map(Number);
+  const last = new Date(Y, M, 0).getDate();
+  const mine = DETAIL.filter(d=>d.name===name);
+  // 日ごとにまとめる
+  const byDay = {};
+  mine.forEach(d=>{
+    const day = Number(d.ymd.slice(8,10));
+    if(!byDay[day]) byDay[day]={am:null, pm:null, extra:[], hours:0, sites:{}};
+    byDay[day].hours += d.hours;
+    if(d.site) byDay[day].sites[d.site]=1;
+    const slot = (d.inT && d.inT.getHours()>=12) ? 'pm' : 'am';
+    if(!byDay[day][slot]) byDay[day][slot]=d;
+    else if(!byDay[day].pm) byDay[day].pm=d;
+    else byDay[day].extra.push(d);
+  });
+  // 勤務先
+  const allSites={}; mine.forEach(d=>{ if(d.site) allSites[d.site]=1; });
+  const site = Object.keys(allSites).join('・');
+
+  const span = d => d ? (d.inT? d.inT.getHours()+'時'+pad2(d.inT.getMinutes())+'分' : '　') + ' ～ ' +
+                        (d.outT? d.outT.getHours()+'時'+pad2(d.outT.getMinutes())+'分' : '　') : '';
+  let rows='';
+  let days=0, total=0;
+  for(let i=1;i<=last;i++){
+    const wd = new Date(Y,M-1,i).getDay();
+    const cls = wd===0?'sun':(wd===6?'sat':'');
+    const b = byDay[i];
+    if(b){ days++; total += b.hours; }
+    rows += '<tr>'+
+      '<td class="d '+cls+'">'+i+'</td>'+
+      '<td class="w '+cls+'">'+WDJ[wd]+'</td>'+
+      '<td class="t">'+(b?span(b.am):'')+'</td>'+
+      '<td class="t">'+(b?span(b.pm):'')+'</td>'+
+      '<td class="h">'+(b? b.hours.toFixed(2)+' 時間' : '')+'</td>'+
+      '</tr>';
+  }
+  const z = blank ? '' : '0';
+  return '<div class="ts">'+
+    '<h3>出　勤　表</h3>'+
+    '<div class="hd"><div class="l">'+
+      '<div>令和　'+reiwa(Y)+'　年　'+M+'　月分</div>'+
+      '<div>勤務先（　'+esc(site||'　')+'　）</div>'+
+    '</div><div class="r"><img src="'+HPM_LOGO+'" alt="">株式会社ホームメンテナンス</div></div>'+
+    '<table><thead><tr>'+
+      '<th>日</th><th>曜</th><th>午前勤務時間</th><th>午後勤務時間</th><th>実働時間</th>'+
+    '</tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<table class="ft"><tr>'+
+      '<th>出勤日数</th><th>欠勤日数</th><th>遅刻</th><th>早退</th><th>総実働時間</th></tr><tr>'+
+      '<td class="v">'+days+' 日</td><td class="v">'+(z?z+' 日':'')+'</td>'+
+      '<td class="v">'+(z?z+' 日':'')+'</td><td class="v">'+(z?z+' 日':'')+'</td>'+
+      '<td class="v">'+(Math.round(total*100)/100).toFixed(2)+' 時間</td></tr></table>'+
+    '<table class="ft"><tr>'+
+      '<th style="width:26%">立替金（レシート）</th><td style="width:34%"></td>'+
+      '<th style="width:24%">氏名</th><th class="stamp">印</th></tr><tr>'+
+      '<td class="v">￥　　　　　－</td><td></td>'+
+      '<td class="v">'+esc(name)+'</td><td class="stamp"></td></tr></table>'+
+    '</div>';
+}
+
+$('btnSheet').onclick = ()=>{
+  hide($('sheetMsg'));
+  if(!DETAIL.length) return show($('sheetMsg'),'err','先に集計してください。');
+  const only=$('sWho').value, blank=($('sBlank').value==='1');
+  const ym=$('ym').value;
+  const ns={}; DETAIL.forEach(d=>{ if(d.name) ns[d.name]=1; });
+  const names=Object.keys(ns).filter(x=>!only||x===only).sort((a,b)=>a.localeCompare(b,'ja'));
+  if(!names.length) return show($('sheetMsg'),'err','出す人がいません。');
+  $('tsWrap').innerHTML = names.map(x=>sheetFor(x, ym, blank)).join('');
+  $('tsWrap').classList.remove('hide');
+  show($('sheetMsg'),'ok',names.length+' 名ぶんの出勤表を出しました。「印刷する」を押すと1人1枚で出ます。');
+};
+$('btnSheetPrint').onclick = ()=>{
+  if(!$('tsWrap').innerHTML.trim()) return show($('sheetMsg'),'err','先に「出勤表を出す」を押してください。');
+  window.print();
+};
 
 /* ---------- 表を描く ---------- */
 function draw(){

@@ -185,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-14(8)";
+const APP_VERSION = "リーダー用 2026-09-14(1)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -826,7 +826,7 @@ function renderLogTab() {
     </div>` : ""}
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
-    <button class="small" onclick="printLogSheet('${esc(who)}')">🖨 この人の1か月を印刷</button>
+    <button class="small" onclick="printLogSheet('${esc(who)}')">🖨 ${mine ? "1か月を印刷" : "この人の1か月を印刷"}</button>
     ${state.user.isAdmin ? `<button class="small" style="background:var(--blue-dark);" onclick="printAllLogSheets()">🖨 全員分をまとめて印刷</button>` : ""}
     <button class="ghost" onclick="state.logLoaded=''; render();">最新に読み直す</button>
   </div>

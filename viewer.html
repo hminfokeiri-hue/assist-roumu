@@ -102,6 +102,11 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .logtable tr:hover td { background:#FFF7EC; }
 .catbox { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 
+/* ---- リーダー設定 ---- */
+.kv { display:flex; gap:10px; align-items:baseline; padding:8px 2px; border-bottom:1px solid var(--border); }
+.kv b { font-size:12px; color:var(--muted); font-weight:700; width:96px; flex-shrink:0; }
+.big { font-size:21px; font-weight:700; letter-spacing:.1em; word-break:break-all; }
+
 /* ---- 印刷（1か月で1枚の報告書） ---- */
 #printArea { display:none; }
 @media print {
@@ -160,7 +165,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-14(6)";
+const APP_VERSION = "リーダー用 2026-09-14(7)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -272,13 +277,28 @@ const state = {
   logCats: [],           // 入力中の区分
   logText: "",
   logCatMaster: null,    // 区分の親リスト
-  logCatEdit: false
+  logCatEdit: false,
+  /* ---- リーダー設定（本社だけ） ---- */
+  setupEmpId: null,
+  setupSearch: "",
+  setupLoginId: "",
+  setupPw: "",
+  setupShowPw: true,
+  setupDone: null,
+  secrets: {},           // パスワードのひかえ（本社だけ読めます）
+  secretsLoaded: false,
+  secretsLoading: false,
+  secretsError: "",
+  showSecretFor: null
 };
 const appEl = document.getElementById("app");
 const printEl = document.getElementById("printArea");
 
 firebase.initializeApp(firebaseConfig);
 db = firebase.firestore();
+/* リーダーさんのログインを作るときだけ使う、もうひとつの入れ物。
+これを分けておかないと、作った本人にログインが切り替わってしまいます。 */
+const subApp = firebase.initializeApp(firebaseConfig, "maker");
 
 /* ---------- 小さな道具 ---------- */
 function esc(s) {
@@ -394,6 +414,9 @@ function logout() {
   state.loading = false; state.notesDraft = null;
   state.logs = []; state.logLoaded = ""; state.logWho = ""; state.logCatMaster = null;
   state.logCats = []; state.logText = ""; state.logCatEdit = false;
+  state.setupEmpId = null; state.setupSearch = ""; state.setupLoginId = ""; state.setupPw = "";
+  state.setupDone = null; state.secrets = {}; state.secretsLoaded = false;
+  state.secretsError = ""; state.showSecretFor = null;
   firebase.auth().signOut().catch(() => {});
   render();
 }
@@ -862,6 +885,7 @@ function renderScreen() {
     ${tab("leave", `お休み${pendingLeaveCount() ? `<span class="badge">${pendingLeaveCount()}</span>` : ""}`)}
     ${tab("chat", `チャット${unread ? `<span class="badge">${unread}</span>` : ""}`)}
     ${tab("log", "📝 業務日誌")}
+    ${state.user.isAdmin ? tab("setup", "⚙ リーダー設定") : ""}
   </div>
   ${state.loading ? `<div class="card"><p class="muted" style="margin:0;">読み込み中です…</p></div>` : renderTab()}
 </main>
@@ -875,6 +899,7 @@ function renderScreen() {
 function renderTab() {
   if (state.tab === "home") return renderHomeTab();
   if (state.tab === "log") return renderLogTab();
+  if (state.tab === "setup") return renderSetupTab();
   if (state.tab === "leave") return renderLeaveTab();
   if (state.tab === "chat") return renderChatTab();
   const emp = state.employees.find(e => e.id === state.empId);
@@ -908,6 +933,12 @@ function renderHomeTab() {
       <div class="nm">業務日誌</div>
       <div class="ds">1か月で1枚の報告書になります<br>${wrote ? `<b style="color:var(--success);">きょうのぶんは書けています</b>` : `<b style="color:var(--danger);">きょうのぶんは、まだです</b>`}</div>
     </button>
+    ${state.user.isAdmin ? `
+    <button class="homecard" onclick="state.tab='setup'; render(); window.scrollTo(0,0);">
+      <div class="ico">⚙</div>
+      <div class="nm">リーダー設定（本社のみ）</div>
+      <div class="ds">このページに入れる人を決める<br>ログインIDとパスワードを出す・変える</div>
+    </button>` : ""}
   </div>
 </div>
 <p class="note">スマホのホーム画面にこのページを追加しておくと、アプリのように開けます（Safariは「共有」→「ホーム画面に追加」、Edge・Chromeは「…」→「ホーム画面に追加」）。</p>
@@ -1359,6 +1390,252 @@ function renderBubble(m) {
     <div class="meta">${mine ? esc(m.senderName || "本社") + " " : ""}${fmtChatTime(m.createdAt)}</div>
   </div>
 </div>`;
+}
+
+/* =========================================================
+リーダー設定（本社だけが使えます）
+・このページ（アシスト リーダー用）に入れる人を決めて、
+ログインIDとパスワードを出す／変える画面です。
+・Firebaseのパスワードは、あとから読み出すことができません
+（暗号化されていて、Googleも読めません）。
+そのため、出したパスワードの「ひかえ」を leaderSecrets に残しています。
+これを読めるのは本社の管理者だけです（Firestoreのルールでそうしています）。
+========================================================= */
+const SECRET_COL = "leaderSecrets";
+
+async function loadSecrets(force) {
+  if (!state.user || !state.user.isAdmin) return;
+  if (state.secretsLoading) return;
+  if (state.secretsLoaded && !force) return;
+  state.secretsLoading = true; render();
+  try {
+    const snap = await db.collection(SECRET_COL).get();
+    const m = {};
+    snap.docs.forEach(d => { m[d.id] = d.data(); });
+    state.secrets = m;
+    state.secretsError = "";
+  } catch (e) {
+    state.secretsError = e.message || "読み込めませんでした";
+  }
+  state.secretsLoaded = true;
+  state.secretsLoading = false; render();
+}
+function usedLoginIds(exceptId) {
+  const s = {};
+  (state.employees || []).forEach(e => { if (e.id !== exceptId && e.loginId) s[String(e.loginId)] = 1; });
+  return s;
+}
+function pickSetupEmp(id) {
+  const emp = (state.employees || []).find(e => e.id === id);
+  state.setupEmpId = id;
+  state.setupLoginId = emp ? String(emp.loginId || "") : "";
+  state.setupPw = "";
+  state.showSecretFor = null;
+  render(); window.scrollTo(0, 0);
+}
+
+/* 許可を出す／パスワードを変える */
+async function grantLeader(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  const loginId = String(state.setupLoginId || "").replace(/[^\d]/g, "");
+  const pw = String(state.setupPw || "");
+  if (loginId.length !== 8) return alert("ログインIDは8桁の数字にしてください");
+  if (usedLoginIds(empId)[loginId]) return alert("そのログインIDは、ほかの方が使っています");
+  if (pw.length < 6) return alert("パスワードは6文字以上にしてください");
+
+  const redo = !!emp.viewerEnabled || (Number(emp.viewerAuthVersion) || 0) >= 1;
+  state.busy = true; render();
+  let v = (Number(emp.viewerAuthVersion) || 0) + 1;
+  try {
+    let cred = null, tries = 0;
+    while (!cred) {
+      try {
+        cred = await subApp.auth().createUserWithEmailAndPassword(leaderEmail(loginId, v), pw);
+      } catch (err) {
+        if (err.code === "auth/email-already-in-use" && tries < 30) { v++; tries++; }
+        else throw err;
+      }
+    }
+    const uid = cred.user.uid;
+    await db.collection("viewers").doc(uid).set({
+      name: emp.name || "",
+      employeeId: emp.id,
+      loginId: loginId,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdBy: state.user.name || ""
+    });
+    await db.collection("employees").doc(emp.id).update({
+      loginId: loginId,
+      viewerEnabled: true,
+      viewerAuthVersion: v
+    });
+    /* パスワードのひかえ（本社だけが読めます） */
+    try {
+      await db.collection(SECRET_COL).doc(emp.id).set({
+        employeeId: emp.id,
+        name: emp.name || "",
+        loginId: loginId,
+        password: pw,
+        authVersion: v,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: state.user.name || ""
+      });
+    } catch (e2) {
+      alert("パスワードは変わりましたが、ひかえを残せませんでした。\nFirestoreのルールに leaderSecrets を足してください。\n（" + e2.message + "）");
+    }
+    try { await subApp.auth().signOut(); } catch (x) { /* 何もしない */ }
+    state.busy = false;
+    state.setupDone = { name: emp.name || "", loginId: loginId, pw: pw, redo: redo };
+    state.setupPw = "";
+    await loadSecrets(true);
+    window.scrollTo(0, 0);
+  } catch (e) {
+    state.busy = false; render();
+    try { await subApp.auth().signOut(); } catch (x) { /* 何もしない */ }
+    alert(authErrorMessage(e));
+  }
+}
+async function revokeLeader(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  if (!confirm((emp.name || "") + " さんが、このページに入れないようにします。よろしいですか？")) return;
+  state.busy = true; render();
+  try {
+    await db.collection("employees").doc(emp.id).update({ viewerEnabled: false });
+    state.busy = false; render();
+    alert("入れないようにしました");
+  } catch (e) {
+    state.busy = false; render();
+    alert("できませんでした: " + e.message);
+  }
+}
+async function deleteSecret(empId) {
+  if (!confirm("パスワードのひかえを消します。（パスワードそのものは変わりません）")) return;
+  state.busy = true; render();
+  try {
+    await db.collection(SECRET_COL).doc(empId).delete();
+    state.busy = false;
+    await loadSecrets(true);
+  } catch (e) {
+    state.busy = false; render();
+    alert("できませんでした: " + e.message);
+  }
+}
+
+/* ---- 画面 ---- */
+function renderSetupTab() {
+  if (!state.user.isAdmin) return `<div class="card"><p class="muted" style="margin:0;">この画面は本社だけが使えます。</p></div>`;
+  loadSecrets();
+  if (state.setupDone) return renderSetupDone();
+  const emp = (state.employees || []).find(e => e.id === state.setupEmpId);
+  return emp ? renderSetupOne(emp) : renderSetupList();
+}
+
+function setupRows() {
+  const v = (state.setupSearch || "").toLowerCase();
+  const vd = (state.setupSearch || "").replace(/[^\d]/g, "");
+  const list = (state.employees || []).filter(e => {
+    if (!v) return true;
+    if (vd && String(e.loginId || "").includes(vd)) return true;
+    return [e.name, e.furigana, e.employeeCode, e.area].some(f => String(f || "").toLowerCase().includes(v));
+  }).sort((a, b) => {
+    const A = a.viewerEnabled ? 0 : 1, B = b.viewerEnabled ? 0 : 1;
+    if (A !== B) return A - B;
+    return String(a.employeeCode || "").localeCompare(String(b.employeeCode || ""), "ja", { numeric: true });
+  });
+  if (!list.length) return `<p class="muted" style="padding:16px 4px;">該当する人がいません</p>`;
+  return list.map(e => `
+<div class="row" onclick="pickSetupEmp('${e.id}')">
+  <div style="min-width:0; flex:1;">
+    <div style="font-weight:700; font-size:15.5px;">${esc(e.name || "(名前未登録)")}</div>
+    <div class="muted" style="font-size:12px; margin-top:3px;">${esc([e.employeeCode || "", e.area || "", e.loginId ? ("ID " + e.loginId) : "ログインID未設定"].filter(Boolean).join(" ・ "))}</div>
+  </div>
+  <span class="pill ${e.viewerEnabled ? "on" : ""}">${e.viewerEnabled ? "入れます" : "未設定"}</span>
+</div>`).join("");
+}
+
+function renderSetupList() {
+  const on = (state.employees || []).filter(e => e.viewerEnabled).length;
+  return `
+<div class="card">
+  <p class="title" style="margin-bottom:4px;">だれをこのページに入れますか</p>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px;">いま入れる人 ${on}名 ／ 在籍 ${state.employees.length}名</p>
+  <input id="setupSearch" type="text" placeholder="氏名・フリガナ・管理番号・ログインIDで検索" value="${esc(state.setupSearch)}"
+    oninput="state.setupSearch=this.value; document.getElementById('setupRows').innerHTML=setupRows();" />
+  <div id="setupRows" style="margin-top:10px;">${setupRows()}</div>
+</div>
+${state.secretsError ? `<p class="note" style="border-color:var(--danger); color:var(--danger);">パスワードのひかえが読めませんでした。Firestoreのルールに <b>leaderSecrets</b> を足してください。（${esc(state.secretsError)}）</p>` : ""}
+<p class="note">ここで変わるのは「このページに入れるかどうか」だけです。お給料・口座などのデータには触りません。</p>
+`;
+}
+
+function renderSetupOne(e) {
+  const has = !!e.viewerEnabled;
+  const v = Number(e.viewerAuthVersion) || 0;
+  const sec = state.secrets[e.id];
+  const shown = state.showSecretFor === e.id;
+  return `
+<div class="card">
+  <button class="link" style="margin-bottom:12px;" onclick="state.setupEmpId=null; state.setupPw=''; state.showSecretFor=null; render();">← 一覧にもどる</button>
+  <p class="title" style="margin-bottom:10px;">${esc(e.name || "")} さん</p>
+  <div class="kv"><b>管理番号</b><span>${esc(e.employeeCode || "—")}</span></div>
+  <div class="kv"><b>エリア</b><span>${esc(e.area || "—")}</span></div>
+  <div class="kv"><b>いまの状態</b><span class="pill ${has ? "on" : ""}">${has ? "入れます" : "未設定"}</span>${v > 1 ? `<span class="muted" style="font-size:11.5px; margin-left:8px;">（${v}回目のパスワード）</span>` : ""}</div>
+
+  <div class="panel" style="margin-top:16px;">
+    <p class="title" style="font-size:14px; margin:0 0 8px;">いまのパスワード（ひかえ）</p>
+    ${sec ? `
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span class="big">${shown ? esc(sec.password || "") : "● ● ● ● ● ●"}</span>
+      <button class="small" style="padding:7px 14px; font-size:13px;" onclick="state.showSecretFor='${shown ? "" : e.id}'; render();">${shown ? "かくす" : "見る"}</button>
+      <button class="link" onclick="deleteSecret('${e.id}')">ひかえを消す</button>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">ログインID ${esc(sec.loginId || "")}　／　${esc(fmtStamp(sec.updatedAt))} ${esc(sec.updatedBy || "")} が発行</p>
+    ` : `<p class="muted" style="font-size:12.5px; margin:0;">${has ? "この方のひかえはありません（この画面ができる前に発行されたものです）。下で新しいパスワードに変えると、ひかえが残るようになります。" : "まだ発行していません。"}</p>`}
+  </div>
+
+  <label>ログインID（8桁の数字）</label>
+  <input id="setupLoginId" type="text" inputmode="numeric" maxlength="8" placeholder="12345678"
+    value="${esc(state.setupLoginId)}" oninput="state.setupLoginId=this.value;" />
+  <p class="muted" style="font-size:11.5px; margin:6px 0 0;">${e.loginId ? "この番号を本人にお伝えください。" : "ほかの人と重ならない8桁を決めてください（管理番号を8桁にしたものでも大丈夫です）。"}</p>
+
+  <label>${has ? "新しいパスワード" : "パスワード"}（6文字以上）</label>
+  <input id="setupPw" type="${state.setupShowPw ? "text" : "password"}" autocomplete="new-password"
+    value="${esc(state.setupPw)}" oninput="state.setupPw=this.value;" />
+  <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:12.5px; margin-top:8px;">
+    <input type="checkbox" style="width:auto;" ${state.setupShowPw ? "checked" : ""} onchange="state.setupShowPw=this.checked; render();" />
+    入力したパスワードを表示する
+  </label>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">
+    <button class="small" ${state.busy ? "disabled" : ""} onclick="grantLeader('${e.id}')">${state.busy ? "作成中…" : (has ? "パスワードを変える" : "このページに入れるようにする")}</button>
+    ${has ? `<button class="ghost" ${state.busy ? "disabled" : ""} onclick="revokeLeader('${e.id}')">入れないようにする</button>` : ""}
+  </div>
+
+  ${has
+    ? `<p class="note" style="margin-top:16px; border-color:#F0C4BB; background:#FBE7E3; color:#8B3A2B;">パスワードを変えると、<b>今までのパスワードは使えなくなります</b>。新しいほうを必ず本人にお伝えください。</p>`
+    : `<p class="note" style="margin-top:16px;">入れるようにすると、この方は 従業員データ（住所は町名まで・給与や口座は出ません）・お休み・チャット・自分の業務日誌 が見られるようになります。</p>`}
+</div>
+`;
+}
+
+function renderSetupDone() {
+  const d = state.setupDone;
+  return `
+<div class="card">
+  <p class="title" style="color:var(--success);">${d.redo ? "パスワードを変えました" : "入れるようにしました"}</p>
+  <p style="margin:0 0 14px;">${esc(d.name)} さんに、下の3つをお伝えください。</p>
+  <div class="kv"><b>ひらくところ</b><span style="word-break:break-all;">${esc(location.href.split("?")[0])}</span></div>
+  <div class="kv" style="align-items:center;"><b>ログインID</b><span class="big">${esc(d.loginId)}</span></div>
+  <div class="kv" style="align-items:center;"><b>パスワード</b><span class="big">${esc(d.pw)}</span></div>
+  <p class="note" style="margin-top:16px;">このパスワードは「リーダー設定」からいつでも見られます。忘れたと言われたら、この画面で確認してあげてください。</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+    <button class="small" onclick="state.setupDone=null; state.setupEmpId=null; render();">つづけて別の人を設定する</button>
+    <button class="ghost" style="color:var(--blue-dark); border-color:var(--blue-dark);" onclick="state.setupDone=null; render();">おわる</button>
+  </div>
+</div>
+`;
 }
 
 render();

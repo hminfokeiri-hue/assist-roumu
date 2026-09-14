@@ -90,16 +90,22 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .homecard .ds { font-size:12.5px; color:var(--muted); margin-top:4px; line-height:1.5; }
 
 /* ---- 業務日誌 ---- */
-.logtable { font-size:13px; }
-.logtable th, .logtable td { padding:7px 6px; }
+.logwrap { margin:0 -4px; }
+.logtable { font-size:13px; table-layout:fixed; width:100%; }
+.logtable th, .logtable td { padding:7px 5px; }
 .logtable tr.sun td { background:#FDF1EE; }
 .logtable tr.sat td { background:#F0F4FA; }
 .logtable tr.today td { background:#FFF3DE; }
-.logtable td.d { white-space:nowrap; width:58px; font-weight:700; }
-.logtable td.c { white-space:normal; width:150px; color:var(--blue-dark); font-weight:700; font-size:12px; }
+.logtable th.d, .logtable td.d { width:52px; font-weight:700; line-height:1.25; }
+.logtable td.d .wd { font-weight:400; font-size:11px; color:var(--muted); }
+.logtable tr.sun td.d, .logtable tr.sun td.d .wd { color:var(--danger); }
+.logtable tr.sat td.d .wd { color:#4A6FA5; }
+.logtable td.d .hol { display:block; font-size:9.5px; font-weight:700; color:var(--danger); line-height:1.2; margin-top:1px; }
+.logtable th.c, .logtable td.c { width:140px; color:var(--blue-dark); font-weight:700; font-size:12px; }
 .logtable td.t { white-space:pre-wrap; word-break:break-word; }
 .logtable tr.has { cursor:pointer; }
 .logtable tr:hover td { background:#FFF7EC; }
+.catinline { display:none; color:var(--blue-dark); font-weight:700; font-size:11.5px; }
 .catbox { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 
 /* ---- リーダー設定 ---- */
@@ -132,6 +138,10 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .sheet td.pc { width:34mm; }
 .sheet td.pt { white-space:pre-wrap; word-break:break-word; }
 .sheet tr.psun td { background:#f7f7f7; }
+.sheet tr.psun td.pd, .sheet tr.psun td.pw { color:#C0392B; font-weight:700; }
+.sheet td.pw { position:relative; }
+.sheet td.pw .phol { display:block; font-size:5.5pt; font-weight:400; line-height:1.1; white-space:nowrap; }
+.sheet td.pw { width:11mm; }
 .sheet .sfoot { margin-top:3mm; border:1px solid #000; min-height:22mm; padding:2mm; font-size:8.5pt; white-space:pre-wrap; }
 .sheet .sfoot b { font-size:8pt; }
 @media (max-width: 620px) {
@@ -139,6 +149,16 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
   .filters { grid-template-columns:1fr; }
   .homegrid { grid-template-columns:1fr; }
   .hide-narrow { display:none; }
+  main { padding:10px; }
+  .card { padding:13px; }
+  /* 日誌の表は、せまい画面では「日」と「内容」の2列にして、
+     区分は内容のうえに小さく出します（内容を広く読むため） */
+  .logtable th.c, .logtable td.c { display:none; }
+  .catinline { display:block; margin-bottom:2px; }
+  .logtable { font-size:12.5px; }
+  .logtable th, .logtable td { padding:7px 3px; }
+  .logtable th.d, .logtable td.d { width:54px; font-size:12px; }
+  .logtable td.d .hol { font-size:9px; letter-spacing:-.03em; }
 }
 </style>
 </head>
@@ -165,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-14(7)";
+const APP_VERSION = "リーダー用 2026-09-14(8)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -532,6 +552,69 @@ async function sendReply(empId) {
 ========================================================= */
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 
+/* ---- 日本の祝日（内閣府の決め方どおりに計算します） ----
+・春分・秋分は計算式（1980〜2099年まで正しい値になります）
+・日曜と重なった祝日は、次の平日が「振替休日」
+・祝日にはさまれた平日は「国民の休日」（例：2026年9月22日）
+※オリンピックのときのような臨時の祝日は入っていません。
+法律が変わったときは、この関数を直せば全部の画面に反映されます。 */
+const HOLIDAY_CACHE = {};
+function jpHolidays(y) {
+  if (HOLIDAY_CACHE[y]) return HOLIDAY_CACHE[y];
+  const p = n => String(n).padStart(2, "0");
+  const key = (m, d) => y + "-" + p(m) + "-" + p(d);
+  const nthMonday = (m, n) => {
+    const first = new Date(y, m - 1, 1).getDay();
+    return 1 + ((1 - first + 7) % 7) + (n - 1) * 7;
+  };
+  const shunbun = Math.floor(20.8431 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+  const shubun  = Math.floor(23.2488 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+  const h = {};
+  h[key(1, 1)] = "元日";
+  h[key(1, nthMonday(1, 2))] = "成人の日";
+  h[key(2, 11)] = "建国記念の日";
+  h[key(2, 23)] = "天皇誕生日";
+  h[key(3, shunbun)] = "春分の日";
+  h[key(4, 29)] = "昭和の日";
+  h[key(5, 3)] = "憲法記念日";
+  h[key(5, 4)] = "みどりの日";
+  h[key(5, 5)] = "こどもの日";
+  h[key(7, nthMonday(7, 3))] = "海の日";
+  h[key(8, 11)] = "山の日";
+  h[key(9, nthMonday(9, 3))] = "敬老の日";
+  h[key(9, shubun)] = "秋分の日";
+  h[key(10, nthMonday(10, 2))] = "スポーツの日";
+  h[key(11, 3)] = "文化の日";
+  h[key(11, 23)] = "勤労感謝の日";
+
+  /* 振替休日：日曜と重なったら、次の平日にずらす */
+  Object.keys(h).slice().forEach(k => {
+    const d = new Date(k.replace(/-/g, "/"));
+    if (d.getDay() !== 0) return;
+    const n = new Date(d);
+    do { n.setDate(n.getDate() + 1); } while (h[key(n.getMonth() + 1, n.getDate())]);
+    h[key(n.getMonth() + 1, n.getDate())] = "振替休日";
+  });
+
+  /* 国民の休日：祝日と祝日にはさまれた平日 */
+  const d = new Date(y, 0, 1);
+  while (d.getFullYear() === y) {
+    const k = key(d.getMonth() + 1, d.getDate());
+    if (!h[k] && d.getDay() !== 0) {
+      const a = new Date(d); a.setDate(a.getDate() - 1);
+      const b = new Date(d); b.setDate(b.getDate() + 1);
+      if (h[key(a.getMonth() + 1, a.getDate())] && h[key(b.getMonth() + 1, b.getDate())]) h[k] = "国民の休日";
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  HOLIDAY_CACHE[y] = h;
+  return h;
+}
+function holidayName(ymd) {
+  if (!ymd) return "";
+  return jpHolidays(Number(String(ymd).slice(0, 4)))[ymd] || "";
+}
+
 /* 自分が書いたものだと分かるようにする印。
 リーダーさん … E＋従業員データのID（パスワードを作り直しても変わりません）
 本社 … A＋ログインのID */
@@ -710,11 +793,14 @@ function renderLogTab() {
     const e = logEntry(who, date);
     const has = e && ((e.text || "").trim() || (e.cats || []).length);
     if (has) filled++;
-    const cls = [has ? "has" : "", date === today ? "today" : (wd === 0 ? "sun" : wd === 6 ? "sat" : "")].filter(Boolean).join(" ");
+    const hol = holidayName(date);
+    const red = (wd === 0 || !!hol);
+    const cls = [has ? "has" : "", date === today ? "today" : (red ? "sun" : wd === 6 ? "sat" : "")].filter(Boolean).join(" ");
+    const cats = esc(((e && e.cats) || []).join("・"));
     rows += `<tr class="${cls}" ${mine ? `onclick="pickLogDay('${date}')"` : ""}>
-<td class="d">${d}日<span class="muted" style="font-weight:400;">（${WD[wd]}）</span></td>
-<td class="c">${esc(((e && e.cats) || []).join("・"))}</td>
-<td class="t">${has ? esc(e.text || "") : `<span class="muted">${mine ? "ここを押して書く" : "—"}</span>`}</td>
+<td class="d">${d}日<span class="wd">（${WD[wd]}）</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ""}</td>
+<td class="c">${cats}</td>
+<td class="t">${cats ? `<span class="catinline">${cats}</span>` : ""}${has ? esc(e.text || "") : `<span class="muted">${mine ? "ここを押して書く" : "—"}</span>`}</td>
 </tr>`;
   }
 
@@ -769,10 +855,12 @@ ${mine ? `
 
 <div class="card">
   <p class="title" style="margin-bottom:8px;">${esc(authorNameOf(who) || "")}　${y}年${m}月</p>
-  <table class="logtable">
-    <thead><tr><th>日</th><th>区分</th><th>業務の内容</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
+  <div class="logwrap">
+    <table class="logtable">
+      <thead><tr><th class="d">日</th><th class="c">区分</th><th>業務の内容</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
 </div>
 
 ${state.user.isAdmin ? `
@@ -800,8 +888,10 @@ function buildLogSheet(authorId, ym) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
     const wd = new Date(y, m - 1, d).getDay();
     const e = logEntry(authorId, date);
-    rows += `<tr class="${wd === 0 ? "psun" : ""}">
-<td class="pd">${d}</td><td class="pw">${WD[wd]}</td>
+    const hol = holidayName(date);
+    const red = (wd === 0 || !!hol);
+    rows += `<tr class="${red ? "psun" : ""}">
+<td class="pd">${d}</td><td class="pw">${WD[wd]}${hol ? `<span class="phol">${esc(hol)}</span>` : ""}</td>
 <td class="pc">${esc(((e && e.cats) || []).join("・"))}</td>
 <td class="pt">${esc((e && e.text) || "")}</td>
 </tr>`;
@@ -872,12 +962,13 @@ function renderScreen() {
   const tab = (name, label) => `<button class="${state.tab === name ? "active" : ""}" onclick="state.tab='${name}'; render();">${label}</button>`;
   appEl.innerHTML = `
 <header class="topbar">
-  <h1>アシスト（リーダー用）<span style="font-size:11px; font-weight:400; opacity:.8; margin-left:8px;">${APP_VERSION}</span></h1>
+  <h1>アシスト（リーダー用）</h1>
   <button onclick="logout()">ログアウト</button>
 </header>
 <main>
-  <p class="muted" style="font-size:13px; margin:0 0 12px;">
-    ${esc(state.user.name)} さん${state.user.isAdmin ? "（本社・全員分が見られます）" : "（リーダー）"} 在籍 ${state.employees.length}名
+  <p class="muted" style="font-size:13px; margin:0 0 12px; display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+    <span>${esc(state.user.name)} さん${state.user.isAdmin ? "（本社）" : "（リーダー）"}</span>
+    <span style="font-size:10.5px; opacity:.75; white-space:nowrap;">${APP_VERSION}</span>
   </p>
   <div class="tabbar">
     ${tab("home", "🏠 ホーム")}

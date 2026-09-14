@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>リーダー設定（閲覧用の許可）｜アシスト労務</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<style>
+:root{--blue:#E8873A;--blue-dark:#C96A1E;--sun-soft:#F7DDBF;--bg:#FBF6ED;--card:#fff;--border:#EDE2CE;--text:#3A3530;--muted:#6B5F52;--danger:#C65D4B;--success:#4A7C6F;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Arial,sans-serif;background:var(--bg);color:var(--text);}
+#app{max-width:760px;margin:0 auto;min-height:100vh;}
+.topbar{background:var(--blue);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;}
+.topbar h1{font-size:16px;margin:0;font-weight:700;}
+.topbar button{background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;}
+main{padding:14px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;}
+.center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;}
+.login-card{max-width:360px;width:100%;text-align:center;}
+.login-card h1{font-size:20px;margin:0 0 2px;}
+.sub{color:var(--muted);font-size:13px;margin:0 0 18px;}
+label{display:block;text-align:left;font-size:12.5px;font-weight:700;margin:12px 0 4px;}
+input{width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;background:#fff;color:var(--text);font-family:inherit;}
+button.primary{width:100%;margin-top:14px;padding:12px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;}
+button.small{padding:10px 16px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;}
+button.small.dark{background:var(--blue-dark);}
+button.ghost{padding:10px 16px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;}
+button.link{background:none;border:none;color:var(--blue-dark);font-size:13px;cursor:pointer;padding:0;text-decoration:underline;}
+button:disabled{opacity:.5;cursor:default;}
+.muted{color:var(--muted);}
+.title{font-size:16px;font-weight:700;margin:0 0 12px;}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 6px;border-bottom:1px solid var(--border);cursor:pointer;}
+.row:hover{background:#FFF7EC;}
+.pill{display:inline-block;border-radius:999px;font-size:11px;font-weight:700;padding:3px 10px;}
+.pill.on{background:#E4F0EC;color:var(--success);}
+.pill.off{background:#F3EEE5;color:var(--muted);}
+.note{background:#FFF7EC;border:1px solid var(--sun-soft);border-radius:10px;padding:11px 13px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+.warn{background:#FBE7E3;border:1px solid #F0C4BB;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#8B3A2B;line-height:1.7;}
+.big{font-size:22px;font-weight:700;letter-spacing:.12em;}
+.kv{display:flex;gap:10px;align-items:baseline;padding:8px 2px;border-bottom:1px solid var(--border);}
+.kv b{font-size:12px;color:var(--muted);font-weight:700;width:92px;flex-shrink:0;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* =========================================================
+リーダー設定（閲覧用の許可）｜アシスト労務
+・本社のメールアドレスで入って、リーダーさんに
+「アシスト（リーダー用）viewer.html」へ入る許可とパスワードを出す画面です。
+・やっていること
+① 従業員データに viewerEnabled = true を立てる
+② その方のログイン用アカウントを作る（8桁ID@leader.assist-roumu.jp）
+③ viewers に1件つくる（これが無いと入れません）
+・パスワードはこの画面で入力したものがそのまま使われます。
+どこにも保存されませんので、本人にお伝えください。
+・作り直すと番号が1つ増えて（.v2 .v3…）、古いパスワードは使えなくなります。
+========================================================= */
+const APP_VERSION = "リーダー設定 2026-09-14(1)";
+const firebaseConfig = {
+  apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
+  authDomain: "assist-roumu.firebaseapp.com",
+  projectId: "assist-roumu",
+  storageBucket: "assist-roumu.firebasestorage.app",
+  messagingSenderId: "919904591114",
+  appId: "1:919904591114:web:33d30e66ea4264e081eef3"
+};
+const LEADER_MAIL_DOMAIN = "leader.assist-roumu.jp";
+function leaderEmail(loginId, version){
+  const v = Number(version) || 1;
+  return v <= 1 ? loginId + "@" + LEADER_MAIL_DOMAIN : loginId + ".v" + v + "@" + LEADER_MAIL_DOMAIN;
+}
+const VIEWER_URL = "https://hminfokeiri-hue.github.io/assist-roumu/viewer.html";
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+/* ② のアカウント作成だけ、別の入れ物で行います。
+こうしないと、作った本人にログインが切り替わってしまうためです。 */
+const sub = firebase.initializeApp(firebaseConfig, "maker");
+
+const state = { admin:null, employees:[], loading:false, busy:false, search:"", empId:null, done:null };
+const appEl = document.getElementById("app");
+
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function authErrorMessage(e){
+  return {
+    "auth/invalid-email":"メールアドレスまたはパスワードが正しくありません",
+    "auth/user-not-found":"メールアドレスまたはパスワードが正しくありません",
+    "auth/wrong-password":"メールアドレスまたはパスワードが正しくありません",
+    "auth/invalid-credential":"メールアドレスまたはパスワードが正しくありません",
+    "auth/weak-password":"パスワードは6文字以上にしてください",
+    "auth/too-many-requests":"試行回数が多すぎます。しばらく待ってからお試しください",
+    "auth/network-request-failed":"ネットワークに接続できませんでした",
+    "auth/operation-not-allowed":"Firebaseの「Email/パスワード」ログインが無効になっています"
+  }[e.code] || ("うまくいきませんでした: " + e.message);
+}
+
+async function login(){
+  const mail = (document.getElementById("mail").value||"").trim();
+  const pass = document.getElementById("pass").value;
+  if(!mail || !pass) return alert("メールアドレスとパスワードを入力してください");
+  state.loading = true; render();
+  try{
+    const cred = await firebase.auth().signInWithEmailAndPassword(mail, pass);
+    const a = await db.collection("admins").doc(cred.user.uid).get();
+    if(!a.exists){
+      await firebase.auth().signOut();
+      state.loading = false; render();
+      return alert("このアカウントは本社の管理者として登録されていません。");
+    }
+    state.admin = { name:(a.data()||{}).name || mail, uid:cred.user.uid, mail };
+    const snap = await db.collection("employees").get();
+    state.employees = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(e=>e.status!=="resigned");
+    state.loading = false; render();
+  }catch(e){
+    state.loading = false; render();
+    alert(authErrorMessage(e));
+  }
+}
+function logout(){
+  state.admin=null; state.employees=[]; state.empId=null; state.done=null;
+  firebase.auth().signOut().catch(()=>{});
+  render();
+}
+async function reloadEmployees(){
+  const snap = await db.collection("employees").get();
+  state.employees = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(e=>e.status!=="resigned");
+}
+
+/* ---------- 許可を出す ---------- */
+function usedLoginIds(exceptId){
+  const s = {};
+  state.employees.forEach(e=>{ if(e.id!==exceptId && e.loginId) s[String(e.loginId)] = 1; });
+  return s;
+}
+async function grant(empId, redo){
+  const emp = state.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  const loginId = (document.getElementById("loginId").value||"").replace(/[^\d]/g,"");
+  const p1 = document.getElementById("p1").value;
+  const p2 = document.getElementById("p2").value;
+  if(loginId.length !== 8) return alert("ログインIDは8桁の数字にしてください");
+  if(usedLoginIds(empId)[loginId]) return alert("そのログインIDは、ほかの方が使っています");
+  if(!p1 || p1.length < 6) return alert("パスワードは6文字以上にしてください");
+  if(p1 !== p2) return alert("パスワードが2つの欄で違っています");
+
+  state.busy = true; render();
+  let v = Number(emp.viewerAuthVersion) || 0;
+  if(redo || v < 1) v = v + 1;
+  try{
+    let cred = null, tries = 0;
+    while(!cred){
+      try{
+        cred = await sub.auth().createUserWithEmailAndPassword(leaderEmail(loginId, v), p1);
+      }catch(err){
+        if(err.code === "auth/email-already-in-use" && tries < 20){ v++; tries++; }
+        else throw err;
+      }
+    }
+    const uid = cred.user.uid;
+    await db.collection("viewers").doc(uid).set({
+      name: emp.name || "",
+      employeeId: emp.id,
+      loginId: loginId,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdBy: state.admin.name || ""
+    });
+    await db.collection("employees").doc(emp.id).update({
+      loginId: loginId,
+      viewerEnabled: true,
+      viewerAuthVersion: v
+    });
+    await sub.auth().signOut();
+    await reloadEmployees();
+    state.busy = false;
+    state.done = { name: emp.name || "", loginId: loginId, url: VIEWER_URL, redo: !!redo };
+    render(); window.scrollTo(0,0);
+  }catch(e){
+    state.busy = false; render();
+    try{ await sub.auth().signOut(); }catch(x){}
+    alert(authErrorMessage(e));
+  }
+}
+async function revoke(empId){
+  const emp = state.employees.find(e=>e.id===empId);
+  if(!emp) return;
+  if(!confirm((emp.name||"") + " さんの閲覧用をやめます。（パスワードは残りますが、入れなくなります）")) return;
+  state.busy = true; render();
+  try{
+    await db.collection("employees").doc(emp.id).update({ viewerEnabled:false });
+    await reloadEmployees();
+    state.busy = false; render();
+    alert("閲覧用をやめました");
+  }catch(e){
+    state.busy = false; render();
+    alert("できませんでした: " + e.message);
+  }
+}
+
+/* ---------- 画面 ---------- */
+function render(){
+  if(!state.admin) return renderLogin();
+  if(state.done) return renderDone();
+  const emp = state.employees.find(e=>e.id===state.empId);
+  appEl.innerHTML =
+    '<header class="topbar"><h1>リーダー設定（閲覧用の許可）<span style="font-size:11px;font-weight:400;opacity:.8;margin-left:8px;">'+APP_VERSION+'</span></h1>'+
+    '<button onclick="logout()">ログアウト</button></header>'+
+    '<main>'+ (emp ? renderOne(emp) : renderList()) +'</main>';
+}
+
+function renderLogin(){
+  appEl.innerHTML =
+  '<div class="center-screen"><div class="card login-card">'+
+  '<div style="width:52px;height:52px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 8px var(--sun-soft);margin:4px auto 16px;"></div>'+
+  '<h1>リーダー設定</h1><p class="sub">株式会社ホームメンテナンス<br><span style="font-size:11.5px;">閲覧用（アシスト リーダー用）の許可とパスワード発行</span></p>'+
+  '<label>本社のメールアドレス</label><input id="mail" type="email" autocomplete="username" />'+
+  '<label>パスワード</label><input id="pass" type="password" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')login()" />'+
+  '<button class="primary" '+(state.loading?"disabled":"")+' onclick="login()">'+(state.loading?"確認中…":"ログイン")+'</button>'+
+  '<p class="muted" style="font-size:11.5px;margin:14px 0 0;">アシスト労務の本体に入るときと同じメールアドレス・パスワードです。</p>'+
+  '</div></div>';
+}
+
+function listed(){
+  const v = (state.search||"").toLowerCase();
+  const vd = (state.search||"").replace(/[^\d]/g,"");
+  return state.employees.filter(e=>{
+    if(!v) return true;
+    if(vd && String(e.loginId||"").includes(vd)) return true;
+    return [e.name,e.furigana,e.employeeCode,e.area].some(f=>String(f||"").toLowerCase().includes(v));
+  }).sort((a,b)=>{
+    const A = a.viewerEnabled?0:1, B = b.viewerEnabled?0:1;
+    if(A!==B) return A-B;
+    return String(a.employeeCode||"").localeCompare(String(b.employeeCode||""),"ja",{numeric:true});
+  });
+}
+function renderRows(){
+  const list = listed();
+  if(!list.length) return '<p class="muted" style="padding:16px 4px;">該当する人がいません</p>';
+  return list.map(e=>
+    '<div class="row" onclick="state.empId=\''+e.id+'\'; render(); window.scrollTo(0,0);">'+
+      '<div style="min-width:0;flex:1;">'+
+        '<div style="font-weight:700;font-size:15.5px;">'+esc(e.name||"(名前未登録)")+'</div>'+
+        '<div class="muted" style="font-size:12px;margin-top:3px;">'+
+          esc([e.employeeCode||"", e.area||"", e.loginId?("ID "+e.loginId):"ログインID未設定"].filter(Boolean).join(" ・ "))+
+        '</div>'+
+      '</div>'+
+      '<span class="pill '+(e.viewerEnabled?"on":"off")+'">'+(e.viewerEnabled?"許可ずみ":"未設定")+'</span>'+
+    '</div>').join("");
+}
+function renderList(){
+  const on = state.employees.filter(e=>e.viewerEnabled).length;
+  return '<div class="card">'+
+    '<p class="title">だれに許可を出しますか</p>'+
+    '<p class="muted" style="font-size:12.5px;margin:-6px 0 12px;">いま許可ずみ '+on+'名 ／ 在籍 '+state.employees.length+'名</p>'+
+    '<input type="text" placeholder="氏名・フリガナ・管理番号・ログインIDで検索" value="'+esc(state.search)+'" '+
+      'oninput="state.search=this.value; document.getElementById(\'rows\').innerHTML=renderRows();" />'+
+    '<div id="rows" style="margin-top:10px;">'+renderRows()+'</div>'+
+  '</div>'+
+  '<p class="note">このページでできるのは「閲覧用に入れるようにする」ことだけです。お給料や口座など、ほかのデータは何も変わりません。</p>';
+}
+
+function renderOne(e){
+  const has = !!e.viewerEnabled;
+  const v = Number(e.viewerAuthVersion)||0;
+  return '<div class="card">'+
+    '<button class="link" style="margin-bottom:12px;" onclick="state.empId=null; render();">← 一覧にもどる</button>'+
+    '<p class="title" style="margin-bottom:10px;">'+esc(e.name||"")+' さん</p>'+
+    '<div class="kv"><b>管理番号</b><span>'+esc(e.employeeCode||"—")+'</span></div>'+
+    '<div class="kv"><b>エリア</b><span>'+esc(e.area||"—")+'</span></div>'+
+    '<div class="kv"><b>いまの状態</b><span class="pill '+(has?"on":"off")+'">'+(has?"許可ずみ":"未設定")+'</span>'+
+      (v>1?'<span class="muted" style="font-size:11.5px;">（'+v+'回目のパスワード）</span>':'')+'</div>'+
+
+    '<label>ログインID（8桁の数字）</label>'+
+    '<input id="loginId" type="text" inputmode="numeric" maxlength="8" value="'+esc(e.loginId||"")+'" placeholder="12345678" />'+
+    '<p class="muted" style="font-size:11.5px;margin:6px 0 0;">'+
+      (e.loginId ? 'この番号を本人にお伝えください。' : 'まだ決まっていません。ほかの人と重ならない8桁を決めてください（管理番号を8桁にしたものでも大丈夫です）。')+
+    '</p>'+
+
+    '<label>新しいパスワード（6文字以上）</label>'+
+    '<input id="p1" type="password" autocomplete="new-password" />'+
+    '<label>もう一度おなじものを</label>'+
+    '<input id="p2" type="password" autocomplete="new-password" onkeydown="if(event.key===\'Enter\')grant(\''+e.id+'\','+(has?"true":"false")+')" />'+
+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">'+
+      '<button class="small'+(has?' dark':'')+'" '+(state.busy?"disabled":"")+' onclick="grant(\''+e.id+'\','+(has?"true":"false")+')">'+
+        (state.busy ? "作成中…" : (has ? "パスワードを作り直す" : "閲覧用を許可してパスワードを発行"))+'</button>'+
+      (has ? '<button class="ghost" '+(state.busy?"disabled":"")+' onclick="revoke(\''+e.id+'\')">閲覧用をやめる</button>' : '')+
+    '</div>'+
+
+    (has ? '<p class="warn" style="margin-top:16px;">作り直すと、<b>今までのパスワードは使えなくなります</b>。新しいほうを必ず本人にお伝えください。</p>'
+         : '<p class="note" style="margin-top:16px;">許可を出すと、この方は「アシスト（リーダー用）」に入れるようになります。見えるのは従業員データ（住所は町名まで・給与や口座は出ません）・お休み・チャット・自分の業務日誌です。</p>')+
+  '</div>';
+}
+
+function renderDone(){
+  const d = state.done;
+  appEl.innerHTML =
+    '<header class="topbar"><h1>リーダー設定（閲覧用の許可）</h1><button onclick="logout()">ログアウト</button></header>'+
+    '<main><div class="card">'+
+    '<p class="title" style="color:var(--success);">'+(d.redo?"パスワードを作り直しました":"許可を出しました")+'</p>'+
+    '<p style="margin:0 0 14px;">'+esc(d.name)+' さんに、下の3つをお伝えください。</p>'+
+    '<div class="kv"><b>ひらくところ</b><span style="word-break:break-all;"><a href="'+d.url+'" target="_blank" rel="noopener">'+d.url+'</a></span></div>'+
+    '<div class="kv" style="align-items:center;"><b>ログインID</b><span class="big">'+esc(d.loginId)+'</span></div>'+
+    '<div class="kv"><b>パスワード</b><span class="muted">いま入力したもの（画面には出しません）</span></div>'+
+    '<p class="warn" style="margin-top:16px;">パスワードはどこにも保存していません。この画面を閉じると分からなくなりますので、いま本人にお伝えください。忘れたときは、この画面から作り直せます。</p>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">'+
+      '<button class="small" onclick="state.done=null; state.empId=null; render();">つづけて別の人を設定する</button>'+
+    '</div>'+
+    '</div></main>';
+}
+
+render();
+</script>
+</body>
+</html>

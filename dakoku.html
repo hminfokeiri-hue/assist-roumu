@@ -64,8 +64,11 @@ storageBucket: "assist-roumu.firebasestorage.app",
 messagingSenderId: "919904591114",
 appId: "1:919904591114:web:33d30e66ea4264e081eef3"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+/* このページ専用の入れ物（名前つき）。名前を分けておかないと、
+同じ置き場所にあるアシスト労務（本体）とログインの記録を共有してしまい、
+打刻ページを開いただけで本体のログインが消えてしまいます。 */
+const dakokuApp = firebase.initializeApp(firebaseConfig, "dakoku");
+const db = dakokuApp.firestore();
 db.enablePersistence({ synchronizeTabs: true }).catch(function(){});
 
 const LS_LOGIN = "assistRoumuLoginId";
@@ -261,7 +264,7 @@ var params = new URLSearchParams(location.search);
 state.siteId = params.get("site");
 state.today = todayStr();
 
-try{ await firebase.auth().signInAnonymously(); }catch(e){}
+try{ await dakokuApp.auth().signInAnonymously(); }catch(e){}
 
 var gname = params.get("g");
 var me = params.get("me");

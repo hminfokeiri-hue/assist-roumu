@@ -185,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-14(1)";
+const APP_VERSION = "リーダー用 2026-09-14(2)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -314,8 +314,13 @@ const state = {
 const appEl = document.getElementById("app");
 const printEl = document.getElementById("printArea");
 
-firebase.initializeApp(firebaseConfig);
-db = firebase.firestore();
+/* このページ専用の入れ物（名前つき）で動かします。
+名前を付けずに使うと、同じ hminfokeiri-hue.github.io の中にある
+アシスト労務（本体）や信号板と「ログインの記録」を共有してしまい、
+このページでログイン／ログアウトしただけで、本体のログインまで
+消えてしまいます。名前を分けることで、おたがいに影響しません。 */
+const viewerApp = firebase.initializeApp(firebaseConfig, "viewer");
+db = viewerApp.firestore();
 /* リーダーさんのログインを作るときだけ使う、もうひとつの入れ物。
 これを分けておかないと、作った本人にログインが切り替わってしまいます。 */
 const subApp = firebase.initializeApp(firebaseConfig, "maker");
@@ -393,10 +398,10 @@ async function handleLogin() {
   state.loading = true; render();
   try {
     if (idRaw.includes("@")) {
-      const cred = await firebase.auth().signInWithEmailAndPassword(idRaw, pass);
+      const cred = await viewerApp.auth().signInWithEmailAndPassword(idRaw, pass);
       const a = await db.collection("admins").doc(cred.user.uid).get();
       if (!a.exists) {
-        await firebase.auth().signOut();
+        await viewerApp.auth().signOut();
         state.loading = false; render();
         return alert("このアカウントでは入れません。本社にお問い合わせください。");
       }
@@ -405,7 +410,7 @@ async function handleLogin() {
     }
 
     const loginId = idRaw.replace(/[^\d]/g, "");
-    await firebase.auth().signInAnonymously();
+    await viewerApp.auth().signInAnonymously();
     const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
     if (snap.empty) { state.loading = false; render(); return alert("ログインIDまたはパスワードが正しくありません"); }
     const emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
@@ -413,10 +418,10 @@ async function handleLogin() {
       state.loading = false; render();
       return alert("このログインIDでは閲覧用ページをご利用いただけません。本社にお問い合わせください。");
     }
-    const cred = await firebase.auth().signInWithEmailAndPassword(leaderEmail(loginId, emp.viewerAuthVersion), pass);
+    const cred = await viewerApp.auth().signInWithEmailAndPassword(leaderEmail(loginId, emp.viewerAuthVersion), pass);
     const v = await db.collection("viewers").doc(cred.user.uid).get();
     if (!v.exists) {
-      await firebase.auth().signOut();
+      await viewerApp.auth().signOut();
       state.loading = false; render();
       return alert("このログインIDでは閲覧用ページをご利用いただけません。本社にお問い合わせください。");
     }
@@ -437,7 +442,7 @@ function logout() {
   state.setupEmpId = null; state.setupSearch = ""; state.setupLoginId = ""; state.setupPw = "";
   state.setupDone = null; state.secrets = {}; state.secretsLoaded = false;
   state.secretsError = ""; state.showSecretFor = null;
-  firebase.auth().signOut().catch(() => {});
+  viewerApp.auth().signOut().catch(() => {});
   render();
 }
 

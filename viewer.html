@@ -185,7 +185,18 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-16(3)";
+const APP_VERSION = "リーダー用 2026-09-16(4)";
+
+/* ---------- 社長用（見るだけ） ----------
+社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
+カードの合言葉で自動ログインします。ID・パスワードの入力はありません。
+書き込み（備考・チャット返信・日誌・設定）はすべて出しません。
+Firestore のルールでも presidents に登録された人は読むだけにしています。 */
+const SHACHO = new URLSearchParams(location.search).get("view") === "shacho";
+const SHACHO_EMAIL = "shacho@president.assist-roumu.jp";
+const SHACHO_HOME = "https://hminfokeiri-hue.github.io/assist-roumu/shacho.html";
+function shachoKey() { try { return localStorage.getItem("assistShachoKey") || ""; } catch (e) { return ""; } }
+function isShacho() { return !!(state.user && state.user.isShacho); }
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -319,7 +330,7 @@ const printEl = document.getElementById("printArea");
 アシスト労務（本体）や信号板と「ログインの記録」を共有してしまい、
 このページでログイン／ログアウトしただけで、本体のログインまで
 消えてしまいます。名前を分けることで、おたがいに影響しません。 */
-const viewerApp = firebase.initializeApp(firebaseConfig, "viewer");
+const viewerApp = firebase.initializeApp(firebaseConfig, SHACHO ? "shacho" : "viewer");
 db = viewerApp.firestore();
 /* リーダーさんのログインを作るときだけ使う、もうひとつの入れ物。
 これを分けておかないと、作った本人にログインが切り替わってしまいます。 */
@@ -473,6 +484,7 @@ function subscribeAll() {
 
 /* ---------- 備考の書き込み ---------- */
 async function saveNotes(id) {
+  if (isShacho()) return;
   const box = document.getElementById("notesBox");
   if (!box) return;
   const notes = box.value;
@@ -509,6 +521,7 @@ async function openThread(empId) {
   state.chatEmpId = empId;
   state.chatDraft = "";
   render();
+  if (isShacho()) { const b = document.getElementById("chatScroll"); if (b) b.scrollTop = b.scrollHeight; return; }
   const unread = (state.messages || []).filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByViewer && !m.broadcastId);
   for (const m of unread) {
     try { await db.collection("messages").doc(m.id).update({ readByViewer: true }); } catch (e) { /* 何もしない */ }
@@ -525,6 +538,7 @@ function insertPreset(text) {
   }
 }
 async function sendReply(empId) {
+  if (isShacho()) return;
   const el = document.getElementById("chatInput");
   const text = (el ? el.value : "").trim();
   if (!text) return alert("メッセージを入力してください");
@@ -630,10 +644,15 @@ function holidayName(ymd) {
 本社 … A＋ログインのID */
 function myAuthorId() {
   if (!state.user) return "";
+  if (isShacho()) return "S";   // 社長は書かないので、自分の日誌はありません
   return state.user.isAdmin ? ("A" + (state.user.uid || "")) : ("E" + (state.user.employeeId || ""));
 }
 /* いま画面に出している「書いた人」。本社が誰かを選んでいればその人。 */
 function shownAuthorId() {
+  if (!state.logWho && isShacho()) {
+    const w = logWriterOptions();
+    return w.length ? w[0].id : "";
+  }
   return state.logWho || myAuthorId();
 }
 function authorNameOf(id) {
@@ -650,7 +669,7 @@ function authorNameOf(id) {
 function logWriterOptions() {
   const out = [], seen = {};
   const push = (id, name) => { if (id && !seen[id]) { seen[id] = 1; out.push({ id, name: name || "(名前なし)" }); } };
-  push(myAuthorId(), (state.user.name || "") + "（自分）");
+  if (!isShacho()) push(myAuthorId(), (state.user.name || "") + "（自分）");
   (state.logs || []).forEach(l => push(l.authorId, l.authorName));
   (state.employees || []).filter(e => e.viewerEnabled).forEach(e => push("E" + e.id, e.name));
   return out;
@@ -714,6 +733,7 @@ function pickLogDay(date) {
   if (box) box.focus();
 }
 async function saveLog() {
+  if (isShacho()) return;
   const d = state.logDate;
   if (!d) return alert("日付を選んでください");
   if (d.slice(0, 7) !== state.logYm) {
@@ -744,6 +764,7 @@ async function saveLog() {
   }
 }
 async function clearLogDay() {
+  if (isShacho()) return;
   const d = state.logDate;
   if (!d) return;
   if (!confirm(d + " の日誌を空にします。よろしいですか？")) return;
@@ -765,6 +786,7 @@ async function clearLogDay() {
 }
 /* 区分のリストは本社だけが直せます */
 async function saveLogCats() {
+  if (isShacho()) return;
   const box = document.getElementById("logCatBox");
   if (!box) return;
   const cats = box.value.split("\n").map(s => s.trim()).filter(Boolean);
@@ -814,7 +836,8 @@ function renderLogTab() {
 </tr>`;
   }
 
-  const writers = state.user.isAdmin ? logWriterOptions() : [];
+  const seeAll = state.user.isAdmin || isShacho();
+  const writers = seeAll ? logWriterOptions() : [];
 
   return `
 <div class="card">
@@ -822,14 +845,14 @@ function renderLogTab() {
     <p class="title" style="margin:0;">業務日誌　${y}年${m}月</p>
     <span class="muted" style="font-size:13px;">${filled}日ぶん</span>
   </div>
-  <div class="filters" style="grid-template-columns:${state.user.isAdmin ? "1fr 1fr" : "1fr"};">
+  <div class="filters" style="grid-template-columns:${seeAll ? "1fr 1fr" : "1fr"};">
     <div>
       <label style="margin-top:0;">月</label>
       <input type="month" value="${ym}" onchange="changeLogYm(this.value)" />
     </div>
-    ${state.user.isAdmin ? `
+    ${seeAll ? `
     <div>
-      <label style="margin-top:0;">書いた人（本社だけ選べます）</label>
+      <label style="margin-top:0;">${isShacho() ? "書いた人" : "書いた人（本社だけ選べます）"}</label>
       <select onchange="state.logWho=this.value; render();">
         ${writers.map(w => `<option value="${esc(w.id)}" ${w.id === who ? "selected" : ""}>${esc(w.name)}</option>`).join("")}
       </select>
@@ -837,7 +860,7 @@ function renderLogTab() {
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
     <button class="small" onclick="printLogSheet('${esc(who)}')">🖨 ${mine ? "1か月を印刷" : "この人の1か月を印刷"}</button>
-    ${state.user.isAdmin ? `<button class="small" style="background:var(--blue-dark);" onclick="printAllLogSheets()">🖨 全員分をまとめて印刷</button>` : ""}
+    ${seeAll ? `<button class="small" style="background:var(--blue-dark);" onclick="printAllLogSheets()">🖨 全員分をまとめて印刷</button>` : ""}
     <button class="ghost" onclick="state.logLoaded=''; render();">最新に読み直す</button>
   </div>
   <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
@@ -972,16 +995,16 @@ function renderScreen() {
   const tab = (name, label) => `<button class="${state.tab === name ? "active" : ""}" onclick="state.tab='${name}'; render();">${label}</button>`;
   appEl.innerHTML = `
 <header class="topbar">
-  <h1>アシスト（リーダー用）</h1>
-  <button onclick="logout()">ログアウト</button>
+  <h1>${isShacho() ? "アシスト（社長用・見るだけ）" : "アシスト（リーダー用）"}</h1>
+  ${isShacho() ? `<button onclick="location.href=SHACHO_HOME">入口へ</button>` : `<button onclick="logout()">ログアウト</button>`}
 </header>
 <main>
   <p class="muted" style="font-size:13px; margin:0 0 12px; display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-    <span>${esc(state.user.name)} さん${state.user.isAdmin ? "（本社）" : "（リーダー）"}</span>
+    <span>${esc(state.user.name)} さん${state.user.isAdmin ? "（本社）" : isShacho() ? "（見るだけ）" : "（リーダー）"}</span>
     <span style="font-size:10.5px; opacity:.75; white-space:nowrap;">${APP_VERSION}</span>
   </p>
   <div class="tabbar">
-    ${tab("home", "🏠 ホーム")}
+    ${isShacho() ? "" : tab("home", "🏠 ホーム")}
     ${tab("emp", "従業員")}
     ${tab("leave", `お休み${pendingLeaveCount() ? `<span class="badge">${pendingLeaveCount()}</span>` : ""}`)}
     ${tab("chat", `チャット${unread ? `<span class="badge">${unread}</span>` : ""}`)}
@@ -999,9 +1022,10 @@ function renderScreen() {
 }
 
 function renderTab() {
+  if (isShacho() && (state.tab === "home" || state.tab === "setup")) state.tab = "emp";
   if (state.tab === "home") return renderHomeTab();
   if (state.tab === "log") return renderLogTab();
-  if (state.tab === "setup") return renderSetupTab();
+  if (state.tab === "setup" && !isShacho()) return renderSetupTab();
   if (state.tab === "leave") return renderLeaveTab();
   if (state.tab === "chat") return renderChatTab();
   if (state.tab === "interview") return renderInterviewTab();
@@ -1117,6 +1141,14 @@ function renderInterviewTab() {
 }
 
 function renderLogin() {
+  if (SHACHO) {
+    appEl.innerHTML = `<div class="center-screen"><div class="card login-card">
+      <h1>アシスト（社長用）</h1>
+      <p class="sub">${esc(state.shachoErr || "読み込み中です…")}</p>
+      <a class="small" style="display:inline-block;text-decoration:none;" href="${SHACHO_HOME}">入口にもどる</a>
+    </div></div>`;
+    return;
+  }
   const saved = localStorage.getItem("assistViewerId") || "";
   appEl.innerHTML = `
 <div class="center-screen">
@@ -1245,18 +1277,20 @@ function renderDetail(e) {
   ${renderEmpAttendanceHistory(e)}
 
   <div style="margin-top:18px;">
-    <label style="margin-bottom:6px;">備考（ここだけ書き込めます）</label>
-    <textarea id="notesBox" placeholder="申し送りや気づいたことを書いてください"
-      oninput="state.notesDraft=this.value;">${esc(state.notesDraft !== null ? state.notesDraft : (e.notes || ""))}</textarea>
+    <label style="margin-bottom:6px;">${isShacho() ? "備考" : "備考（ここだけ書き込めます）"}</label>
+    ${isShacho()
+      ? `<div class="note" style="white-space:pre-wrap; font-size:14px; color:var(--text);">${esc(e.notes || "（書き込みはありません）")}</div>`
+      : `<textarea id="notesBox" placeholder="申し送りや気づいたことを書いてください"
+      oninput="state.notesDraft=this.value;">${esc(state.notesDraft !== null ? state.notesDraft : (e.notes || ""))}</textarea>`}
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
       <span class="muted" style="font-size:11.5px;">
         ${stamp ? `最終更新：${stamp} ${esc(e.notesUpdatedBy || "")}` : "まだ書き込みはありません"}
       </span>
-      <button class="small" ${state.busy ? "disabled" : ""} onclick="saveNotes('${e.id}')">${state.busy ? "保存中…" : "備考を保存する"}</button>
+      ${isShacho() ? "" : `<button class="small" ${state.busy ? "disabled" : ""} onclick="saveNotes('${e.id}')">${state.busy ? "保存中…" : "備考を保存する"}</button>`}
     </div>
   </div>
 
-  <p class="note" style="margin-top:16px;">この画面で書き込めるのは備考欄だけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
+  <p class="note" style="margin-top:16px;${isShacho() ? " display:none;" : ""}">この画面で書き込めるのは備考欄だけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
 </div>
 `;
 }
@@ -1504,6 +1538,7 @@ function renderChatTab() {
   <div class="chat-scroll" id="chatScroll">
     ${thread.length ? thread.map(m => renderBubble(m)).join("") : `<p class="muted">まだメッセージはありません</p>`}
   </div>
+  ${isShacho() ? `<p class="note" style="margin-top:12px;">見るだけの画面です。返信はできません。</p>` : `
   <div class="preset-row">
     ${PRESET_PHRASES.map(p => `<button type="button" class="preset-btn" onclick="insertPreset('${p}')">${p}</button>`).join("")}
   </div>
@@ -1511,7 +1546,7 @@ function renderChatTab() {
     <textarea id="chatInput" placeholder="メッセージを入力" oninput="state.chatDraft=this.value;">${esc(state.chatDraft || "")}</textarea>
     <button class="small" ${state.busy ? "disabled" : ""} onclick="sendReply('${empId}')">${state.busy ? "送信中…" : "送信"}</button>
   </div>
-  <p class="note" style="margin-top:12px;">返信は「${esc(state.user.name)}」の名前で相手に届きます。全員への一斉送信は本社の画面からになります。</p>
+  <p class="note" style="margin-top:12px;">返信は「${esc(state.user.name)}」の名前で相手に届きます。全員への一斉送信は本社の画面からになります。</p>`}
 </div>
 `;
   }
@@ -1607,6 +1642,7 @@ function pickSetupEmp(id) {
 
 /* 許可を出す／パスワードを変える */
 async function grantLeader(empId) {
+  if (isShacho()) return;
   const emp = (state.employees || []).find(e => e.id === empId);
   if (!emp) return;
   const loginId = String(state.setupLoginId || "").replace(/[^\d]/g, "");
@@ -1668,6 +1704,7 @@ async function grantLeader(empId) {
   }
 }
 async function revokeLeader(empId) {
+  if (isShacho()) return;
   const emp = (state.employees || []).find(e => e.id === empId);
   if (!emp) return;
   if (!confirm((emp.name || "") + " さんが、このページに入れないようにします。よろしいですか？")) return;
@@ -1682,6 +1719,7 @@ async function revokeLeader(empId) {
   }
 }
 async function deleteSecret(empId) {
+  if (isShacho()) return;
   if (!confirm("パスワードのひかえを消します。（パスワードそのものは変わりません）")) return;
   state.busy = true; render();
   try {
@@ -1809,7 +1847,26 @@ function renderSetupDone() {
 `;
 }
 
-render();
+async function shachoLogin() {
+  if (!shachoKey()) { state.shachoErr = "社長用カードのQRコードから開いてください。"; render(); return; }
+  state.loading = true; render();
+  try {
+    const cred = await viewerApp.auth().signInWithEmailAndPassword(SHACHO_EMAIL, shachoKey());
+    const p = await db.collection("presidents").doc(cred.user.uid).get();
+    if (!p.exists) throw new Error("not-registered");
+    state.user = { name: (p.data() || {}).name || "社長", isAdmin: false, isShacho: true, uid: cred.user.uid };
+    const t = new URLSearchParams(location.search).get("tab");
+    state.tab = ["emp", "leave", "chat", "log", "interview"].indexOf(t) >= 0 ? t : "emp";
+    subscribeAll();
+  } catch (e) {
+    await viewerApp.auth().signOut().catch(() => {});
+    state.loading = false;
+    state.shachoErr = "社長用カードで入れませんでした。もういちど、カードのQRコードを読んでください。";
+    render();
+  }
+}
+
+if (SHACHO) shachoLogin(); else render();
 </script>
 </body>
 </html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>アシストIT｜社長用</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#1f2a37;--sub:#6b7280;--main:#1e4e8c;--line:#e5e7eb}
+@media (prefers-color-scheme: dark){:root{--bg:#111827;--card:#1f2937;--ink:#f3f4f6;--sub:#9ca3af;--main:#7fb0ff;--line:#374151}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"BIZ UDPGothic","Hiragino Sans","Yu Gothic",Meiryo,sans-serif}
+header{background:#1e4e8c;color:#fff;padding:22px 18px 18px}
+header small{opacity:.85;font-size:13px}
+header h1{margin:4px 0 0;font-size:22px;letter-spacing:.05em}
+main{max-width:560px;margin:0 auto;padding:16px}
+.note{font-size:13px;color:var(--sub);margin:4px 2px 14px}
+a.app{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;text-decoration:none;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+a.app:active{transform:scale(.98)}
+.ic{font-size:30px;width:52px;height:52px;display:flex;align-items:center;justify-content:center;background:var(--bg);border-radius:12px;flex-shrink:0}
+.t{font-size:18px;font-weight:bold}
+.d{font-size:13px;color:var(--sub);margin-top:3px}
+.arr{margin-left:auto;color:var(--sub);font-size:22px}
+h2{font-size:14px;color:var(--main);margin:20px 2px 8px}
+.warn{background:#fdecea;color:#8b2c1f;border-radius:12px;padding:16px;font-size:15px;line-height:1.7}
+footer{text-align:center;font-size:12px;color:var(--sub);padding:20px}
+</style>
+</head>
+<body>
+<header>
+  <small>株式会社ホームメンテナンス</small>
+  <h1>アシストIT　社長用</h1>
+</header>
+<main id="main"></main>
+<footer>困ったときは本社 06-6654-7812</footer>
+<script>
+/* 社長用の入口。カードのQR（…shacho.html#k=合言葉）で開くと、合言葉をこのスマホに覚えます。
+   合言葉はこのファイルには書いていません（QRコードの中にだけあります）。
+   各ソフトは ?view=shacho で開き、覚えた合言葉で自動ログインして「見るだけ」になります。 */
+(function(){
+  var KEY_NAME="assistShachoKey";
+  try{
+    var m=location.hash.match(/k=([A-Za-z0-9]+)/);
+    if(m){ localStorage.setItem(KEY_NAME,m[1]); history.replaceState(null,"",location.pathname); }
+  }catch(e){}
+  var has=false; try{ has=!!localStorage.getItem(KEY_NAME); }catch(e){}
+  var el=document.getElementById("main");
+  if(!has){
+    el.innerHTML='<p class="warn">社長用カードのQRコードを、スマホのカメラで読んで開いてください。</p>';
+    return;
+  }
+  var R="https://hminfokeiri-hue.github.io/";
+  el.innerHTML=
+    '<p class="note">見るだけの入口です。ボタンを押すと各ソフトが開きます（書きかえはできません）。</p>'+
+    '<h2>見るだけ</h2>'+
+    '<a class="app" href="'+R+'assist-calendar/?view=shacho"><div class="ic">📅</div><div><div class="t">アシストカレンダー</div><div class="d">定期清掃の予定・配置表・年間予定</div></div><div class="arr">›</div></a>'+
+    '<a class="app" href="'+R+'assist-roumu/viewer.html?view=shacho&tab=emp"><div class="ic">👥</div><div><div class="t">アシスト労務</div><div class="d">従業員・お休み・チャット・面接</div></div><div class="arr">›</div></a>'+
+    '<a class="app" href="'+R+'assist-roumu/viewer.html?view=shacho&tab=log"><div class="ic">📝</div><div><div class="t">業務日誌</div><div class="d">事業部リーダーの日誌</div></div><div class="arr">›</div></a>';
+})();
+</script>
+</body>
+</html>

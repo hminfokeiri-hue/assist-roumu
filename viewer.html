@@ -185,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-14(2)";
+const APP_VERSION = "リーダー用 2026-09-16(3)";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -279,7 +279,7 @@ let db = null;
 const state = {
   user: null,            // { name, isAdmin, employeeId, uid }
   tab: "home",           // home / emp / leave / chat / log
-  employees: [], leaves: [], messages: [],
+  employees: [], leaves: [], messages: [], interviews: [],
   empId: null,
   search: "", area: "", sort: "code",
   leaveStatus: "pending", leaveArea: "",
@@ -464,6 +464,11 @@ function subscribeAll() {
     state.messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("messages購読エラー", err));
+
+  db.collection("interviews").onSnapshot(snap => {
+    state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("interviews購読エラー", err));
 }
 
 /* ---------- 備考の書き込み ---------- */
@@ -981,6 +986,7 @@ function renderScreen() {
     ${tab("leave", `お休み${pendingLeaveCount() ? `<span class="badge">${pendingLeaveCount()}</span>` : ""}`)}
     ${tab("chat", `チャット${unread ? `<span class="badge">${unread}</span>` : ""}`)}
     ${tab("log", "📝 業務日誌")}
+    ${tab("interview", `面接${upcomingInterviewCount() ? `<span class="badge">${upcomingInterviewCount()}</span>` : ""}`)}
     ${state.user.isAdmin ? tab("setup", "⚙ リーダー設定") : ""}
   </div>
   ${state.loading ? `<div class="card"><p class="muted" style="margin:0;">読み込み中です…</p></div>` : renderTab()}
@@ -998,6 +1004,7 @@ function renderTab() {
   if (state.tab === "setup") return renderSetupTab();
   if (state.tab === "leave") return renderLeaveTab();
   if (state.tab === "chat") return renderChatTab();
+  if (state.tab === "interview") return renderInterviewTab();
   const emp = state.employees.find(e => e.id === state.empId);
   return emp ? renderDetail(emp) : renderList();
 }
@@ -1039,6 +1046,74 @@ function renderHomeTab() {
 </div>
 <p class="note">スマホのホーム画面にこのページを追加しておくと、アプリのように開けます（Safariは「共有」→「ホーム画面に追加」、Edge・Chromeは「…」→「ホーム画面に追加」）。</p>
 `;
+}
+
+/* ---------- 面接リスト（見るだけ。登録・修正は本社のみ） ---------- */
+const INTERVIEW_LABEL = {
+  scheduled: "面接予定", done: "面接ずみ", hold: "保留", hired: "採用", rejected: "不採用"
+};
+
+function upcomingInterviewCount() {
+  return (state.interviews || []).filter(v => v.status === "scheduled").length;
+}
+
+function fmtInterviewAt(v) {
+  if (!v) return "日時 未定";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  const w = ["日", "月", "火", "水", "木", "金", "土"];
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${w[d.getDay()]}） ${hh}:${mm}`;
+}
+
+function interviewPillClass(st) {
+  if (st === "hired") return "pill on";
+  if (st === "rejected") return "pill no";
+  if (st === "scheduled") return "pill wait";
+  return "pill";
+}
+
+function interviewRow(v) {
+  const tel = (v.phone || "").replace(/[^0-9+]/g, "");
+  return `
+<div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px; background:#fff;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+    <div>
+      <span style="font-size:16px; font-weight:700;">${esc(v.name || "（名前なし）")}</span>
+      ${v.age ? `<span class="muted" style="font-size:13px;">　${esc(String(v.age))}歳</span>` : ""}<br>
+      ${v.phone ? `<a href="tel:${tel}" style="font-size:14px; color:var(--blue); text-decoration:none;">📞 ${esc(v.phone)}</a><br>` : ""}
+      <span class="muted" style="font-size:13px;">応募の現場：${esc(v.appliedSite || "（未記入）")}</span><br>
+      <span class="muted" style="font-size:13px;">面接：${fmtInterviewAt(v.interviewAt)}${v.interviewPlace ? "　" + esc(v.interviewPlace) : ""}</span>
+    </div>
+    <span class="${interviewPillClass(v.status)}" style="white-space:nowrap;">${INTERVIEW_LABEL[v.status] || v.status || ""}</span>
+  </div>
+</div>`;
+}
+
+function renderInterviewTab() {
+  const all = state.interviews || [];
+  const byTime = (a, b) => (a.interviewAt || "9999").localeCompare(b.interviewAt || "9999");
+  const upcoming = all.filter(v => v.status === "scheduled").sort(byTime);
+  const waiting = all.filter(v => v.status === "done" || v.status === "hold").sort(byTime);
+  const finished = all.filter(v => v.status === "hired" || v.status === "rejected").sort((a, b) => byTime(b, a));
+
+  return `
+<p class="note" style="margin-bottom:14px;">応募者の登録・修正は本社で行います。この画面では内容を見るだけです。面接のメモ（社内用）は出ません。</p>
+<div class="card">
+  <p class="title" style="margin-bottom:10px;">これからの面接（${upcoming.length}件）</p>
+  ${upcoming.length ? upcoming.map(interviewRow).join("") : `<p class="muted" style="font-size:13px; margin:0;">予定はありません</p>`}
+
+  <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
+    <p class="title" style="margin-bottom:10px;">面接ずみ・保留（${waiting.length}件）</p>
+    ${waiting.length ? waiting.map(interviewRow).join("") : `<p class="muted" style="font-size:13px; margin:0;">ありません</p>`}
+  </div>
+
+  <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
+    <p class="title" style="margin-bottom:10px;">結果が出たもの（${finished.length}件）</p>
+    ${finished.length ? finished.map(interviewRow).join("") : `<p class="muted" style="font-size:13px; margin:0;">ありません</p>`}
+  </div>
+</div>`;
 }
 
 function renderLogin() {

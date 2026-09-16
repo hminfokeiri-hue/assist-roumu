@@ -517,7 +517,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-06(8)";
+const APP_VERSION = "更新: 2026-09-16(9)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -547,7 +547,12 @@ const state = {
   empDocDate: "",            // 追加フォーム：日付
   empDocNote: "",            // 追加フォーム：メモ
   empDocUploading: false,    // 保存中かどうか
-  loginLogs: {}              // 従業員ID → 最終ログイン日時（本社がログイン状況を見るため）
+  loginLogs: {},             // 従業員ID → 最終ログイン日時（本社がログイン状況を見るため）
+  // ---- 面接リスト ----
+  interviews: [],            // 応募者・面接の一覧
+  interviewEditId: null,     // "new" なら新規追加、IDなら編集中
+  interviewDraft: {},        // 追加・編集の入力内容
+  showDoneInterviews: false  // 「結果が出たもの」をひらいているか
 };
 
 const appEl = document.getElementById("app");
@@ -1951,6 +1956,250 @@ function subscribeStaffLeaveRequests() {
     });
 }
 
+/* ---------- 面接リスト ---------- */
+const INTERVIEW_STATUS = [
+  ["scheduled", "面接予定"],
+  ["done", "面接ずみ"],
+  ["hold", "保留"],
+  ["hired", "採用"],
+  ["rejected", "不採用"]
+];
+const INTERVIEW_LABEL = {};
+INTERVIEW_STATUS.forEach(([k, v]) => { INTERVIEW_LABEL[k] = v; });
+
+// 面接の日時を「2026年9月25日（金） 14:00」の形にする
+function fmtInterviewAt(v) {
+  if (!v) return "日時 未定";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  const w = ["日", "月", "火", "水", "木", "金", "土"];
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${w[d.getDay()]}） ${hh}:${mm}`;
+}
+
+// これからの面接の件数（タブのバッジ用）
+function upcomingInterviewCount() {
+  return (state.interviews || []).filter(v => v.status === "scheduled").length;
+}
+
+function interviewStatusPill(st) {
+  const color = { scheduled: "var(--warning)", done: "var(--muted)", hold: "var(--muted)", hired: "var(--success)", rejected: "var(--danger)" }[st] || "var(--muted)";
+  return `<span class="status-pill" style="background:#fff; border:1.5px solid ${color}; color:${color};">${INTERVIEW_LABEL[st] || st}</span>`;
+}
+
+function renderAdminInterviewTab() {
+  const all = state.interviews || [];
+  const byTime = (a, b) => (a.interviewAt || "9999").localeCompare(b.interviewAt || "9999");
+  const upcoming = all.filter(v => v.status === "scheduled").sort(byTime);
+  const waiting = all.filter(v => v.status === "done" || v.status === "hold").sort(byTime);
+  const finished = all.filter(v => v.status === "hired" || v.status === "rejected").sort((a, b) => byTime(b, a));
+
+  return `
+    ${renderInterviewEditForm()}
+    <div class="card">
+      <div class="row-between" style="margin-bottom:14px;">
+        <p class="staff-title" style="font-size:16px; margin:0;">面接リスト</p>
+        <button style="font-size:13px; padding:8px 14px; width:auto; margin:0;" onclick="startNewInterview()">＋ 応募者を追加</button>
+      </div>
+
+      <p class="muted" style="font-size:12px; margin:0 0 14px;">応募があったら、まずここに登録してください。「採用」にすると、そのまま従業員登録にうつれます。</p>
+
+      <p class="muted" style="margin:0 0 8px; font-weight:700;">これからの面接（${upcoming.length}件）</p>
+      ${upcoming.length ? upcoming.map(v => interviewCard(v)).join("") : `<p class="muted" style="font-size:13px; margin:0 0 8px;">予定はありません</p>`}
+
+      <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
+        <p class="muted" style="margin:0 0 8px; font-weight:700;">面接ずみ・保留（${waiting.length}件）</p>
+        ${waiting.length ? waiting.map(v => interviewCard(v)).join("") : `<p class="muted" style="font-size:13px; margin:0;">ありません</p>`}
+      </div>
+
+      <div style="margin-top:18px; border-top:1px solid var(--border); padding-top:12px;">
+        <div class="row-between">
+          <p class="muted" style="margin:0; font-weight:700;">結果が出たもの（${finished.length}件）</p>
+          <button style="font-size:12px; padding:6px 12px; width:auto; margin:0;" onclick="state.showDoneInterviews=!state.showDoneInterviews; render();">${state.showDoneInterviews ? "とじる" : "ひらく"}</button>
+        </div>
+        ${state.showDoneInterviews
+          ? (finished.length ? finished.map(v => interviewCard(v)).join("") : `<p class="muted" style="font-size:13px; margin:8px 0 0;">ありません</p>`)
+          : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、採用・不採用になった方を確認できます。</p>`}
+      </div>
+    </div>
+  `;
+}
+
+// 1件ぶんのカード
+function interviewCard(v) {
+  const statusOptions = INTERVIEW_STATUS.map(([k, label]) =>
+    `<option value="${k}" ${v.status === k ? "selected" : ""}>${label}</option>`).join("");
+  const tel = (v.phone || "").replace(/[^0-9+]/g, "");
+  return `
+    <div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px; background:#fff;">
+      <div class="row-between" style="align-items:flex-start; gap:10px;">
+        <div>
+          <span style="font-size:16px; font-weight:700;">${escapeHtml(v.name || "（名前なし）")}</span>
+          ${v.age ? `<span class="muted" style="font-size:13px;">　${escapeHtml(String(v.age))}歳</span>` : ""}
+          <br>
+          ${v.phone ? `<a href="tel:${tel}" style="font-size:14px; color:var(--blue); text-decoration:none;">📞 ${escapeHtml(v.phone)}</a><br>` : ""}
+          <span class="muted" style="font-size:13px;">応募の現場：${escapeHtml(v.appliedSite || "（未記入）")}</span><br>
+          <span class="muted" style="font-size:13px;">面接：${fmtInterviewAt(v.interviewAt)}${v.interviewPlace ? "　" + escapeHtml(v.interviewPlace) : ""}</span>
+          ${v.memo ? `<br><span class="muted" style="font-size:13px; white-space:pre-wrap;">メモ：${escapeHtml(v.memo)}</span>` : ""}
+        </div>
+        <div style="text-align:right; white-space:nowrap;">${interviewStatusPill(v.status)}</div>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px;">
+        <select style="width:auto; font-size:13px; padding:7px 10px; margin:0;" onchange="setInterviewStatus('${v.id}', this.value)">${statusOptions}</select>
+        <button style="font-size:13px; padding:7px 12px; width:auto; margin:0;" onclick="startEditInterview('${v.id}')">なおす</button>
+        <button style="font-size:13px; padding:7px 12px; width:auto; margin:0; color:var(--danger); border:1.5px solid var(--danger); background:#fff;" onclick="deleteInterview('${v.id}')">消す</button>
+        ${v.status === "hired" ? (v.hiredEmpId
+          ? `<button style="font-size:13px; padding:7px 12px; width:auto; margin:0; color:var(--success); border:1.5px solid var(--success); background:#fff;" onclick="state.adminTab='emp'; state.editingEmpId='${v.hiredEmpId}'; render(); window.scrollTo(0,0);">登録ずみ → 従業員ページをひらく</button>`
+          : `<button class="primary" style="font-size:13px; padding:7px 12px; width:auto; margin:0;" onclick="hireInterview('${v.id}')">この方を従業員に登録する</button>`) : ""}
+      </div>
+    </div>
+  `;
+}
+
+// 追加・編集のフォーム
+function renderInterviewEditForm() {
+  const editId = state.interviewEditId;
+  if (!editId) return "";
+  const isNew = editId === "new";
+  const d = state.interviewDraft || {};
+  const f = (key, label, opts) => `
+    <div>
+      <label style="margin:6px 0 4px;">${label}</label>
+      <input id="iv_${key}" type="${(opts && opts.type) || "text"}" ${opts && opts.inputmode ? `inputmode="${opts.inputmode}"` : ""} placeholder="${(opts && opts.ph) || ""}" value="${escapeHtml(String(d[key] == null ? "" : d[key]))}" oninput="state.interviewDraft['${key}']=this.value;" />
+    </div>`;
+  return `
+    <div class="card" style="border:2px solid var(--blue);">
+      <p class="staff-title" style="font-size:16px; margin:0 0 10px;">${isNew ? "応募者を追加" : "面接の内容をなおす"}</p>
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+        ${f("name", "氏名", { ph: "例：山田 花子" })}
+        ${f("age", "年齢", { inputmode: "numeric", ph: "例：52" })}
+        ${f("phone", "電話番号", { inputmode: "tel", ph: "例：090-1234-5678" })}
+        ${f("appliedSite", "応募の現場", { ph: "例：○○警察署" })}
+        ${f("interviewAt", "面接の日時", { type: "datetime-local" })}
+        ${f("interviewPlace", "面接の場所", { ph: "例：本社事務所" })}
+      </div>
+      <label style="margin:10px 0 4px;">状態</label>
+      <select id="iv_status" onchange="state.interviewDraft.status=this.value;">
+        ${INTERVIEW_STATUS.map(([k, label]) => `<option value="${k}" ${(d.status || "scheduled") === k ? "selected" : ""}>${label}</option>`).join("")}
+      </select>
+      <label style="margin:10px 0 4px;">メモ（社内用。リーダーの画面には出ません）</label>
+      <textarea id="iv_memo" rows="3" oninput="state.interviewDraft.memo=this.value;" placeholder="面接の印象、希望の曜日・時間、持ち物の案内など">${escapeHtml(d.memo || "")}</textarea>
+      <button class="primary" onclick="saveInterview()">${isNew ? "登録する" : "保存する"}</button>
+      <button class="secondary" onclick="state.interviewEditId=null; state.interviewDraft={}; render();">やめる</button>
+    </div>
+  `;
+}
+
+function startNewInterview() {
+  state.interviewEditId = "new";
+  state.interviewDraft = { status: "scheduled" };
+  render();
+  window.scrollTo(0, 0);
+}
+
+function startEditInterview(id) {
+  const v = (state.interviews || []).find(x => x.id === id);
+  if (!v) return;
+  state.interviewEditId = id;
+  state.interviewDraft = {
+    name: v.name || "", age: v.age || "", phone: v.phone || "",
+    appliedSite: v.appliedSite || "", interviewAt: v.interviewAt || "",
+    interviewPlace: v.interviewPlace || "", status: v.status || "scheduled", memo: v.memo || ""
+  };
+  render();
+  window.scrollTo(0, 0);
+}
+
+async function saveInterview() {
+  const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ""; };
+  const data = {
+    name: g("iv_name"), age: g("iv_age"), phone: g("iv_phone"),
+    appliedSite: g("iv_appliedSite"), interviewAt: g("iv_interviewAt"),
+    interviewPlace: g("iv_interviewPlace"),
+    status: g("iv_status") || "scheduled",
+    memo: (document.getElementById("iv_memo") || {}).value || ""
+  };
+  if (!data.name) return alert("氏名を入れてください");
+  const isNew = state.interviewEditId === "new";
+
+  if (!firebaseReady) {
+    if (isNew) state.interviews.unshift({ id: "demo-" + Date.now(), ...data });
+    else Object.assign(state.interviews.find(x => x.id === state.interviewEditId) || {}, data);
+    state.interviewEditId = null; state.interviewDraft = {};
+    return render();
+  }
+  try {
+    if (isNew) {
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection("interviews").add(data);
+    } else {
+      await db.collection("interviews").doc(state.interviewEditId).update(data);
+    }
+    state.interviewEditId = null; state.interviewDraft = {};
+    render();
+  } catch (e) {
+    alert("保存エラー: " + e.message);
+  }
+}
+
+async function setInterviewStatus(id, status) {
+  if (!firebaseReady) {
+    const v = (state.interviews || []).find(x => x.id === id);
+    if (v) v.status = status;
+    return render();
+  }
+  try {
+    await db.collection("interviews").doc(id).update({ status });
+  } catch (e) {
+    alert("更新エラー: " + e.message);
+  }
+}
+
+async function deleteInterview(id) {
+  const v = (state.interviews || []).find(x => x.id === id);
+  if (!v) return;
+  if (!confirm(`「${v.name || ""}」さんの面接記録を消します。元に戻せません。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    state.interviews = state.interviews.filter(x => x.id !== id);
+    return render();
+  }
+  try {
+    await db.collection("interviews").doc(id).delete();
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
+// 「採用」の方を、そのまま従業員登録につなぐ
+async function hireInterview(id) {
+  const v = (state.interviews || []).find(x => x.id === id);
+  if (!v) return;
+  if (!confirm(`「${v.name || ""}」さんを従業員として登録します。\n氏名・電話番号・就業場所を引きついで新しい従業員ページをひらきます。よろしいですか？`)) return;
+
+  const memoLines = [];
+  if (v.age) memoLines.push(`面接時の年齢：${v.age}歳`);
+  if (v.interviewAt) memoLines.push(`面接日：${fmtInterviewAt(v.interviewAt)}`);
+  if (v.memo) memoLines.push(`面接メモ：${v.memo}`);
+
+  const preset = {};
+  if (v.name) preset.name = v.name;
+  if (v.phone) preset.phone = v.phone;
+  if (v.appliedSite) preset.workplace = v.appliedSite;
+  if (memoLines.length) preset.companyMemo = memoLines.join("\n");
+
+  state.adminTab = "emp";
+  const newId = await addNewEmployee(preset);
+  if (newId && firebaseReady) {
+    try {
+      await db.collection("interviews").doc(id).update({ status: "hired", hiredEmpId: newId });
+    } catch (e) { /* 登録そのものは済んでいるので、ここは黙って通す */ }
+  } else if (newId) {
+    v.status = "hired"; v.hiredEmpId = newId;
+  }
+}
+
 /* ---------- 本社側：ダッシュボード ---------- */
 function renderAdmin() {
   const pending = state.leaveRequests.filter(r => r.status === "pending");
@@ -1977,6 +2226,7 @@ function renderAdmin() {
         <button class="${state.adminTab === "envelope" ? "active" : ""}" onclick="state.adminTab='envelope'; render();">封筒印刷</button>
         <button class="${state.adminTab === "contract" ? "active" : ""}" onclick="state.adminTab='contract'; render();">書類発行</button>
         <button class="${state.adminTab === "payslip" ? "active" : ""}" onclick="state.adminTab='payslip'; render();">給与明細</button>
+        <button class="${state.adminTab === "interview" ? "active" : ""}" onclick="state.adminTab='interview'; state.interviewEditId=null; render();">面接リスト${upcomingInterviewCount() > 0 ? ` (${upcomingInterviewCount()})` : ""}</button>
       </div>
 
       ${!firebaseReady ? `<div class="placeholder-note">Firebase未設定のため、お試し表示です。firebaseConfig を設定すると実データにつながります。</div>` : ""}
@@ -1988,6 +2238,7 @@ function renderAdmin() {
       ${state.adminTab === "contract" ? renderAdminContractTab() : ""}
       ${state.adminTab === "envelope" ? renderAdminEnvelopeTab() : ""}
       ${state.adminTab === "payslip" ? renderAdminPayslipTab() : ""}
+      ${state.adminTab === "interview" ? renderAdminInterviewTab() : ""}
     </main>
   `;
 
@@ -3594,7 +3845,8 @@ function generateLoginId() {
   return id;
 }
 
-async function addNewEmployee() {
+// preset を渡すと、その内容を初期値にして新しい従業員ページをひらく（面接リストからの引きつぎ用）
+async function addNewEmployee(preset) {
   const data = {
     name: "新しい従業員", loginId: generateLoginId(),
     payCutoffDay: "月末",
@@ -3605,19 +3857,23 @@ async function addNewEmployee() {
     retirementYN: "無",
     continuedYN: "自動更新",
     contactPerson: "本社　尾藤",
+    ...(preset || {})
   };
   if (!firebaseReady) {
     const id = "demo-" + Date.now();
     state.employees.unshift({ id, ...data });
     state.editingEmpId = id;
-    return render();
+    render();
+    return id;
   }
   try {
     const ref = await db.collection("employees").add(data);
     state.editingEmpId = ref.id;
     render();
+    return ref.id;
   } catch (e) {
     alert("追加エラー: " + e.message);
+    return null;
   }
 }
 
@@ -5476,6 +5732,10 @@ function subscribeAllLeaveRequests() {
     state.loginLogs = map;
     render();
   }, err => console.error("loginLogs(admin)購読エラー", err));
+  db.collection("interviews").onSnapshot(snap => {
+    state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("interviews(admin)購読エラー", err));
 }
 
 function subscribeAllMessages() {

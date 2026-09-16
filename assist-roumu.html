@@ -192,6 +192,31 @@
     font-weight: 700;
   }
   button.link { background: none; border: none; color: var(--blue); font-size: 14px; padding: 8px 0; }
+
+  /* --- パートさん向け：ほしいものを「押してえらぶ」大きなボタン --- */
+  .item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 4px; }
+  .item-btn {
+    width: 100%;
+    margin: 0;
+    background: #fff;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 8px;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.35;
+    color: #111111;
+    text-align: center;
+    cursor: pointer;
+  }
+  .item-btn:active { background: #FCF1E2; }
+  .item-btn.selected {
+    background: var(--blue);
+    border-color: var(--blue-dark);
+    color: #ffffff;
+    box-shadow: 0 3px 0 var(--blue-dark);
+  }
+  .item-btn.wide { grid-column: 1 / -1; }
   .btn-back-big {
     display: block;
     width: 100%;
@@ -492,7 +517,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-06(7)";
+const APP_VERSION = "更新: 2026-09-06(8)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -863,7 +888,7 @@ function isOrderAcceptable() {
 
 function renderOrderForm() {
   const accepting = isOrderAcceptable();
-  const selectedItem = state.orderItem || ITEM_MASTER[0];
+  const selectedItem = state.orderItem || "";   // 最初は何も選ばれていない状態にする
   const isFree = selectedItem === "__free__";
   // 一度でも書き換えていればその内容を、まだなら就業先を初期値として出す
   const place = state.orderPlace != null ? state.orderPlace : (state.currentUser.workplace || "");
@@ -876,13 +901,14 @@ function renderOrderForm() {
       <label>発注する場所（げんば）</label>
       <input id="orderPlace" type="text" placeholder="例：○○警察署" value="${escapeHtml(place)}" oninput="state.orderPlace=this.value;" />
 
-      <label>ほしいもの</label>
-      <select id="orderItemSelect" onchange="state.orderItem=this.value; render();">
-        ${ITEM_MASTER.map(it => `<option value="${it}" ${it === selectedItem ? "selected" : ""}>${it}</option>`).join("")}
-        <option value="__free__" ${isFree ? "selected" : ""}>その他（自分で書く）</option>
-      </select>
-
-      ${isFree ? `<input id="orderFreeText" type="text" placeholder="ほしいものを書いてください" style="margin-top:8px;" value="${escapeHtml(state.orderFreeText || "")}" oninput="state.orderFreeText=this.value;" />` : ""}
+      <label>ほしいもの（ボタンを押してえらんでください）</label>
+      <div class="item-grid">
+        ${ITEM_MASTER.map(it => `<button type="button" class="item-btn ${it === selectedItem ? "selected" : ""}" data-item="${escapeHtml(it)}" onclick="selectOrderItem(this.dataset.item)">${escapeHtml(it)}</button>`).join("")}
+        <button type="button" class="item-btn wide ${isFree ? "selected" : ""}" data-item="__free__" onclick="selectOrderItem('__free__')">✏️ その他（自分で書く）</button>
+      </div>
+      <div id="orderFreeWrap" style="display:${isFree ? "block" : "none"};">
+        <input id="orderFreeText" type="text" placeholder="ほしいものを書いてください" style="margin-top:6px;" value="${escapeHtml(state.orderFreeText || "")}" oninput="state.orderFreeText=this.value;" />
+      </div>
 
       <label>いくつ</label>
       <div style="display:flex; align-items:center; justify-content:center; gap:18px; margin:8px 0 4px;">
@@ -897,6 +923,22 @@ function renderOrderForm() {
       ${renderOrderHistory()}
     </div>
   `;
+}
+
+// ほしいものを押してえらんだとき。画面全体を作りなおさず、色だけ塗りかえる。
+function selectOrderItem(v) {
+  state.orderItem = v;
+  document.querySelectorAll(".item-btn").forEach(b => {
+    b.classList.toggle("selected", b.dataset.item === v);
+  });
+  const wrap = document.getElementById("orderFreeWrap");
+  if (wrap) {
+    wrap.style.display = (v === "__free__") ? "block" : "none";
+    if (v === "__free__") {
+      const inp = document.getElementById("orderFreeText");
+      if (inp) inp.focus();
+    }
+  }
 }
 
 function changeQty(d) {
@@ -967,7 +1009,8 @@ async function submitOrder() {
     return ((el ? el.value : state[key]) || "").toString().trim();
   };
   const place = readField("orderPlace", "orderPlace");
-  let item = state.orderItem || ITEM_MASTER[0];
+  let item = state.orderItem || "";
+  if (!item) return alert("ほしいものを えらんでください");
   if (item === "__free__") {
     item = readField("orderFreeText", "orderFreeText");
     if (!item) return alert("ほしいものを書いてください");

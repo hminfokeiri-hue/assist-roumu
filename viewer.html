@@ -185,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-16(4)";
+const APP_VERSION = "リーダー用 2026-09-16(5)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -197,6 +197,10 @@ const SHACHO_EMAIL = "shacho@president.assist-roumu.jp";
 const SHACHO_HOME = "https://hminfokeiri-hue.github.io/assist-roumu/shacho.html";
 function shachoKey() { try { return localStorage.getItem("assistShachoKey") || ""; } catch (e) { return ""; } }
 function isShacho() { return !!(state.user && state.user.isShacho); }
+/* 社長用は入口のボタンで2つに分けて開きます（重複しないように）
+   ・業務日誌ボタン（tab=log）… 業務日誌だけ。ほかのタブは出しません
+   ・アシスト労務ボタン … 従業員・お休み・チャット・面接。業務日誌のタブは出しません */
+const SHACHO_LOG_ONLY = SHACHO && new URLSearchParams(location.search).get("tab") === "log";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -995,7 +999,7 @@ function renderScreen() {
   const tab = (name, label) => `<button class="${state.tab === name ? "active" : ""}" onclick="state.tab='${name}'; render();">${label}</button>`;
   appEl.innerHTML = `
 <header class="topbar">
-  <h1>${isShacho() ? "アシスト（社長用・見るだけ）" : "アシスト（リーダー用）"}</h1>
+  <h1>${isShacho() ? (SHACHO_LOG_ONLY ? "業務日誌（社長用・見るだけ）" : "アシスト労務（社長用・見るだけ）") : "アシスト（リーダー用）"}</h1>
   ${isShacho() ? `<button onclick="location.href=SHACHO_HOME">入口へ</button>` : `<button onclick="logout()">ログアウト</button>`}
 </header>
 <main>
@@ -1003,12 +1007,12 @@ function renderScreen() {
     <span>${esc(state.user.name)} さん${state.user.isAdmin ? "（本社）" : isShacho() ? "（見るだけ）" : "（リーダー）"}</span>
     <span style="font-size:10.5px; opacity:.75; white-space:nowrap;">${APP_VERSION}</span>
   </p>
-  <div class="tabbar">
+  <div class="tabbar" style="${SHACHO_LOG_ONLY ? "display:none;" : ""}">
     ${isShacho() ? "" : tab("home", "🏠 ホーム")}
     ${tab("emp", "従業員")}
     ${tab("leave", `お休み${pendingLeaveCount() ? `<span class="badge">${pendingLeaveCount()}</span>` : ""}`)}
     ${tab("chat", `チャット${unread ? `<span class="badge">${unread}</span>` : ""}`)}
-    ${tab("log", "📝 業務日誌")}
+    ${isShacho() ? "" : tab("log", "📝 業務日誌")}
     ${tab("interview", `面接${upcomingInterviewCount() ? `<span class="badge">${upcomingInterviewCount()}</span>` : ""}`)}
     ${state.user.isAdmin ? tab("setup", "⚙ リーダー設定") : ""}
   </div>
@@ -1022,7 +1026,10 @@ function renderScreen() {
 }
 
 function renderTab() {
-  if (isShacho() && (state.tab === "home" || state.tab === "setup")) state.tab = "emp";
+  if (isShacho()) {
+    if (SHACHO_LOG_ONLY) state.tab = "log";
+    else if (["home", "setup", "log"].indexOf(state.tab) >= 0) state.tab = "emp";
+  }
   if (state.tab === "home") return renderHomeTab();
   if (state.tab === "log") return renderLogTab();
   if (state.tab === "setup" && !isShacho()) return renderSetupTab();

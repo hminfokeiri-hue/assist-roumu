@@ -175,7 +175,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ・データは本体アプリと同じ Firebase を見ています。
 ・リーダーさんができること
 - 従業員データを見る（住所は町名まで／給与・口座などは出しません）
-- 備考欄に書き込む
+- 会社用メモ（社内用）に書き込む
 - お休みの申請一覧を見る（決裁・否決は本社だけ）
 - 個人チャットを読んで、返信する（一斉送信は本社だけ）
 - 業務日誌を書く（自分が書いたものだけ見えます）
@@ -185,12 +185,12 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-16(5)";
+const APP_VERSION = "リーダー用 2026-09-17(6)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
 カードの合言葉で自動ログインします。ID・パスワードの入力はありません。
-書き込み（備考・チャット返信・日誌・設定）はすべて出しません。
+書き込み（会社用メモ・チャット返信・日誌・設定）はすべて出しません。
 Firestore のルールでも presidents に登録された人は読むだけにしています。 */
 const SHACHO = new URLSearchParams(location.search).get("view") === "shacho";
 const SHACHO_EMAIL = "shacho@president.assist-roumu.jp";
@@ -486,22 +486,24 @@ function subscribeAll() {
   }, err => console.error("interviews購読エラー", err));
 }
 
-/* ---------- 備考の書き込み ---------- */
+/* ---------- 会社用メモ（社内用）の書き込み ---------- */
+/* 本体アプリの従業員データにある「会社用メモ（社内用）」に入ります。
+   書類に印刷される「備考」には入りません。 */
 async function saveNotes(id) {
   if (isShacho()) return;
   const box = document.getElementById("notesBox");
   if (!box) return;
-  const notes = box.value;
+  const companyMemo = box.value;
   state.busy = true; render();
   try {
     await db.collection("employees").doc(id).update({
-      notes,
-      notesUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      notesUpdatedBy: state.user.name || ""
+      companyMemo,
+      companyMemoUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      companyMemoUpdatedBy: state.user.name || ""
     });
     state.notesDraft = null;
     state.busy = false; render();
-    alert("備考を保存しました");
+    alert("会社用メモを保存しました");
   } catch (e) {
     state.busy = false; render();
     alert("保存できませんでした: " + e.message);
@@ -1243,7 +1245,7 @@ function renderRows() {
     <div style="display:flex; align-items:baseline; gap:7px; flex-wrap:wrap;">
       <span style="font-weight:700; font-size:16px;">${esc(e.name || "(名前未登録)")}</span>
       ${age !== null ? `<span class="pill">満${age}歳</span>` : ""}
-      ${(e.notes || "").trim() ? `<span class="muted" style="font-size:11px;">📝備考あり</span>` : ""}
+      ${(e.companyMemo || "").trim() ? `<span class="muted" style="font-size:11px;">📝メモあり</span>` : ""}
     </div>
     <div class="muted" style="font-size:12px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(meta)}</div>
   </div>
@@ -1264,7 +1266,7 @@ function renderDetail(e) {
     .map(([k, l]) => [l, (e[k] ?? "").toString().trim()])
     .filter(([, v]) => v);
   const shift = shiftSummary(e);
-  const stamp = fmtStamp(e.notesUpdatedAt);
+  const stamp = fmtStamp(e.companyMemoUpdatedAt);
 
   return `
 <div class="card">
@@ -1284,20 +1286,20 @@ function renderDetail(e) {
   ${renderEmpAttendanceHistory(e)}
 
   <div style="margin-top:18px;">
-    <label style="margin-bottom:6px;">${isShacho() ? "備考" : "備考（ここだけ書き込めます）"}</label>
+    <label style="margin-bottom:6px;">${isShacho() ? "会社用メモ（社内用）" : "会社用メモ（社内用・ここだけ書き込めます）"}</label>
     ${isShacho()
-      ? `<div class="note" style="white-space:pre-wrap; font-size:14px; color:var(--text);">${esc(e.notes || "（書き込みはありません）")}</div>`
+      ? `<div class="note" style="white-space:pre-wrap; font-size:14px; color:var(--text);">${esc(e.companyMemo || "（書き込みはありません）")}</div>`
       : `<textarea id="notesBox" placeholder="申し送りや気づいたことを書いてください"
-      oninput="state.notesDraft=this.value;">${esc(state.notesDraft !== null ? state.notesDraft : (e.notes || ""))}</textarea>`}
+      oninput="state.notesDraft=this.value;">${esc(state.notesDraft !== null ? state.notesDraft : (e.companyMemo || ""))}</textarea>`}
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
       <span class="muted" style="font-size:11.5px;">
-        ${stamp ? `最終更新：${stamp} ${esc(e.notesUpdatedBy || "")}` : "まだ書き込みはありません"}
+        ${stamp ? `最終更新：${stamp} ${esc(e.companyMemoUpdatedBy || "")}` : "まだ書き込みはありません"}
       </span>
-      ${isShacho() ? "" : `<button class="small" ${state.busy ? "disabled" : ""} onclick="saveNotes('${e.id}')">${state.busy ? "保存中…" : "備考を保存する"}</button>`}
+      ${isShacho() ? "" : `<button class="small" ${state.busy ? "disabled" : ""} onclick="saveNotes('${e.id}')">${state.busy ? "保存中…" : "メモを保存する"}</button>`}
     </div>
   </div>
 
-  <p class="note" style="margin-top:16px;${isShacho() ? " display:none;" : ""}">この画面で書き込めるのは備考欄だけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
+  <p class="note" style="margin-top:16px;${isShacho() ? " display:none;" : ""}">この画面で書き込めるのは会社用メモだけです。ほかの内容の修正が必要なときは本社（06-6654-7812）までご連絡ください。</p>
 </div>
 `;
 }

@@ -185,7 +185,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-17(6)";
+const APP_VERSION = "リーダー用 2026-09-17(7)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -518,16 +518,63 @@ function threadOf(empId) {
 }
 /* 未読は readByViewer で数えます。本社側の未読（readByOffice）には触りません。 */
 function unreadOf(empId) {
+  if (isShacho()) return (state.messages || []).filter(m => m.employeeId === empId && shachoUnreadMsg(m)).length;
   return (state.messages || []).filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByViewer && !m.broadcastId).length;
 }
 function totalUnread() {
+  if (isShacho()) return (state.messages || []).filter(m => shachoUnreadMsg(m)).length;
   return (state.messages || []).filter(m => m.senderRole === "staff" && !m.readByViewer && !m.broadcastId).length;
+}
+
+/* ---------- 社長用の既読 ----------
+社長が読んでも、リーダーさんや本社の未読（readByViewer / readByOffice）は変えません。
+社長の既読は、社長のスマホの中にだけ「この人のチャットをいつまで読んだか」を覚えます。
+はじめて使う日より前のメッセージは、読んだものとして扱います。 */
+const SHACHO_READ_KEY = "assistShachoChatRead";
+function shachoReadData() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SHACHO_READ_KEY) || "null"); } catch (e) { d = null; }
+  if (!d || typeof d !== "object" || !d.base) {
+    d = { base: Math.floor(Date.now() / 1000), seen: {} };
+    try { localStorage.setItem(SHACHO_READ_KEY, JSON.stringify(d)); } catch (e) {}
+  }
+  if (!d.seen) d.seen = {};
+  return d;
+}
+function shachoMarkRead(empId) {
+  const d = shachoReadData();
+  let last = Math.floor(Date.now() / 1000);
+  (state.messages || []).forEach(m => {
+    if (m.employeeId === empId) last = Math.max(last, tsSeconds(m.createdAt));
+  });
+  d.seen[empId] = last;
+  try { localStorage.setItem(SHACHO_READ_KEY, JSON.stringify(d)); } catch (e) {}
+}
+function shachoUnreadMsg(m) {
+  if (m.senderRole !== "staff" || m.broadcastId) return false;
+  const d = shachoReadData();
+  const t = tsSeconds(m.createdAt);
+  if (state.tab === "chat" && state.chatEmpId === m.employeeId) {
+    // いま開いている相手は既読。開いている間に届いた分も読んだことにする
+    if (t && t > (d.seen[m.employeeId] || 0)) {
+      d.seen[m.employeeId] = t;
+      try { localStorage.setItem(SHACHO_READ_KEY, JSON.stringify(d)); } catch (e) {}
+    }
+    return false;
+  }
+  if (!t) return false;
+  return t > Math.max(d.base, d.seen[m.employeeId] || 0);
 }
 async function openThread(empId) {
   state.chatEmpId = empId;
   state.chatDraft = "";
   render();
-  if (isShacho()) { const b = document.getElementById("chatScroll"); if (b) b.scrollTop = b.scrollHeight; return; }
+  if (isShacho()) {
+    shachoMarkRead(empId);
+    render();
+    const b = document.getElementById("chatScroll"); if (b) b.scrollTop = b.scrollHeight;
+    return;
+  }
   const unread = (state.messages || []).filter(m => m.employeeId === empId && m.senderRole === "staff" && !m.readByViewer && !m.broadcastId);
   for (const m of unread) {
     try { await db.collection("messages").doc(m.id).update({ readByViewer: true }); } catch (e) { /* 何もしない */ }

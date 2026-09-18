@@ -106,6 +106,13 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .logtable tr.has { cursor:pointer; }
 .logtable tr:hover td { background:#FFF7EC; }
 .catinline { display:none; color:var(--blue-dark); font-weight:700; font-size:11.5px; }
+/* ---- 市内出張だけ色を変える ---- */
+.logtable tr.trip td { background:#E7F1EE; }
+.logtable tr.trip td.d { box-shadow: inset 3px 0 0 var(--success); }
+.trip-tag { color:var(--success); font-weight:700; }
+.chip.trip.on { border-color:var(--success); background:var(--success); color:#fff; }
+.tripsum { margin-top:10px; padding:10px 12px; background:#E7F1EE; border:1px solid var(--success); border-radius:10px; font-size:13px; line-height:1.6; }
+.tripsum b { color:var(--success); font-size:15px; }
 .catbox { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
 
 /* ---- リーダー設定 ---- */
@@ -139,6 +146,8 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .sheet td.pt { white-space:pre-wrap; word-break:break-word; }
 .sheet tr.psun td { background:#f7f7f7; }
 .sheet tr.psun td.pd, .sheet tr.psun td.pw { color:#C0392B; font-weight:700; }
+.sheet tr.ptrip td { background:#EAF0EE; }
+.sheet tr.ptrip td.pc { font-weight:700; }
 .sheet td.pw { position:relative; }
 .sheet td.pw .phol { display:block; font-size:5.5pt; font-weight:400; line-height:1.1; white-space:nowrap; }
 .sheet td.pw { width:11mm; }
@@ -185,7 +194,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-18(8)";
+const APP_VERSION = "リーダー用 2026-09-18(9)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -218,8 +227,9 @@ const CALENDAR_URL = "https://hminfokeiri-hue.github.io/assist-calendar/";
 /* 業務日誌をしまう場所（Firestoreのコレクション名） */
 const LOG_COL = "workLogs";
 const LOG_SETTINGS_DOC = "__settings";
+const TRIP_CAT = "市内出張";   // この区分だけ色を変えて、月の日数を数えます
 const DEFAULT_LOG_CATS = [
-  "現場巡回", "打合せ・見積", "採用・面接", "研修・指導", "応援作業",
+  "現場巡回", "市内出張", "打合せ・見積", "採用・面接", "研修・指導", "応援作業",
   "事務・書類", "クレーム対応", "資材・車両", "社内会議", "その他"
 ];
 
@@ -749,6 +759,8 @@ async function loadLogs(force) {
         if (c.exists && Array.isArray((c.data() || {}).cats) && c.data().cats.length) cats = c.data().cats;
       } catch (e) { /* まだ書類がないだけなので気にしません */ }
       state.logCatMaster = cats || DEFAULT_LOG_CATS.slice();
+      // 前に保存した区分に「市内出張」が入っていなければ、画面上で足しておきます
+      if (state.logCatMaster.indexOf(TRIP_CAT) < 0) state.logCatMaster.splice(1, 0, TRIP_CAT);
     }
     const snap = await db.collection(LOG_COL).where("ym", "==", ym).get();
     state.logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -872,6 +884,7 @@ function renderLogTab() {
 
   let rows = "";
   let filled = 0;
+  const tripDays = [];   // 市内出張の日（○日）をためていきます
   for (let d = 1; d <= last; d++) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
     const wd = new Date(y, m - 1, d).getDay();
@@ -880,8 +893,11 @@ function renderLogTab() {
     if (has) filled++;
     const hol = holidayName(date);
     const red = (wd === 0 || !!hol);
-    const cls = [has ? "has" : "", date === today ? "today" : (red ? "sun" : wd === 6 ? "sat" : "")].filter(Boolean).join(" ");
-    const cats = esc(((e && e.cats) || []).join("・"));
+    const eCats = ((e && e.cats) || []);
+    const isTrip = eCats.indexOf(TRIP_CAT) >= 0;
+    if (isTrip) tripDays.push(d);
+    const cls = [has ? "has" : "", isTrip ? "trip" : "", date === today ? "today" : (red ? "sun" : wd === 6 ? "sat" : "")].filter(Boolean).join(" ");
+    const cats = eCats.map(c => c === TRIP_CAT ? `<span class="trip-tag">${esc(c)}</span>` : esc(c)).join("・");
     rows += `<tr class="${cls}" ${mine ? `onclick="pickLogDay('${date}')"` : ""}>
 <td class="d">${d}日<span class="wd">（${WD[wd]}）</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ""}</td>
 <td class="c">${cats}</td>
@@ -898,6 +914,7 @@ function renderLogTab() {
     <p class="title" style="margin:0;">業務日誌　${y}年${m}月</p>
     <span class="muted" style="font-size:13px;">${filled}日ぶん</span>
   </div>
+  ${tripDays.length ? `<div class="tripsum">🚗 ${TRIP_CAT}　<b>${tripDays.length}日</b><br><span class="muted">${tripDays.map(d => d + "日").join("・")}</span></div>` : ""}
   <div class="filters" style="grid-template-columns:${seeAll ? "1fr 1fr" : "1fr"};">
     <div>
       <label style="margin-top:0;">月</label>
@@ -928,7 +945,7 @@ ${mine ? `
   <input type="date" value="${state.logDate}" onchange="pickLogDay(this.value)" />
   <label>区分（いくつでも選べます）</label>
   <div class="catbox">
-    ${cats.map(c => `<button type="button" class="chip ${state.logCats.indexOf(c) >= 0 ? "on" : ""}" onclick="toggleLogCat('${esc(c).replace(/'/g, "&#39;")}')">${esc(c)}</button>`).join("")}
+    ${cats.map(c => `<button type="button" class="chip ${c === TRIP_CAT ? "trip" : ""} ${state.logCats.indexOf(c) >= 0 ? "on" : ""}" onclick="toggleLogCat('${esc(c).replace(/'/g, "&#39;")}')">${esc(c)}</button>`).join("")}
   </div>
   <label style="margin-top:14px;">内容（その日やったこと）</label>
   <textarea id="logText" placeholder="例）さわ病院 巡回・床の仕上がり確認／〇〇マンション 見積り／新人1名 同行指導" oninput="state.logText=this.value;">${esc(state.logText)}</textarea>
@@ -970,15 +987,19 @@ function buildLogSheet(authorId, ym) {
   const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
   const last = daysInMonth(ym);
   let rows = "";
+  let tripCount = 0;
   for (let d = 1; d <= last; d++) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
     const wd = new Date(y, m - 1, d).getDay();
     const e = logEntry(authorId, date);
     const hol = holidayName(date);
     const red = (wd === 0 || !!hol);
-    rows += `<tr class="${red ? "psun" : ""}">
+    const eCats = ((e && e.cats) || []);
+    const isTrip = eCats.indexOf(TRIP_CAT) >= 0;
+    if (isTrip) tripCount++;
+    rows += `<tr class="${[red ? "psun" : "", isTrip ? "ptrip" : ""].filter(Boolean).join(" ")}">
 <td class="pd">${d}</td><td class="pw">${WD[wd]}${hol ? `<span class="phol">${esc(hol)}</span>` : ""}</td>
-<td class="pc">${esc(((e && e.cats) || []).join("・"))}</td>
+<td class="pc">${esc(eCats.join("・"))}</td>
 <td class="pt">${esc((e && e.text) || "")}</td>
 </tr>`;
   }
@@ -989,7 +1010,7 @@ function buildLogSheet(authorId, ym) {
     <div class="sright"><img src="${HPM_LOGO}" alt="" />株式会社ホームメンテナンス</div>
   </div>
   <div class="sinfo">
-    <div>令和${reiwa(y)}年${m}月分　　氏名：<b style="font-size:12pt;">${esc(authorNameOf(authorId) || "")}</b></div>
+    <div>令和${reiwa(y)}年${m}月分　　氏名：<b style="font-size:12pt;">${esc(authorNameOf(authorId) || "")}</b>　　${TRIP_CAT}：<b>${tripCount}</b>日</div>
     <div class="stamps"><div>取締役</div><div>確認</div></div>
   </div>
   <table>

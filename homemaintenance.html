@@ -2141,7 +2141,7 @@ function renderPL() {
     return cats.map(function(c) {
       var tot = arr.filter(function(t) { return t.catId === c.id; }).reduce(function(s,t) { return s+t.amount; }, 0);
       if (!tot) return '';
-      return '<div class="report-row"><span class="report-row-label">' + c.icon + ' ' + c.name + '</span><span class="report-row-value" style="color:' + color + '">' + fmt(tot) + '</span></div>';
+      return '<div class="report-row" onclick="jumpToLedger(\'' + c.id + '\')" title="クリックで総勘定元帳へ" style="cursor:pointer"><span class="report-row-label">' + c.icon + ' ' + c.name + ' <span style="font-size:10px;color:var(--accent)">›</span></span><span class="report-row-value" style="color:' + color + '">' + fmt(tot) + '</span></div>';
     }).join('');
   }
   var incCats = state.categories.filter(function(c) { return c.type === 'income'; });
@@ -3000,6 +3000,24 @@ function renderJournal() {
     cont.appendChild(card);
   });
 }
+window.jumpToLedger = function(catId, month) {
+  var nav = document.querySelector('.nav-item[data-page="ledger"]');
+  if (nav) nav.click();
+  setTimeout(function(){
+    var sel = document.getElementById('ledgerCat');
+    if (sel) {
+      var ms = document.getElementById('ledgerMonth'); if (ms) ms.value = month ? String(month) : 'all';
+      var ts = document.getElementById('ledgerType');  if (ts) ts.value = 'all';
+      var sw = document.getElementById('ledgerSearch'); if (sw) sw.value = '';
+      var f1 = document.getElementById('lDateFrom'); if (f1) f1.value = '';
+      var f2 = document.getElementById('lDateTo');   if (f2) f2.value = '';
+      sel.value = catId;
+      if (sel.value !== catId) { renderLedger(); sel.value = catId; }
+      renderLedger();
+      sel.scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+  }, 200);
+};
 window.jumpToJournal = function(jid) {
   var nav = document.querySelector('.nav-item[data-page="journal"]');
   if (nav) nav.click();
@@ -3067,7 +3085,7 @@ function renderTrial() {
   rows.forEach(function(a){
     var bal=(a.od+a.d)-(a.oc+a.c);
     tOD+=a.od;tOC+=a.oc;tD+=a.d;tC+=a.c;
-    html+='<tr><td>'+a.name+'</td>'
+    html+='<tr><td onclick="jumpToLedger(\''+a.id+'\')" title="クリックで総勘定元帳へ" style="cursor:pointer">'+a.name+' <span style="font-size:10px;color:var(--accent)">›</span></td>'
       +'<td>'+sideCell(a.od,a.oc)+'</td>'
       +'<td style="color:var(--accent)">'+(a.d?fmt(a.d):'\u2014')+'</td>'
       +'<td style="color:var(--red)">'+(a.c?fmt(a.c):'\u2014')+'</td>'
@@ -3156,13 +3174,13 @@ function renderMonthlyPL() {
   incCats.forEach(function(cat) {
     var rowTotal = 0;
     var hasData = false;
-    var rowHtml = '<tr><td>' + cat.icon + ' ' + cat.name + '</td>';
+    var rowHtml = '<tr><td class="print-nolink" onclick="jumpToLedger(\'' + cat.id + '\')" title="クリックで総勘定元帳へ" style="cursor:pointer">' + cat.icon + ' ' + cat.name + ' <span style="font-size:10px;color:var(--accent)">›</span></td>';
     months.forEach(function(m, i) {
       var v = sumByCat(cat.id, m, 'income');
       if (v) hasData = true;
       incTotals[i] += v;
       rowTotal += v;
-      rowHtml += '<td>' + (v ? '<span class="monthly-val-pos">' + fmt(v) + '</span>' : '\u2014') + '</td>';
+      rowHtml += '<td' + (v ? ' onclick="jumpToLedger(\'' + cat.id + '\',' + m + ')"' + ' title="クリックでこの月の総勘定元帳へ" style="cursor:pointer"' : '') + '>' + (v ? '<span class="monthly-val-pos">' + fmt(v) + '</span>' : '\u2014') + '</td>';
     });
     rowHtml += '<td><b>' + (rowTotal ? fmt(rowTotal) : '\u2014') + '</b></td></tr>';
     if (hasData) html += rowHtml;
@@ -3184,13 +3202,13 @@ function renderMonthlyPL() {
   expCats.forEach(function(cat) {
     var rowTotal = 0;
     var hasData = false;
-    var rowHtml = '<tr><td>' + cat.icon + ' ' + cat.name + '</td>';
+    var rowHtml = '<tr><td class="print-nolink" onclick="jumpToLedger(\'' + cat.id + '\')" title="クリックで総勘定元帳へ" style="cursor:pointer">' + cat.icon + ' ' + cat.name + ' <span style="font-size:10px;color:var(--accent)">›</span></td>';
     months.forEach(function(m, i) {
       var v = sumByCat(cat.id, m, 'expense');
       if (v) hasData = true;
       expTotals[i] += v;
       rowTotal += v;
-      rowHtml += '<td>' + (v ? '<span class="monthly-val-neg">' + fmt(v) + '</span>' : '\u2014') + '</td>';
+      rowHtml += '<td' + (v ? ' onclick="jumpToLedger(\'' + cat.id + '\',' + m + ')"' + ' title="クリックでこの月の総勘定元帳へ" style="cursor:pointer"' : '') + '>' + (v ? '<span class="monthly-val-neg">' + fmt(v) + '</span>' : '\u2014') + '</td>';
     });
     rowHtml += '<td><b>' + (rowTotal ? fmt(rowTotal) : '\u2014') + '</b></td></tr>';
     if (hasData) html += rowHtml;
@@ -3247,7 +3265,7 @@ function renderMonthlyBS() {
   var incRowTotals = [];
   incCats.forEach(function(cat) {
     var hasData = false;
-    var rowHtml = '<tr><td>' + cat.icon + ' ' + cat.name + '</td>';
+    var rowHtml = '<tr><td class="print-nolink" onclick="jumpToLedger(\'' + cat.id + '\')" title="クリックで総勘定元帳へ" style="cursor:pointer">' + cat.icon + ' ' + cat.name + ' <span style="font-size:10px;color:var(--accent)">›</span></td>';
     var lastVal = 0;
     months.forEach(function(m) {
       var v = cumByMonth(cat.id, m, 'income');
@@ -3272,7 +3290,7 @@ function renderMonthlyBS() {
   html += '<tr class="cat-section"><td colspan="' + (months.length+2) + '">\u25bc \u652f\u51fa\u7d2f\u8a08</td></tr>';
   expCats.forEach(function(cat) {
     var hasData = false;
-    var rowHtml = '<tr><td>' + cat.icon + ' ' + cat.name + '</td>';
+    var rowHtml = '<tr><td class="print-nolink" onclick="jumpToLedger(\'' + cat.id + '\')" title="クリックで総勘定元帳へ" style="cursor:pointer">' + cat.icon + ' ' + cat.name + ' <span style="font-size:10px;color:var(--accent)">›</span></td>';
     var lastVal = 0;
     months.forEach(function(m) {
       var v = cumByMonth(cat.id, m, 'expense');

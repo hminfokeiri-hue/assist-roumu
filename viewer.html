@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>アシスト リーダー用｜ホームメンテナンス</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 :root {
   --blue: #E8873A;
@@ -172,7 +172,11 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><div class="center-screen"><div class="card login-card">
+  <div style="width:52px;height:52px;border-radius:50%;background:#E8873A;box-shadow:0 0 0 8px #F7DDBF;margin:4px auto 16px;"></div>
+  <h1>アシスト</h1>
+  <p class="sub">株式会社ホームメンテナンス<br>読み込み中です…</p>
+</div></div></div>
 <div id="printArea"></div>
 <script>
 /* =========================================================
@@ -194,7 +198,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-18(9)";
+const APP_VERSION = "リーダー用 2026-09-21(10)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -344,11 +348,24 @@ const printEl = document.getElementById("printArea");
 アシスト労務（本体）や信号板と「ログインの記録」を共有してしまい、
 このページでログイン／ログアウトしただけで、本体のログインまで
 消えてしまいます。名前を分けることで、おたがいに影響しません。 */
-const viewerApp = firebase.initializeApp(firebaseConfig, SHACHO ? "shacho" : "viewer");
-db = viewerApp.firestore();
+let viewerApp = null;
 /* リーダーさんのログインを作るときだけ使う、もうひとつの入れ物。
 これを分けておかないと、作った本人にログインが切り替わってしまいます。 */
-const subApp = firebase.initializeApp(firebaseConfig, "maker");
+let subApp = null;
+/* Firebaseの部品は「defer」で読み込むので、画面を先に出してから準備します。 */
+function startFirebase() {
+  if (viewerApp) return true;
+  if (!window.firebase) return false;
+  viewerApp = firebase.initializeApp(firebaseConfig, SHACHO ? "shacho" : "viewer");
+  db = viewerApp.firestore();
+  if (SHACHO) {
+    /* 社長用だけ：前に読んだ内容をスマホに残しておき、2回目からはすぐ出します
+       （そのあと最新の内容に入れかわります）。うまく使えないときは、ふつうに読みます。 */
+    try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) { /* 何もしない */ }
+  }
+  subApp = firebase.initializeApp(firebaseConfig, "maker");
+  return true;
+}
 
 /* ---------- 小さな道具 ---------- */
 function esc(s) {
@@ -412,6 +429,7 @@ function authErrorMessage(e) {
 
 /* ---------- ログイン ---------- */
 async function handleLogin() {
+  if (!viewerApp) return alert("読み込み中です。少し待ってから、もう一度押してください。");
   const idRaw = (document.getElementById("loginId").value || "").trim();
   const pass = document.getElementById("pass").value;
   if (!idRaw || !pass) return alert("ログインIDとパスワードを入力してください");
@@ -467,11 +485,53 @@ function logout() {
   state.setupEmpId = null; state.setupSearch = ""; state.setupLoginId = ""; state.setupPw = "";
   state.setupDone = null; state.secrets = {}; state.secretsLoaded = false;
   state.secretsError = ""; state.showSecretFor = null;
-  viewerApp.auth().signOut().catch(() => {});
+  if (viewerApp) viewerApp.auth().signOut().catch(() => {});
   render();
 }
 
+/* 社長用：必要なものだけを、順番に読みます（重いチャットは最後）。
+・業務日誌ボタン … 日誌を書く人の名前だけ読みます（チャット・お休み・面接は読みません）
+・アシスト労務ボタン … まず従業員を出して、そのあとお休み・面接・チャットを読みます */
+function subscribeShacho() {
+  if (SHACHO_LOG_ONLY) {
+    /* 日誌はすぐ読みはじめます（名前の一覧は、あとから届いたら入れかえます） */
+    state.loading = false;
+    render();
+    db.collection("employees").where("viewerEnabled", "==", true).onSnapshot(snap => {
+      state.employees = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(e => e.status !== "resigned");
+      state.loading = false;
+      render();
+    }, err => { state.loading = false; render(); });
+    return;
+  }
+  let restStarted = false;
+  db.collection("employees").onSnapshot(snap => {
+    state.employees = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(e => e.status !== "resigned");
+    state.loading = false;
+    render();
+    if (restStarted) return;
+    restStarted = true;
+    db.collection("leaveRequests").onSnapshot(s2 => {
+      state.leaves = s2.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    }, err => console.error("leaveRequests購読エラー", err));
+    db.collection("interviews").onSnapshot(s3 => {
+      state.interviews = s3.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    }, err => console.error("interviews購読エラー", err));
+    db.collection("messages").onSnapshot(s4 => {
+      state.messages = s4.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    }, err => console.error("messages購読エラー", err));
+  }, err => { state.loading = false; render(); console.error("employees購読エラー", err); });
+}
+
 function subscribeAll() {
+  if (isShacho()) return subscribeShacho();
   db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
@@ -1934,13 +1994,18 @@ async function shachoLogin() {
   state.loading = true; render();
   try {
     const cred = await viewerApp.auth().signInWithEmailAndPassword(SHACHO_EMAIL, shachoKey());
-    const p = await db.collection("presidents").doc(cred.user.uid).get();
-    if (!p.exists) throw new Error("not-registered");
-    state.user = { name: (p.data() || {}).name || "社長", isAdmin: false, isShacho: true, uid: cred.user.uid };
+    state.user = { name: "社長", isAdmin: false, isShacho: true, uid: cred.user.uid };
     const t = new URLSearchParams(location.search).get("tab");
     state.tab = ["emp", "leave", "chat", "log", "interview"].indexOf(t) >= 0 ? t : "emp";
+    /* 社長の登録の確認と、データの読み込みを同時に始めます（待ち時間を短くするため） */
+    const check = db.collection("presidents").doc(cred.user.uid).get();
     subscribeAll();
+    const p = await check;
+    if (!p.exists) throw new Error("not-registered");
+    const nm = (p.data() || {}).name;
+    if (nm && nm !== state.user.name) { state.user.name = nm; render(); }
   } catch (e) {
+    state.user = null;
     await viewerApp.auth().signOut().catch(() => {});
     state.loading = false;
     state.shachoErr = "社長用カードで入れませんでした。もういちど、カードのQRコードを読んでください。";
@@ -1948,7 +2013,19 @@ async function shachoLogin() {
   }
 }
 
-if (SHACHO) shachoLogin(); else render();
+/* 画面はすぐ出して、Firebaseの部品が届いたら動きはじめます */
+if (!SHACHO) render();
+function bootApp() {
+  if (!startFirebase()) {
+    state.shachoErr = "読み込めませんでした。電波のよいところで、もう一度開いてください。";
+    if (SHACHO) render();
+    else alert("読み込めませんでした。電波のよいところで、もう一度開いてください。");
+    return;
+  }
+  if (SHACHO) shachoLogin();
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootApp);
+else bootApp();
 </script>
 </body>
 </html>

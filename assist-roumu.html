@@ -2861,11 +2861,92 @@ function filterPastLeave() {
     .filter(r => r.status !== "rejected" && r.status !== "cancelled" && r.date && r.date < todayStr)
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // 日付の新しい順（降順）
+  const ym = state.pastLeaveMonth || "";
+  const monthed = ym ? list.filter(r => (r.date || "").slice(0, 7) === ym) : list;
   const q = (state.pastLeaveSearch || "").trim().toLowerCase();
-  if (!q) return list;
-  return list.filter(r =>
+  if (!q) return monthed;
+  return monthed.filter(r =>
     [r.employeeName, r.area, r.type, r.reason, r.date].some(f => (f || "").toString().toLowerCase().includes(q))
   );
+}
+
+// 過去のお休みの記録に出てくる「年月」を、新しい順で重複なく取り出す（絞り込みの選択肢用）
+function pastLeaveMonths() {
+  const todayStr = formatYmd(new Date());
+  const set = new Set();
+  (state.leaveRequests || []).forEach(r => {
+    if (r.status === "rejected" || r.status === "cancelled") return;
+    if (!r.date || r.date >= todayStr) return;
+    set.add(r.date.slice(0, 7));
+  });
+  return [...set].sort().reverse();
+}
+
+// 2026-08 → 2026年8月
+function fmtLeaveMonth(ym) {
+  const m = String(ym || "").match(/^(\d{4})-(\d{2})$/);
+  return m ? `${m[1]}年${parseInt(m[2], 10)}月` : String(ym || "");
+}
+
+// 絞り込んだ記録を、人ごとに合計する（給与計算用）。
+// 有給は消化日数の合計、そのほかは件数（日数）で数える。
+function pastLeaveSummary(list) {
+  const map = new Map();
+  list.forEach(r => {
+    const key = (r.employeeId || r.employeeName || "") + "|" + (r.employeeName || "");
+    if (!map.has(key)) {
+      map.set(key, { name: r.employeeName || "", area: r.area || "", paid: 0, absent: 0, late: 0, mourn: 0, count: 0 });
+    }
+    const row = map.get(key);
+    if (!row.area && r.area) row.area = r.area;
+    row.count += 1;
+    if (r.type === "有給休暇") row.paid += (typeof r.days === "number" ? r.days : 1);
+    else if (r.type === "欠勤（無給）") row.absent += 1;
+    else if (r.type === "遅刻・早退") row.late += 1;
+    else if (r.type === "忌引き") row.mourn += 1;
+  });
+  return [...map.values()].sort((a, b) =>
+    (a.area || "").localeCompare(b.area || "", "ja") || (a.name || "").localeCompare(b.name || "", "ja"));
+}
+
+// 人ごとの合計表（給与計算のときに見るところ）
+function renderPastLeaveSummary() {
+  const list = filterPastLeave();
+  if (!list.length) return "";
+  const rows = pastLeaveSummary(list);
+  const t = rows.reduce((a, r) => ({ paid: a.paid + r.paid, absent: a.absent + r.absent, late: a.late + r.late, mourn: a.mourn + r.mourn }),
+                        { paid: 0, absent: 0, late: 0, mourn: 0 });
+  const ym = state.pastLeaveMonth || "";
+  return `
+    <div style="margin-top:14px; padding:12px; border:1.5px solid var(--border); border-radius:10px; background:#fafafa;">
+      <p class="staff-title" style="font-size:14px; margin:0 0 8px;">人ごとの合計${ym ? `（${fmtLeaveMonth(ym)}）` : "（表示中のぶん）"}　${rows.length}名</p>
+      <table>
+        <thead><tr><th>氏名</th><th>エリア</th><th>有給(日)</th><th>欠勤(日)</th><th>遅刻・早退(回)</th><th>忌引き(日)</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.name)}</td>
+              <td>${escapeHtml(r.area)}</td>
+              <td style="text-align:right; font-weight:700;">${r.paid ? r.paid : ""}</td>
+              <td style="text-align:right;">${r.absent || ""}</td>
+              <td style="text-align:right;">${r.late || ""}</td>
+              <td style="text-align:right;">${r.mourn || ""}</td>
+            </tr>`).join("")}
+          <tr style="background:#F0F6FA; font-weight:700;">
+            <td>合計</td><td></td>
+            <td style="text-align:right;">${t.paid || 0}</td>
+            <td style="text-align:right;">${t.absent || 0}</td>
+            <td style="text-align:right;">${t.late || 0}</td>
+            <td style="text-align:right;">${t.mourn || 0}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// 合計表と明細表をまとめて描く（検索や月を変えたとき、ここだけ差し替える）
+function renderPastLeaveBody() {
+  return renderPastLeaveSummary() + renderPastLeaveList();
 }
 
 // 過去のお休み一覧の本体（表）を描く。検索欄の絞り込みが反映される。
@@ -2906,12 +2987,16 @@ function renderPastLeaveCard() {
       </div>
       ${open ? `
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;">
-          <input id="pastLeaveSearch" type="text" placeholder="氏名・エリア・区分・理由・日付で検索" value="${(state.pastLeaveSearch || "").replace(/"/g, '&quot;')}" oninput="handlePastLeaveSearch(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handlePastLeaveSearch(this)" style="flex:1; min-width:220px; margin:0;" />
+          <select id="pastLeaveMonth" onchange="handlePastLeaveMonth(this)" style="flex:0 0 auto; width:auto; min-width:150px; margin:0;">
+            <option value="">すべての月</option>
+            ${pastLeaveMonths().map(m => `<option value="${m}" ${m === (state.pastLeaveMonth || "") ? "selected" : ""}>${fmtLeaveMonth(m)}</option>`).join("")}
+          </select>
+          <input id="pastLeaveSearch" type="text" placeholder="氏名・エリア・区分・理由で検索" value="${(state.pastLeaveSearch || "").replace(/"/g, '&quot;')}" oninput="handlePastLeaveSearch(this)" oncompositionstart="this.dataset.composing='1'" oncompositionend="this.dataset.composing=''; handlePastLeaveSearch(this)" style="flex:1; min-width:220px; margin:0;" />
           <button style="font-size:13px; padding:10px 14px; flex-shrink:0;" onclick="exportPastLeaveToExcel()">エクセルに書き出す</button>
         </div>
-        <div id="pastLeaveListBody">${renderPastLeaveList()}</div>
-        <p class="muted" style="font-size:11px; margin-top:10px;">今日より前の記録を、新しい順（降順）で表示しています。否決・取り消しのものは出していません。</p>
-      ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでのお休みを新しい順で確認できます。検索や、エクセルへの書き出しもできます。</p>`}
+        <div id="pastLeaveListBody">${renderPastLeaveBody()}</div>
+        <p class="muted" style="font-size:11px; margin-top:10px;">今日より前の記録を、新しい順（降順）で表示しています。否決・取り消しのものは出していません。月をえらぶと、その月だけの「人ごとの合計」が上に出ます（給与計算用）。</p>
+      ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、これまでのお休みを新しい順で確認できます。月ごとの絞り込み・人ごとの合計・検索・エクセルへの書き出しができます。</p>`}
     </div>
   `;
 }
@@ -2921,7 +3006,14 @@ function handlePastLeaveSearch(el) {
   if (el.dataset.composing === "1") return;
   state.pastLeaveSearch = el.value;
   const body = document.getElementById("pastLeaveListBody");
-  if (body) body.innerHTML = renderPastLeaveList();
+  if (body) body.innerHTML = renderPastLeaveBody();
+}
+
+// 月の絞り込み：一覧部分だけ差し替える
+function handlePastLeaveMonth(el) {
+  state.pastLeaveMonth = el.value;
+  const body = document.getElementById("pastLeaveListBody");
+  if (body) body.innerHTML = renderPastLeaveBody();
 }
 
 // 過去のお休みをエクセル（.xlsx）に書き出す。検索で絞り込んだときは、その結果だけを書き出す。
@@ -2938,12 +3030,21 @@ function exportPastLeaveToExcel() {
     "理由": r.reason || "",
     "状態": statusLabel[r.status] || r.status || ""
   }));
+  const sumRows = pastLeaveSummary(list).map(r => ({
+    "氏名": r.name,
+    "エリア": r.area,
+    "有給(日)": r.paid,
+    "欠勤(日)": r.absent,
+    "遅刻・早退(回)": r.late,
+    "忌引き(日)": r.mourn
+  }));
   try {
-    const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "過去のお休み");
-    const dateStr = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `過去のお休み_${dateStr}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sumRows), "人ごとの合計");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "明細");
+    const ym = state.pastLeaveMonth || "";
+    const suffix = ym ? fmtLeaveMonth(ym) : new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `過去のお休み_${suffix}.xlsx`);
   } catch (e) {
     alert("書き出しに失敗しました: " + e.message);
   }

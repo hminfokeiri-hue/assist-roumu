@@ -554,7 +554,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-24(3)";
+const APP_VERSION = "更新: 2026-09-24(5)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -915,7 +915,8 @@ function renderStaff() {
 const ITEM_MASTER = [
   "ゴミ袋 45L", "ゴミ袋 70L", "ゴミ袋 90L",
   "トイレットペーパー", "トイレ洗剤", "手洗い石鹸水（希釈タイプ）",
-  "次亜塩素酸ナトリウム", "日報", "会社用封筒", "出勤簿"
+  "次亜塩素酸ナトリウム", "モップ（赤）", "モップ（青）",
+  "日報", "会社用封筒", "出勤簿"
 ];
 
 /* 平日17時までの受付判定 */
@@ -4662,6 +4663,7 @@ function renderAdminPayslipTab() {
   const monthFilter = state.payslipListMonthFilter || "";
   const months = [...new Set((state.payslips || []).map(p => p.month).filter(Boolean))].sort().reverse();
   const filteredAll = monthFilter ? allPayslips.filter(p => p.month === monthFilter) : allPayslips;
+  const monthCount = monthFilter ? (state.payslips || []).filter(p => p.month === monthFilter).length : 0;
 
   return `
     <div class="card">
@@ -4734,6 +4736,15 @@ function renderAdminPayslipTab() {
         </select>
       </div>
       <p class="muted" style="font-size:11px; margin-top:-4px;">36か月より古いものは、自動的に一覧から消え、削除されます。</p>
+      ${monthFilter ? `
+        <div style="margin:10px 0 14px; padding:12px 14px; border:1.5px solid var(--danger); border-radius:10px; background:#FEF0EE;">
+          <p style="margin:0 0 10px; font-size:12.5px; color:var(--danger); line-height:1.7;">
+            支給月 <b>${monthFilter}（${fmtPaidMonth(monthFilter)}）</b>の給与明細が <b>${monthCount}件</b> あります。<br>
+            支給月をまちがえて登録したときは、ここでまとめて削除できます。先に正しい支給月で取り込んでから、こちらで消してください。
+          </p>
+          <button style="font-size:13px; padding:9px 16px; color:#fff; background:var(--danger); border-color:var(--danger);"
+                  onclick="deletePayslipsByMonth('${monthFilter}')">この支給月の${monthCount}件をまとめて削除する</button>
+        </div>` : `<p class="muted" style="font-size:11px; margin:6px 0 10px;">上の「支給月：すべて」を1つの月にしぼると、その月だけをまとめて削除できます。</p>`}
       <table>
         <thead><tr><th>支給月</th><th>氏名</th><th>ファイル名</th><th></th></tr></thead>
         <tbody>
@@ -4820,6 +4831,41 @@ async function uploadPayslip() {
     render();
   } catch (e) {
     alert("アップロードエラー: " + e.message);
+  }
+}
+
+/* 支給月を指定して、その月の給与明細をまとめて削除する。
+   支給月をまちがえて一括登録したときの立て直し用。2段階で確認する。 */
+async function deletePayslipsByMonth(month) {
+  if (!month) return alert("先に「支給月」をえらんでください。");
+  const targets = (state.payslips || []).filter(p => p.month === month);
+  if (!targets.length) return alert(`支給月 ${month} の給与明細はありません。`);
+  const label = fmtPaidMonth(month);
+  const names = targets.slice(0, 5).map(p => p.employeeName || "（氏名なし）").join("、");
+  if (!confirm(
+    `支給月 ${month}（${label}）の給与明細を ${targets.length}件、まとめて削除します。\n\n` +
+    `対象の例：${names}${targets.length > 5 ? " ほか" : ""}\n\n` +
+    `この操作は取り消せません。よろしいですか？`
+  )) return;
+  if (!confirm(`もう一度おたずねします。\n\n${month}（${label}）の ${targets.length}件を削除します。\n\n削除してよければ「OK」をおしてください。`)) return;
+
+  if (!firebaseReady) {
+    state.payslips = (state.payslips || []).filter(p => p.month !== month);
+    alert(`（お試し表示のため実際の削除はされません）${targets.length}件が対象です`);
+    return render();
+  }
+  try {
+    let done = 0;
+    for (let i = 0; i < targets.length; i += 400) { // Firestoreの一括処理は500件までなので余裕をみて400件ずつ
+      const chunk = targets.slice(i, i + 400);
+      const batch = db.batch();
+      chunk.forEach(p => batch.delete(db.collection("payslips").doc(p.id)));
+      await batch.commit();
+      done += chunk.length;
+    }
+    alert(`${done}件を削除しました。`);
+  } catch (e) {
+    alert("削除エラー: " + e.message + "\n（途中まで削除されている場合があります。一覧をご確認ください）");
   }
 }
 

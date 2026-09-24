@@ -554,7 +554,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-24(2)";
+const APP_VERSION = "更新: 2026-09-24(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4339,9 +4339,8 @@ async function handleBulkPayslipOxps(file, evt) {
     });
 
     state.bulkOxpsRecords = records;
-    // 弥生の印字は【勤務月】なので、支給月の初期値はその翌月にする（月末締め・翌月末払い）
-    const yayoiMonth = (records[0] && records[0].month) || "";
-    state.bulkOxpsMonth = (yayoiMonth && ymAdd(yayoiMonth, 1)) || state.payslipMonth || new Date().toISOString().slice(0, 7);
+    // 弥生が印字している「令和◯年◯月分」＝【支給月】。これをそのまま初期値にする
+    state.bulkOxpsMonth = (records[0] && records[0].month) || state.payslipMonth || new Date().toISOString().slice(0, 7);
     document.getElementById("bulkPayslipArea").innerHTML = renderBulkOxpsReview();
   } catch (e) {
     document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">OXPSの読み込みに失敗しました: ${e.message}</p>`;
@@ -4373,14 +4372,16 @@ function renderBulkOxpsReview() {
       <p class="muted" style="margin:0 0 4px;">支給月：
         <select onchange="state.bulkOxpsMonth=this.value; document.getElementById('bulkPayslipArea').innerHTML=renderBulkOxpsReview();">
           ${[state.bulkOxpsMonth]
-              .concat(yayoiMonth ? [ymAdd(yayoiMonth, 1), yayoiMonth] : [])
+              .concat(yayoiMonth ? [yayoiMonth] : [])
               .concat(records.map(r=>r.month))
               .filter((v,i,a)=>v && a.indexOf(v)===i)
               .map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
         </select>
         <b style="margin-left:6px; color:var(--text);">→ 明細には「${fmtPaidMonth(month)}」と表示されます</b>
       </p>
-      ${yayoiMonth ? `<p class="muted" style="font-size:11.5px; margin:0 0 10px;">弥生の印字は「${yayoiMonth}」（＝働いた月）でした。支給月はその翌月として選んでいます。違うときは上で選び直してください。</p>` : ""}
+      ${yayoiMonth && month !== yayoiMonth
+          ? `<div class="payslip-warning">弥生の明細に印字されている支給月は「${yayoiMonth}（${fmtPaidMonth(yayoiMonth)}）」です。いま選んでいる「${month}」と違います。ふつうは弥生の印字どおり「${yayoiMonth}」を選んでください。</div>`
+          : ""}
       <table>
         <thead><tr><th>管理番号</th><th>氏名</th><th>組織</th><th>差引支給額</th><th>状態</th><th>割り当てる従業員</th><th></th></tr></thead>
         <tbody>

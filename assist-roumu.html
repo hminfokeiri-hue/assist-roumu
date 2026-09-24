@@ -334,11 +334,12 @@
   }
   .payslip-sheet .ps-head > div { padding: 8px 12px; border-right: 2px solid #2AA9D8; }
   .payslip-sheet .ps-head > div:last-child { border-right: none; }
-  .payslip-sheet .ps-code { width: 90px; color: #2AA9D8; font-weight: 700; font-size: 11px; }
+  .payslip-sheet .ps-code { flex: 0 0 90px; color: #2AA9D8; font-weight: 700; font-size: 11px; }
   .payslip-sheet .ps-code b { display: block; color: #1a1a1a; font-size: 13px; margin-top: 2px; }
-  .payslip-sheet .ps-name { flex: 1; font-size: 16px; font-weight: 700; }
-  .payslip-sheet .ps-name .ps-branch { font-size: 11px; color: #666; font-weight: 400; margin-left: 8px; }
-  .payslip-sheet .ps-month { width: 170px; font-size: 13px; font-weight: 700; text-align: right; }
+  .payslip-sheet .ps-name { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 700; }
+  .payslip-sheet .ps-name .ps-branch { font-size: 11px; color: #666; font-weight: 400; margin-left: 8px; white-space: nowrap; }
+  /* 月表記は「2026年9月度支給（8月分）」が1行に収まるよう、折り返さない */
+  .payslip-sheet .ps-month { flex: 0 0 auto; font-size: 13px; font-weight: 700; text-align: right; white-space: nowrap; }
 
   .payslip-sheet .ps-attend {
     display: flex; border-bottom: 2px solid #2AA9D8; align-items: stretch;
@@ -350,7 +351,8 @@
   }
   .payslip-sheet .ps-attend-items { display: flex; flex-wrap: wrap; flex: 1; }
   .payslip-sheet .ps-attend-item {
-    min-width: 90px; padding: 6px 10px; border-right: 1px solid #BFE8F4; border-bottom: 1px solid #BFE8F4;
+    flex: 1 1 90px; min-width: 90px; padding: 6px 10px;
+    border-right: 1px solid #BFE8F4; border-bottom: 1px solid #BFE8F4;
   }
   .payslip-sheet .ps-attend-item .lb { font-size: 10.5px; color: #2AA9D8; }
   .payslip-sheet .ps-attend-item .vl { font-size: 13px; font-weight: 700; }
@@ -365,12 +367,16 @@
   }
   .payslip-sheet .ps-col-items { flex: 1; }
   .payslip-sheet .ps-item-row {
-    display: flex; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid #BFE8F4;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    padding: 6px 10px; border-bottom: 1px solid #BFE8F4;
     font-size: 12px;
   }
   .payslip-sheet .ps-item-row:last-child { border-bottom: none; }
-  .payslip-sheet .ps-item-row .lb { color: #333; }
-  .payslip-sheet .ps-item-row .vl { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .payslip-sheet .ps-item-row .lb { flex: 1 1 auto; min-width: 0; color: #333; }
+  .payslip-sheet .ps-item-row .vl {
+    flex: 0 0 auto; min-width: 82px; text-align: right; white-space: nowrap;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+  }
   .payslip-sheet .ps-item-row.ps-empty { color: #bbb; }
 
   .payslip-sheet .ps-totals { display: flex; border-bottom: 2px solid #2AA9D8; }
@@ -398,6 +404,37 @@
   .payslip-sheet .ps-company {
     text-align: center; padding: 8px; font-size: 11px; color: #666; border-top: 2px solid #2AA9D8;
   }
+  /* ---------- 給与明細：スマホ画面だけ縦に積む（印刷には影響させない） ---------- */
+  @media screen and (max-width: 640px) {
+    .payslip-sheet { font-size: 12px; }
+    /* 番号／氏名／月を2段に分ける */
+    .payslip-sheet .ps-head { flex-wrap: wrap; }
+    .payslip-sheet .ps-head > div { padding: 7px 10px; }
+    .payslip-sheet .ps-name { flex: 1 1 0; font-size: 15px; border-right: none; }
+    /* 所属は氏名の下に置く（横に並べると氏名が次の行へ押し出されるため） */
+    .payslip-sheet .ps-name .ps-branch {
+      display: block; margin-left: 0; margin-top: 2px; white-space: normal;
+    }
+    .payslip-sheet .ps-month {
+      flex: 1 0 100%; text-align: left; border-top: 1px solid #BFE8F4; border-right: none;
+    }
+    /* 支給と控除を上下に並べる */
+    .payslip-sheet .ps-body { flex-direction: column; }
+    .payslip-sheet .ps-col:first-child { border-right: none; border-bottom: 2px solid #2AA9D8; }
+    .payslip-sheet .ps-col-label { width: 26px; font-size: 12px; }
+    .payslip-sheet .ps-item-row { font-size: 12.5px; padding: 7px 10px; }
+    /* 合計欄は2列ずつ */
+    .payslip-sheet .ps-totals { flex-wrap: wrap; }
+    .payslip-sheet .ps-totals > div { flex: 1 0 50%; border-bottom: 1px solid #BFE8F4; }
+    .payslip-sheet .ps-totals > div:last-child { border-right: none; }
+    .payslip-sheet .ps-totals > div:nth-child(2n) { border-right: none; }
+    .payslip-sheet .ps-totals > div:nth-last-child(-n+2) { border-bottom: none; }
+    /* メモと支給額の枠を上下に */
+    .payslip-sheet .ps-foot { flex-direction: column; }
+    .payslip-sheet .ps-memo { border-right: none; border-bottom: 2px solid #2AA9D8; min-height: 40px; }
+    .payslip-sheet .ps-pay-boxes { width: auto; }
+  }
+
   .payslip-warning {
     background: #FEF0EE; border: 1px solid #E8A79C; color: var(--danger); border-radius: 10px;
     padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px;
@@ -517,7 +554,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-16(9)";
+const APP_VERSION = "更新: 2026-09-24(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4302,7 +4339,9 @@ async function handleBulkPayslipOxps(file, evt) {
     });
 
     state.bulkOxpsRecords = records;
-    state.bulkOxpsMonth = records[0] && records[0].month || state.payslipMonth || new Date().toISOString().slice(0, 7);
+    // 弥生の印字は【勤務月】なので、支給月の初期値はその翌月にする（月末締め・翌月末払い）
+    const yayoiMonth = (records[0] && records[0].month) || "";
+    state.bulkOxpsMonth = (yayoiMonth && ymAdd(yayoiMonth, 1)) || state.payslipMonth || new Date().toISOString().slice(0, 7);
     document.getElementById("bulkPayslipArea").innerHTML = renderBulkOxpsReview();
   } catch (e) {
     document.getElementById("bulkPayslipArea").innerHTML = `<p style="color:var(--danger);">OXPSの読み込みに失敗しました: ${e.message}</p>`;
@@ -4319,6 +4358,7 @@ function renderBulkOxpsReview() {
   const unmatchedCount = records.filter(r => !r.matched).length;
   const totalSashihiki = records.reduce((s, r) => s + r.sashihikiShikyu, 0);
   const month = state.bulkOxpsMonth;
+  const yayoiMonth = (records[0] && records[0].month) || ""; // 弥生が印字していた月（＝勤務月）
 
   return `
     <div style="margin-top:14px;">
@@ -4330,11 +4370,17 @@ function renderBulkOxpsReview() {
       </div>
       ${unmatchedCount ? `<div class="payslip-warning">従業員に一致しなかった方が${unmatchedCount}名います。お試しモードのため従業員データが少ないと、この件数が多く出ます（実際のFirebase環境では管理番号でご登録の従業員と自動照合されます）。下の一覧から手動で割り当てることもできます。</div>` : ""}
       ${ngCount ? `<div class="payslip-warning">検算に一致しない明細が${ngCount}名分あります。金額が正しく読み取れていない可能性があるため、対象月を確認し、必要であれば元のOXPSファイルをご確認ください。</div>` : ""}
-      <p class="muted" style="margin:0 0 8px;">支給月：
-        <select onchange="state.bulkOxpsMonth=this.value;">
-          ${[state.bulkOxpsMonth].concat(records.map(r=>r.month)).filter((v,i,a)=>v && a.indexOf(v)===i).map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
+      <p class="muted" style="margin:0 0 4px;">支給月：
+        <select onchange="state.bulkOxpsMonth=this.value; document.getElementById('bulkPayslipArea').innerHTML=renderBulkOxpsReview();">
+          ${[state.bulkOxpsMonth]
+              .concat(yayoiMonth ? [ymAdd(yayoiMonth, 1), yayoiMonth] : [])
+              .concat(records.map(r=>r.month))
+              .filter((v,i,a)=>v && a.indexOf(v)===i)
+              .map(m => `<option value="${m}" ${m===month?"selected":""}>${m}</option>`).join("")}
         </select>
+        <b style="margin-left:6px; color:var(--text);">→ 明細には「${fmtPaidMonth(month)}」と表示されます</b>
       </p>
+      ${yayoiMonth ? `<p class="muted" style="font-size:11.5px; margin:0 0 10px;">弥生の印字は「${yayoiMonth}」（＝働いた月）でした。支給月はその翌月として選んでいます。違うときは上で選び直してください。</p>` : ""}
       <table>
         <thead><tr><th>管理番号</th><th>氏名</th><th>組織</th><th>差引支給額</th><th>状態</th><th>割り当てる従業員</th><th></th></tr></thead>
         <tbody>
@@ -4375,7 +4421,7 @@ function previewOxpsRecord(i) {
           <p class="staff-title" style="margin:0;">明細プレビュー</p>
           <button class="link" onclick="document.getElementById('oxpsPreviewModal').innerHTML=''">とじる</button>
         </div>
-        ${renderPayslipSheet(r)}
+        ${renderPayslipSheet(r, state.bulkOxpsMonth)}
       </div>
     </div>
   `;
@@ -4429,7 +4475,11 @@ async function registerBulkOxpsPayslips() {
 }
 
 /* 弥生台紙そっくりのブルー罫線レイアウトで1名分の明細を描画 */
-function renderPayslipSheet(r) {
+/* paidMonth（会社が登録した支給月）を渡すと、それを月表示の正とする。
+   弥生が明細に印字する「令和◯年◯月分」は【勤務月】なので、支給月とは1か月ずれる。
+   渡されなかったときだけ、弥生の印字（r.month）で代用する。 */
+function renderPayslipSheet(r, paidMonth) {
+  const monthLabel = paidMonth || r.month;
   const kyuyoRows = r.kyuyo.length ? r.kyuyo : [{ label: "（内訳なし）", amount: 0 }];
   const kojoRows = r.kojo.length ? r.kojo : [{ label: "（内訳なし）", amount: 0 }];
   const attendEntries = Object.entries(r.attendance || {});
@@ -4438,7 +4488,7 @@ function renderPayslipSheet(r) {
       <div class="ps-head">
         <div class="ps-code">番号<b>${r.code || ""}</b></div>
         <div class="ps-name">${r.name || ""} 様<span class="ps-branch">${r.branch || "所属未設定"}</span></div>
-        <div class="ps-month">${fmtPayslipMonth(r.month)}</div>
+        <div class="ps-month">${fmtPayslipMonth(monthLabel)}</div>
       </div>
       ${attendEntries.length ? `
       <div class="ps-attend">
@@ -4893,7 +4943,7 @@ function adminPreviewPayslip(id) {
             <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
           </div>
         </div>
-        <div id="adminPayslipSheet">${renderPayslipSheet(p.data)}</div>
+        <div id="adminPayslipSheet">${renderPayslipSheet(p.data, payslipPaidMonth(p))}</div>
       </div>
     </div>
   `;
@@ -4923,7 +4973,7 @@ function renderPayslipViewScreen() {
       <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${fmtPayslipMonth(p, "file")}.pdf', this)">PDFとして保存する</button>
     </div>
     <div class="card payslip-preview" id="staffPayslipSheet">
-      ${renderPayslipSheet(p.data)}
+      ${renderPayslipSheet(p.data, payslipPaidMonth(p))}
     </div>
   `;
 }

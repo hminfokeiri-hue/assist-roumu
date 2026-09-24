@@ -1819,8 +1819,14 @@ function renderLeaveForm() {
       ${dateFieldHtml}
       <label>理由（にんい）</label>
       <input id="leaveReason" type="text" placeholder="通院のため" value="${(state.leaveFormReason || "").replace(/"/g, '&quot;')}" oninput="state.leaveFormReason=this.value;" />
+      <label>代わりに入ってくださる方（にんい）</label>
+      <input id="leaveSubstitute" type="text" placeholder="例：山田 花子さん" value="${(state.leaveFormSubstitute || "").replace(/"/g, '&quot;')}" oninput="state.leaveFormSubstitute=this.value;" />
+      <div class="placeholder-note" style="margin:8px 0 0;">
+        その日の代わりに入ってくださる方が決まっている場合は、お名前を書いてください。<br>
+        まだ決まっていない・代わりの方がいない場合は、空のままで大丈夫です。
+      </div>
       <button class="primary" onclick="submitLeaveRequest()">申請する</button>
-      <button class="btn-back-big" onclick="state.screen='staffHome'; state.leaveFormType=null; state.leaveFormReason=''; state.leaveFormDate=''; render();">やめる</button>
+      <button class="btn-back-big" onclick="state.screen='staffHome'; state.leaveFormType=null; state.leaveFormReason=''; state.leaveFormDate=''; state.leaveFormSubstitute=''; render();">やめる</button>
     </div>
   `;
 }
@@ -1836,6 +1842,7 @@ function renderLeaveHistory() {
             <div>
               <div>${r.date}（${r.type}）</div>
               <div class="muted">${r.reason || ""}</div>
+              ${r.substitute ? `<div class="muted" style="font-size:13px;">代わりの方：${escapeHtml(r.substitute)}</div>` : ""}
             </div>
             ${r.status === "cancelled"
               ? `<span class="status-pill" style="background:#eee; color:#888;">取り消しました${fmtYmd(r.cancelledAt) ? "・" + fmtYmd(r.cancelledAt) : ""}</span>`
@@ -1871,6 +1878,7 @@ async function submitLeaveRequest() {
   const date = document.getElementById("leaveDate").value;
   const type = document.getElementById("leaveType").value;
   const reason = document.getElementById("leaveReason").value;
+  const substitute = ((document.getElementById("leaveSubstitute") || {}).value || "").trim();
   if (!date) return alert("日付を選んでください");
 
   if (type === "有給休暇") {
@@ -1889,7 +1897,7 @@ async function submitLeaveRequest() {
     employeeId: state.currentUser.id,
     employeeName: state.currentUser.name,
     area: state.currentUser.area || "",
-    date, type, reason,
+    date, type, reason, substitute,
     status: "pending",
     createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
   };
@@ -1897,14 +1905,14 @@ async function submitLeaveRequest() {
   if (!firebaseReady) {
     state.leaveRequests.unshift({ ...data, id: "demo-" + Date.now() });
     state.screen = "staffHome";
-    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = "";
+    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = ""; state.leaveFormSubstitute = "";
     return render();
   }
 
   try {
     await db.collection("leaveRequests").add(data);
     state.screen = "staffHome";
-    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = "";
+    state.leaveFormType = null; state.leaveFormReason = ""; state.leaveFormDate = ""; state.leaveFormSubstitute = "";
     render();
   } catch (e) {
     alert("送信エラー: " + e.message);
@@ -2842,6 +2850,7 @@ function renderUpcomingLeaveCard() {
                 <div style="font-weight:700;">${escapeHtml(label)}${urgency ? `<span style="color:var(--danger); font-size:12px; margin-left:8px;">${urgency}</span>` : ""}</div>
                 <div style="margin-top:3px;">${escapeHtml(r.employeeName || "")}<span class="muted" style="margin-left:8px; font-size:13px;">${escapeHtml(r.area || "")}</span></div>
                 <div class="muted" style="font-size:13px; margin-top:2px;"><span style="color:${typeColor[r.type] || "var(--text)"}; font-weight:600;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
+                ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${escapeHtml(r.substitute)}</div>` : ""}
               </div>
               <div style="flex-shrink:0; text-align:right;">${statusPill}</div>
             </div>
@@ -2866,7 +2875,7 @@ function filterPastLeave() {
   const q = (state.pastLeaveSearch || "").trim().toLowerCase();
   if (!q) return monthed;
   return monthed.filter(r =>
-    [r.employeeName, r.area, r.type, r.reason, r.date].some(f => (f || "").toString().toLowerCase().includes(q))
+    [r.employeeName, r.area, r.type, r.reason, r.substitute, r.date].some(f => (f || "").toString().toLowerCase().includes(q))
   );
 }
 
@@ -2959,7 +2968,7 @@ function renderPastLeaveList() {
   }
   return `<p class="muted" style="font-size:12px; margin:12px 0 4px;">${list.length}件</p>
     <table>
-      <thead><tr><th>日付</th><th>氏名</th><th>エリア</th><th>区分</th><th>消化日数</th><th>理由</th><th>状態</th></tr></thead>
+      <thead><tr><th>日付</th><th>氏名</th><th>エリア</th><th>区分</th><th>消化日数</th><th>理由</th><th>代わりの方</th><th>状態</th></tr></thead>
       <tbody>
         ${list.map(r => `
           <tr>
@@ -2969,6 +2978,7 @@ function renderPastLeaveList() {
             <td style="color:${typeColor[r.type] || "var(--text)"}; font-weight:600;">${escapeHtml(r.type || "")}</td>
             <td>${r.type === "有給休暇" && r.days ? escapeHtml(String(r.days)) + "日" : ""}</td>
             <td>${escapeHtml(r.reason || "")}</td>
+            <td>${escapeHtml(r.substitute || "")}</td>
             <td>${escapeHtml(statusLabel[r.status] || r.status || "")}</td>
           </tr>
         `).join("")}
@@ -3028,6 +3038,7 @@ function exportPastLeaveToExcel() {
     "区分": r.type || "",
     "消化日数": r.type === "有給休暇" ? (r.days || "") : "",
     "理由": r.reason || "",
+    "代わりの方": r.substitute || "",
     "状態": statusLabel[r.status] || r.status || ""
   }));
   const sumRows = pastLeaveSummary(list).map(r => ({
@@ -3057,7 +3068,7 @@ function renderAdminLeaveTab(pending) {
       <div class="card" style="border:2px solid var(--danger);">
         <p class="staff-title" style="font-size:16px; color:var(--danger);">取り消しの依頼（パートさんが日にちのまちがいなどで取り消しを希望しています）</p>
         <table>
-          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>操作</th></tr></thead>
+          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>代わりの方</th><th>操作</th></tr></thead>
           <tbody>
             ${cancelReqs.map(r => `
               <tr>
@@ -3066,6 +3077,7 @@ function renderAdminLeaveTab(pending) {
                 <td>${r.date}</td>
                 <td>${r.type}</td>
                 <td>${r.reason || ""}</td>
+                <td>${escapeHtml(r.substitute || "")}</td>
                 <td>
                   <button class="btn-approve" onclick="approveCancelLeave('${r.id}')">取り消しを承認</button>
                   <button class="btn-reject" onclick="denyCancelLeave('${r.id}')">確認中に戻す</button>
@@ -3082,7 +3094,7 @@ function renderAdminLeaveTab(pending) {
       <div class="card">
         <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
         <table>
-          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>操作</th></tr></thead>
+          <thead><tr><th>氏名</th><th>エリア</th><th>日付</th><th>区分</th><th>理由</th><th>代わりの方</th><th>操作</th></tr></thead>
           <tbody>
             ${pending.map(r => `
               <tr>
@@ -3091,12 +3103,13 @@ function renderAdminLeaveTab(pending) {
                 <td>${r.date}</td>
                 <td>${r.type}</td>
                 <td>${r.reason || ""}</td>
+                <td>${escapeHtml(r.substitute || "")}</td>
                 <td>
                   <button class="btn-approve" onclick="updateLeaveStatus('${r.id}','approved')">決裁</button>
                   <button class="btn-reject" onclick="updateLeaveStatus('${r.id}','rejected')">否決</button>
                 </td>
               </tr>
-            `).join("") || `<tr><td colspan="6" class="muted">現在、決裁待ちの申請はありません</td></tr>`}
+            `).join("") || `<tr><td colspan="7" class="muted">現在、決裁待ちの申請はありません</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3445,6 +3458,10 @@ function renderEmpAttendanceHistory(emp) {
             <label style="font-size:12px;">理由・メモ</label>
             <input id="admLeaveReason_${emp.id}" type="text" placeholder="通院のため" style="font-size:13px; padding:8px;" />
           </div>
+          <div>
+            <label style="font-size:12px;">代わりに入った方（にんい）</label>
+            <input id="admLeaveSub_${emp.id}" type="text" placeholder="例：山田 花子" style="font-size:13px; padding:8px;" />
+          </div>
         </div>
 
         <button class="secondary" style="font-size:13px; padding:10px; margin-top:10px;" onclick="addAdminLeaveRecord('${emp.id}')">この内容で記録する</button>
@@ -3452,7 +3469,7 @@ function renderEmpAttendanceHistory(emp) {
       </div>
 
       <table>
-        <thead><tr><th>日付</th><th>区分</th><th>日数</th><th>理由</th><th>状態</th><th></th></tr></thead>
+        <thead><tr><th>日付</th><th>区分</th><th>日数</th><th>理由</th><th>代わりの方</th><th>状態</th><th></th></tr></thead>
         <tbody>
           ${records.map(r => {
             const isPaid = r.type === "有給休暇";
@@ -3463,10 +3480,11 @@ function renderEmpAttendanceHistory(emp) {
               <td>${esc(r.type)}${r.enteredBy === "admin" ? ` <span class="muted" style="font-size:10px;">(会社入力)</span>` : ""}</td>
               <td>${isPaid ? days + "日" : "—"}</td>
               <td>${esc(r.reason || "")}</td>
+              <td>${esc(r.substitute || "")}</td>
               <td><span class="status-pill status-${esc(r.status)}">${statusLabel[r.status] || esc(r.status)}</span></td>
               <td><button class="link" style="font-size:11px; color:var(--danger); padding:0;" onclick="deleteLeaveRecord('${r.id}', '${esc(r.date)}')">削除</button></td>
             </tr>
-          `;}).join("") || `<tr><td colspan="6" class="muted">記録はまだありません</td></tr>`}
+          `;}).join("") || `<tr><td colspan="7" class="muted">記録はまだありません</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -3482,6 +3500,7 @@ async function addAdminLeaveRecord(empId) {
   const type = (document.getElementById("admLeaveType_" + empId) || {}).value || LEAVE_TYPES[0];
   const daysRaw = (document.getElementById("admLeaveDays_" + empId) || {}).value || "1";
   const reason = ((document.getElementById("admLeaveReason_" + empId) || {}).value || "").trim();
+  const substitute = ((document.getElementById("admLeaveSub_" + empId) || {}).value || "").trim();
 
   if (!date) return alert("日付を選んでください");
 
@@ -3505,6 +3524,7 @@ async function addAdminLeaveRecord(empId) {
     date,
     type,
     reason,
+    substitute,
     days,
     status: "approved",
     enteredBy: "admin",
@@ -3520,6 +3540,8 @@ async function addAdminLeaveRecord(empId) {
     await db.collection("leaveRequests").add(data);
     const r = document.getElementById("admLeaveReason_" + empId);
     if (r) r.value = "";
+    const sub = document.getElementById("admLeaveSub_" + empId);
+    if (sub) sub.value = "";
     render();
   } catch (e) {
     alert("登録できませんでした: " + e.message);

@@ -283,6 +283,15 @@
     background: #fff8e1; border: 1px solid #f0d98c; border-radius: 10px;
     padding: 14px; font-size: 13px; color: #6b5b0e; margin-bottom: 16px;
   }
+  /* ---------- 試用契約書（画面はこれまでどおり、印刷はA4 1ページに収める） ---------- */
+  .shiyo-doc { padding: 4mm 14mm; font-size: 14px; line-height: 2; }
+  .shiyo-doc p { margin: 0; }
+  .shiyo-doc .s-title { text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 4px; margin: 0 0 28px; line-height: 1.4; }
+  .shiyo-doc .s-art { font-weight: 700; margin-top: 20px; }
+  .shiyo-doc .s-para { margin-top: 20px; }
+  .shiyo-doc .s-date { margin-top: 20px; }
+  .shiyo-doc .s-sign { margin-top: 24px; padding-left: calc(40% + 98px); }
+
   .contract-preview table td { padding: 8px; border: 1px solid var(--border); vertical-align: top; }
   .contract-preview .c-label { background: #F6EDDC; font-weight: 700; width: 130px; white-space: nowrap; }
 
@@ -297,6 +306,15 @@
     .contract-preview td { padding: 2px 5px !important; height: auto !important; }
     .contract-preview td.flex-cell { padding: 0 !important; }
     .contract-preview td[style*="height"] { height: auto !important; }
+    /* 試用契約書：A4タテ1ページに必ず収める */
+    .contract-preview .shiyo-doc { font-size: 13.5px !important; line-height: 2 !important; padding: 0 14mm !important; page-break-inside: avoid; }
+    .contract-preview .shiyo-doc .s-title { font-size: 19px !important; letter-spacing: 4px !important; margin: 0 0 20px !important; }
+    .contract-preview .shiyo-doc .s-gap { height: 1em !important; line-height: 1 !important; font-size: 13.5px !important; }
+    .contract-preview .shiyo-doc .s-art { margin-top: 16px !important; }
+    .contract-preview .shiyo-doc .s-para { margin-top: 16px !important; }
+    .contract-preview .shiyo-doc .s-date { margin-top: 18px !important; }
+    .contract-preview .shiyo-doc .s-sign { margin-top: 20px !important; padding-left: calc(30% + 40px) !important; }
+
     .contract-preview.roster-print { top: 8%; font-size: 15px; }
     .contract-preview.roster-print td { padding: 12px 16px !important; }
     .contract-preview.roster-print p:first-child { font-size: 24px !important; letter-spacing: 14px !important; margin-bottom: 26px !important; }
@@ -435,6 +453,12 @@
     .payslip-sheet .ps-pay-boxes { width: auto; }
   }
 
+  .sub-place-btn {
+    margin-top: 8px; padding: 9px 14px; font-size: 13px; font-weight: 700;
+    background: #fff; color: var(--blue); border: 1.5px solid var(--blue);
+    border-radius: 10px; width: auto; font-family: inherit; cursor: pointer;
+  }
+
   .payslip-warning {
     background: #FEF0EE; border: 1px solid #E8A79C; color: var(--danger); border-radius: 10px;
     padding: 10px 14px; font-size: 12.5px; margin-bottom: 12px;
@@ -554,7 +578,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-24(5)";
+const APP_VERSION = "更新: 2026-09-28(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -596,7 +620,20 @@ const appEl = document.getElementById("app");
 
 /* 画面を作り直すと入力欄も作り直されるため、入力中だった場所とカーソル位置を
    覚えておいて元に戻す。（他の人からの連絡が届いた拍子に入力が中断されないように） */
+/* 日本語を変換している最中は、画面を作り直さない。
+   作り直すと、まだ確定していない打ちかけの文字が消えてしまうため。
+   変換が終わったら、待たせていた作り直しをまとめて1回だけ行う。 */
+let imeComposing = false;
+let renderWaitingForIme = false;
+function imeStart() { imeComposing = true; }
+function imeEnd() {
+  if (!imeComposing) return;
+  imeComposing = false;
+  if (renderWaitingForIme) { renderWaitingForIme = false; render(); }
+}
+
 function render() {
+  if (imeComposing) { renderWaitingForIme = true; return; }
   const active = document.activeElement;
   const focusId = active && active.id ? active.id : null;
   const canSelect = active && typeof active.selectionStart === "number";
@@ -934,7 +971,8 @@ function renderOrderForm() {
   const selectedItem = state.orderItem || "";   // 最初は何も選ばれていない状態にする
   const isFree = selectedItem === "__free__";
   // 一度でも書き換えていればその内容を、まだなら就業先を初期値として出す
-  const place = state.orderPlace != null ? state.orderPlace : (state.currentUser.workplace || "");
+  const autoPlace = state.currentUser.workplace || "";          // 従業員登録の就業先（自動で入る値）
+  const place = state.orderPlace != null ? state.orderPlace : autoPlace;
   return `
     <div class="card">
       <p class="staff-title" style="font-size:17px;">備品をたのむ</p>
@@ -942,7 +980,17 @@ function renderOrderForm() {
       ${accepting ? "" : `<div class="placeholder-note">今は受付時間外です（受付は平日の17時まで、土日祝はお休みです）。申請はできますが、本社の確認は翌営業日になります。</div>`}
 
       <label>発注する場所（げんば）</label>
-      <input id="orderPlace" type="text" placeholder="例：○○警察署" value="${escapeHtml(place)}" oninput="state.orderPlace=this.value;" />
+      <input id="orderPlace" type="text" placeholder="例：○○警察署" value="${escapeHtml(place)}"
+             oninput="state.orderPlace=this.value;"
+             oncompositionstart="imeStart()"
+             oncompositionend="state.orderPlace=this.value; imeEnd();"
+             onblur="imeEnd()" />
+      <p class="muted" style="font-size:12.5px; margin:4px 0 0; line-height:1.6;">
+        いつもの就業先が入っています。ちがう現場のときは、ここを書きかえてください。
+      </p>
+      ${autoPlace && place !== autoPlace
+        ? `<button type="button" class="sub-place-btn" onclick="state.orderPlace=null; render();">「${escapeHtml(autoPlace)}」にもどす</button>`
+        : ""}
 
       <label>ほしいもの（ボタンを押してえらんでください）</label>
       <div class="item-grid">
@@ -950,7 +998,11 @@ function renderOrderForm() {
         <button type="button" class="item-btn wide ${isFree ? "selected" : ""}" data-item="__free__" onclick="selectOrderItem('__free__')">✏️ その他（自分で書く）</button>
       </div>
       <div id="orderFreeWrap" style="display:${isFree ? "block" : "none"};">
-        <input id="orderFreeText" type="text" placeholder="ほしいものを書いてください" style="margin-top:6px;" value="${escapeHtml(state.orderFreeText || "")}" oninput="state.orderFreeText=this.value;" />
+        <input id="orderFreeText" type="text" placeholder="ほしいものを書いてください" style="margin-top:6px;" value="${escapeHtml(state.orderFreeText || "")}"
+               oninput="state.orderFreeText=this.value;"
+               oncompositionstart="imeStart()"
+               oncompositionend="state.orderFreeText=this.value; imeEnd();"
+               onblur="imeEnd()" />
       </div>
 
       <label>いくつ</label>
@@ -3150,6 +3202,28 @@ function shiftSummary(e) {
   return e.shiftDays || "";
 }
 
+/* その方が勤務する曜日を求める（0=日, 1=月, … 6=土）。
+   曜日ごとのシフト欄（月〜日）に時間が入っていればその曜日を勤務日とみなす。
+   まだシフトを入れていない方は、古い「shiftDays」の文字（例：月・水・金）から拾う。
+   どちらも無いときは空を返す＝勤務日が分からないので、とばす処理はしない。 */
+const WEEKDAY_INDEX = [
+  ["shiftSun", 0, "日"], ["shiftMon", 1, "月"], ["shiftTue", 2, "火"], ["shiftWed", 3, "水"],
+  ["shiftThu", 4, "木"], ["shiftFri", 5, "金"], ["shiftSat", 6, "土"]
+];
+function workingWeekdaysOf(emp) {
+  const set = new Set();
+  WEEKDAY_INDEX.forEach(([key, idx]) => { if (((emp || {})[key] || "").trim()) set.add(idx); });
+  if (set.size) return set;
+  const legacy = ((emp || {}).shiftDays || "").trim();
+  if (legacy) WEEKDAY_INDEX.forEach(([, idx, label]) => { if (legacy.includes(label)) set.add(idx); });
+  return set;
+}
+// 「2026-10-05」の曜日を返す（0=日〜6=土）
+function weekdayOfYmd(ymd) {
+  const d = new Date(String(ymd) + "T00:00:00");
+  return isNaN(d) ? -1 : d.getDay();
+}
+
 // 曜日ごとの勤務時間から「週の勤務日数」「就業時間」「休日」を自動計算する
 function computeShiftDerivedFields(emp) {
   const filled = WEEKDAY_FIELDS.map(([key, label]) => [label, (emp[key] || "").trim()]).filter(([, v]) => v);
@@ -3416,7 +3490,7 @@ function renderEmpAttendanceHistory(emp) {
 
   return `
     <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
-      <p class="staff-title" style="font-size:15px; margin:0 0 10px;">過去の勤怠（休み・有給・忌引き・早退）</p>
+      <p class="staff-title" style="font-size:15px; margin:0 0 10px;">勤怠（休み・有給・忌引き・早退）</p>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
         ${bal.notYet
@@ -3434,12 +3508,17 @@ function renderEmpAttendanceHistory(emp) {
       ${bal.notYet ? "" : `<p class="muted" style="font-size:11px; margin:0 0 12px;">残り＝今年の付与（${bal.grantNow}日）＋前年からの繰越（${bal.carryOver}日）−今年の消化（${bal.usedCurr}日）。繰越は前年の付与のうち使い残したぶんで、2年より前のぶんは時効で消えています。${bal.dutyTarget > 0 ? `<br>年5日義務：今年の付与が${bal.grantNow}日（10日以上）なので対象。${bal.dutyDeadline ? esc(bal.dutyDeadline) + "（次の付与日の前日）" : ""}までに5日取得させる必要があります。現在 ${bal.dutyDone}日 取得ずみ${bal.dutyLeft > 0 ? `／<b style="color:var(--danger);">あと${bal.dutyLeft}日</b>` : "（達成）"}。` : `<br>年5日義務：今年の付与が${bal.grantNow}日で10日未満のため対象外です。`}</p>`}
 
       <div style="padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa; margin-bottom:14px;">
-        <label style="margin:0 0 8px; font-weight:700;">過去の休み・有給を記録する</label>
+        <label style="margin:0 0 8px; font-weight:700;">休み・有給を記録する</label>
+        <p class="muted" style="font-size:11.5px; margin:-4px 0 8px;">過ぎた日も、これから先の日も登録できます。何日か続けて休むときは「終わりの日」を入れると、その間をまとめて登録します（シフトに無い曜日はとばします）。</p>
 
         <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
           <div>
-            <label style="font-size:12px;">日付</label>
-            <input id="admLeaveDate_${emp.id}" type="date" max="${today}" value="${today}" style="font-size:13px; padding:8px;" />
+            <label style="font-size:12px;">日付（はじめの日）</label>
+            <input id="admLeaveDate_${emp.id}" type="date" value="${today}" style="font-size:13px; padding:8px;" />
+          </div>
+          <div>
+            <label style="font-size:12px;">終わりの日（にんい・続けて休むとき）</label>
+            <input id="admLeaveEnd_${emp.id}" type="date" style="font-size:13px; padding:8px;" />
           </div>
           <div>
             <label style="font-size:12px;">区分</label>
@@ -3474,9 +3553,10 @@ function renderEmpAttendanceHistory(emp) {
           ${records.map(r => {
             const isPaid = r.type === "有給休暇";
             const days = typeof r.days === "number" ? r.days : 1;
+            const isFuture = r.date > today;   // これから先の日は「予定」とわかるようにする
             return `
             <tr>
-              <td>${esc(r.date)}</td>
+              <td>${esc(r.date)}${isFuture ? ` <span class="status-pill status-pending" style="font-size:10px; padding:1px 6px;">予定</span>` : ""}</td>
               <td>${esc(r.type)}${r.enteredBy === "admin" ? ` <span class="muted" style="font-size:10px;">(会社入力)</span>` : ""}</td>
               <td>${isPaid ? days + "日" : "—"}</td>
               <td>${esc(r.reason || "")}</td>
@@ -3497,51 +3577,117 @@ async function addAdminLeaveRecord(empId) {
   if (!emp) return alert("従業員が見つかりませんでした");
 
   const date = (document.getElementById("admLeaveDate_" + empId) || {}).value || "";
+  const endDate = ((document.getElementById("admLeaveEnd_" + empId) || {}).value || "").trim();
   const type = (document.getElementById("admLeaveType_" + empId) || {}).value || LEAVE_TYPES[0];
   const daysRaw = (document.getElementById("admLeaveDays_" + empId) || {}).value || "1";
   const reason = ((document.getElementById("admLeaveReason_" + empId) || {}).value || "").trim();
   const substitute = ((document.getElementById("admLeaveSub_" + empId) || {}).value || "").trim();
 
   if (!date) return alert("日付を選んでください");
+  if (endDate && endDate < date) return alert("「終わりの日」は「はじめの日」と同じか、あとの日にしてください");
 
   const days = type === "有給休暇" ? parseFloat(daysRaw) : 0;
 
-  // 同じ日に同じ区分の記録がないか確認する（二重登録の防止）
-  const dup = (state.leaveRequests || []).find(
-    r => r.employeeId === empId && r.date === date && r.type === type && r.status !== "rejected" && r.status !== "cancelled"
-  );
-  if (dup && !confirm(`${date} の「${type}」はすでに登録されています。それでも追加しますか？`)) return;
+  // はじめの日〜終わりの日を、1日ずつの一覧にする（終わりの日が空なら1日だけ）
+  let allDates = [];
+  {
+    let d = date;
+    const last = endDate || date;
+    while (d && d <= last) {
+      allDates.push(d);
+      if (allDates.length > 62) return alert("一度に登録できるのは62日ぶんまでです。期間を分けて登録してください。");
+      d = addDays(d, 1);
+    }
+  }
+  if (!allDates.length) return alert("日付を選んでください");
 
-  if (type === "有給休暇") {
-    const remaining = remainingLeaveFor(emp);
-    if (days > remaining && !confirm(`残り有給は ${remaining}日 です。${days}日を登録すると残日数を超えます。それでも登録しますか？`)) return;
+  /* 期間で登録するときは、その方のシフトに無い曜日をとばす。
+     1日だけの指定は、会社が選んだ日をそのまま尊重して、とばさない。 */
+  const workDays = workingWeekdaysOf(emp);
+  let offSkipped = 0;
+  let shiftUnknown = false;
+  if (endDate && allDates.length > 1) {
+    if (workDays.size) {
+      const before = allDates.length;
+      allDates = allDates.filter(d => workDays.has(weekdayOfYmd(d)));
+      offSkipped = before - allDates.length;
+      if (!allDates.length) {
+        return alert(`${date} 〜 ${endDate} のあいだに、${emp.name || "この方"}のシフトの勤務日がありませんでした。\n従業員管理のシフト（月〜日）をご確認ください。`);
+      }
+    } else {
+      shiftUnknown = true;
+    }
   }
 
-  const data = {
+  // すでに同じ日・同じ区分の記録があるものを分ける（二重登録の防止）
+  const isDup = d => (state.leaveRequests || []).some(
+    r => r.employeeId === empId && r.date === d && r.type === type && r.status !== "rejected" && r.status !== "cancelled"
+  );
+  let targets = allDates.filter(d => !isDup(d));
+  const dupCount = allDates.length - targets.length;
+
+  if (allDates.length === 1) {
+    // 1日だけのときは、これまでどおり「それでも追加するか」を聞く
+    if (dupCount && !confirm(`${date} の「${type}」はすでに登録されています。それでも追加しますか？`)) return;
+    targets = allDates;
+  } else {
+    if (!targets.length) return alert(`${date} 〜 ${endDate} は、すべてすでに登録ずみです。`);
+    if (dupCount && !confirm(`${dupCount}日ぶんはすでに登録ずみのため、とばします。\nのこりの ${targets.length}日ぶんを登録しますか？`)) return;
+  }
+
+  if (type === "有給休暇") {
+    const total = days * targets.length;
+    const remaining = remainingLeaveFor(emp);
+    if (total > remaining && !confirm(`残り有給は ${remaining}日 です。${total}日を登録すると残日数を超えます。それでも登録しますか？`)) return;
+  }
+
+  if (targets.length > 1) {
+    const paidNote = type === "有給休暇" ? `\n有給は合計 ${days * targets.length}日 消化します。` : "";
+    const offNote = offSkipped ? `\nシフトに無い曜日の ${offSkipped}日ぶんは、とばしました。` : "";
+    const unknownNote = shiftUnknown ? `\n※この方はシフト（月〜日）が未登録のため、期間の全部の日を登録します。` : "";
+    if (!confirm(`${date} 〜 ${endDate || date} のうち ${targets.length}日ぶんを「${type}」として登録します。\n（${targets[0]} 〜 ${targets[targets.length - 1]}）${paidNote}${offNote}${unknownNote}\n\nよろしいですか？`)) return;
+  }
+
+  const baseData = {
     employeeId: empId,
     employeeName: emp.name || "",
     area: emp.area || "",
-    date,
     type,
     reason,
     substitute,
     days,
     status: "approved",
-    enteredBy: "admin",
-    createdAt: firebaseReady ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+    enteredBy: "admin"
   };
 
   if (!firebaseReady) {
-    state.leaveRequests.unshift({ ...data, id: "demo-" + Date.now() });
+    targets.forEach(d => state.leaveRequests.unshift({
+      ...baseData, date: d, createdAt: new Date().toISOString(), id: "demo-" + Date.now() + "-" + d
+    }));
     return render();
   }
 
   try {
-    await db.collection("leaveRequests").add(data);
+    const stamp = firebase.firestore.FieldValue.serverTimestamp();
+    if (targets.length === 1) {
+      await db.collection("leaveRequests").add({ ...baseData, date: targets[0], createdAt: stamp });
+    } else {
+      // 1件ずつ足すと途中で失敗したときに分かりにくいので、まとめて書き込む
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = db.batch();
+        targets.slice(i, i + 400).forEach(d => {
+          batch.set(db.collection("leaveRequests").doc(), { ...baseData, date: d, createdAt: stamp });
+        });
+        await batch.commit();
+      }
+      alert(`${targets.length}日ぶんを登録しました。`);
+    }
     const r = document.getElementById("admLeaveReason_" + empId);
     if (r) r.value = "";
     const sub = document.getElementById("admLeaveSub_" + empId);
     if (sub) sub.value = "";
+    const endEl = document.getElementById("admLeaveEnd_" + empId);
+    if (endEl) endEl.value = "";
     render();
   } catch (e) {
     alert("登録できませんでした: " + e.message);
@@ -6067,34 +6213,34 @@ function renderShiyoKeiyaku(emp) {
   const end = state.probationEnd;
   const signDate = addDays(start, -1);
   return `
-    <div style="padding:4mm 14mm;">
-    <p style="text-align:center; font-size:20px; font-weight:700; letter-spacing:4px; margin-bottom:28px;">試用契約書</p>
-    <div style="font-size:14px; line-height:2;">&nbsp;</div>
-    <div style="font-size:14px; line-height:2;">&nbsp;</div>
-    <p style="font-size:14px; line-height:2;">
+    <div class="shiyo-doc">
+    <p class="s-title">試用契約書</p>
+    <div class="s-gap">&nbsp;</div>
+    <div class="s-gap">&nbsp;</div>
+    <p>
       使用者　${COMPANY_NAME}（以下、「甲」という。）と、労働者　${emp.name || "　　　　　　　"}　（以下、「乙」という。）は、本日、次のとおり試用契約を締結する。
     </p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第1条</p>
-    <p style="font-size:14px; line-height:2;">
+    <p class="s-art">第1条</p>
+    <p>
       1　甲は乙が甲の社員としての適格性を有するか否かを判断するため、就業規則その他の諸規則に定める労働条件で試用する。<br/>
       2　試用期間は、${toWareki(start)}から${toWareki(end)}までの１か月間とする。<br/>
       3　甲は、試用期間の満了までに乙の本採用の可否を審査決定する。ただし、試用期間の満了までに審査が終了しなかった場合は、３か月間を上限として試用期間を延長することができる。<br/>
       4　甲が乙を甲の社員として一定の基準に満たないと認めた場合は、試用期間中であっても本契約を解除することができる。
     </p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第2条</p>
-    <p style="font-size:14px; line-height:2;">乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
-    <p style="font-size:14px; font-weight:700; margin-top:20px;">第3条</p>
-    <p style="font-size:14px; line-height:2;">乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
-    <p style="font-size:14px; line-height:2; margin-top:20px;">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
-    <div style="font-size:14px; line-height:2;">&nbsp;</div>
-    <p style="font-size:14px; margin-top:20px;">${toWareki(signDate)}</p>
-    <div style="margin-top:24px; font-size:14px; line-height:2; padding-left:calc(40% + 98px);">
+    <p class="s-art">第2条</p>
+    <p>乙は、就業規則、賃金規程その他の諸規則・規程を遵守し、誠実に職務を遂行する。</p>
+    <p class="s-art">第3条</p>
+    <p>乙は、試用期間中及び期間満了後を問わず、本契約および業務に関して知り得た甲の秘密を他に漏らしてはならない。</p>
+    <p class="s-para">以上のとおり契約が成立したことを証するため、本書2通を作成し、各自署名押印のうえ、その1通を保有する。</p>
+    <div class="s-gap">&nbsp;</div>
+    <p class="s-date">${toWareki(signDate)}</p>
+    <div class="s-sign">
       <div>使用者（甲）</div>
       <div>　${COMPANY_ADDRESS}</div>
       <div>${COMPANY_NAME}</div>
       <div>　代表取締役　${COMPANY_REP}　　印</div>
     </div>
-    <div style="margin-top:24px; font-size:14px; line-height:2; padding-left:calc(40% + 98px);">
+    <div class="s-sign">
       <div>労働者（乙）</div>
       <div>　住所：${emp.address || "　　　　　　　　　　　　　　　　　　　　　　　　"}</div>
       <div>　氏名：${emp.name || "　　　　　　　　　　　　　　　　　　　　　　"}　　印</div>

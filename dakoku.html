@@ -89,6 +89,8 @@ return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padSt
 }
 function nospace(s){ return String(s==null?"":s).replace(/[\s　]/g,""); }
 function last3(code){ return String(code||"").replace(/[^0-9]/g,"").slice(-3); }
+/* 従業員コードが変わっても、本社が「本人カードの番号」を入れておけば前のカードで打刻できる */
+function codeOk(emp, c3){ c3=String(c3||""); if (!c3) return false; if (last3(emp.employeeCode) === c3) return true; return !!emp.cardCode3 && last3(emp.cardCode3) === c3; }
 
 var booted = false;
 function render(html){ booted = true; el("main").innerHTML = html; }
@@ -126,7 +128,7 @@ var snap = await db.collection("employees").where("loginId","==",loginId).limit(
 if (snap.empty){ state.err = "ログインIDが見つかりません"; return renderLogin(); }
 var doc = snap.docs[0];
 var emp = Object.assign({ id: doc.id }, doc.data());
-if (last3(emp.employeeCode) !== code3.padStart(3,"0")){
+if (!codeOk(emp, code3.padStart(3,"0"))){
 state.err = "管理番号の下3桁が違います"; return renderLogin();
 }
 localStorage.setItem(LS_LOGIN, loginId);
@@ -245,7 +247,7 @@ return "stop";
 }
 var doc = snap.docs[0];
 var emp = Object.assign({ id: doc.id }, doc.data());
-if (last3(emp.employeeCode) !== mc){
+if (!codeOk(emp, mc)){
 render('<div class="card center"><p class="muted">このカードは読み取れませんでした。<br>本社にお知らせください。</p></div>');
 return "stop";
 }
@@ -323,7 +325,7 @@ var snap = await db.collection("employees").where("loginId","==",loginId).limit(
 if (snap.empty) return renderLogin();
 var doc = snap.docs[0];
 var emp = Object.assign({ id: doc.id }, doc.data());
-if (last3(emp.employeeCode) !== code3) return renderLogin();
+if (!codeOk(emp, code3)) return renderLogin();
 state.emp = emp;
 await loadRecord();
 renderMain();

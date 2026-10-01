@@ -517,7 +517,7 @@ $("btnSave").onclick = async function(){
 var SITES = null, EMPS = null, EROWS = [], KANA_KEY = null, EMP_RAW = [];
 
 function dakokuUrl(siteId, me){
-  var u = new URL("dakoku.html", location.href).href + "?site=" + siteId;
+  var u = "https://hminfokeiri-hue.github.io/assist-roumu/dakoku.html?site=" + siteId;
   if(me) u += "&me=" + me;
   return u;
 }

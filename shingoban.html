@@ -227,7 +227,8 @@ o.start(); o.stop(audioCtx.currentTime+0.7);
 }
 
 /* ---------- ほかのページへ ---------- */
-function pageUrl(f){ return new URL(f, location.href).href + "?v=" + Date.now(); }
+var BASE_URL = "https://hminfokeiri-hue.github.io/assist-roumu/";
+function pageUrl(f){ return BASE_URL + f + "?v=" + Date.now(); }
 
 /* ---------- 画面 ---------- */
 function render(){
@@ -365,7 +366,7 @@ if (!confirm("この現場を消します。よろしいですか？（貼って
 db.collection("sites").doc(id).delete().then(function(){ state.editing=null; render(); });
 }
 
-function dakokuUrl(id){ return new URL("dakoku.html", location.href).href + "?site=" + id; }
+function dakokuUrl(id){ return BASE_URL + "dakoku.html?site=" + id; }
 function viewQr(){
 var sites = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); });
 if (!sites.length) return '<div class="card"><p class="muted">先に現場を登録してください。</p></div>';

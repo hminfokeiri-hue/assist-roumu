@@ -341,6 +341,15 @@
     .envelope-preview { position: absolute !important; top: 0; left: 0; border: none !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
   }
 
+  /* 給与明細の印刷：明細だけを別の入れ物に写して、それ以外は紙に出さない
+     （透明にするだけだと、後ろの一覧のぶんだけ白紙が何十枚も出てしまうため） */
+  #printSolo { display: none; }
+  @media print {
+    body.print-solo > *:not(#printSolo) { display: none !important; }
+    body.print-solo #printSolo { display: block !important; }
+    body.print-solo #printSolo, body.print-solo #printSolo * { visibility: visible !important; }
+  }
+
   /* ---------- 給与明細（弥生台紙そっくりレイアウト） ---------- */
   .payslip-sheet {
     background: #fff; border: 2px solid #2AA9D8; border-radius: 2px;
@@ -5623,6 +5632,19 @@ async function savePreviewAsPdf(elementId, filename, btnEl) {
   }
 }
 
+/* 給与明細を1枚だけ印刷する */
+function printPayslipOnly(sheetId) {
+  const src = document.getElementById(sheetId);
+  if (!src) return window.print();
+  let box = document.getElementById("printSolo");
+  if (!box) { box = document.createElement("div"); box.id = "printSolo"; document.body.appendChild(box); }
+  box.innerHTML = `<div class="payslip-preview">${src.innerHTML}</div>`;
+  document.body.classList.add("print-solo");
+  const done = () => { document.body.classList.remove("print-solo"); box.innerHTML = ""; };
+  window.addEventListener("afterprint", done, { once: true });
+  window.print();
+}
+
 function adminPreviewPayslip(id) {
   const p = (state.payslips || []).find(x => x.id === id);
   if (!p) return;
@@ -5636,7 +5658,7 @@ function adminPreviewPayslip(id) {
         <div class="row-between no-print" style="margin-bottom:10px;">
           <p class="staff-title" style="margin:0;">${p.employeeName || ""} さん　${fmtPayslipMonth(p)}</p>
           <div>
-            <button style="margin-right:8px;" onclick="window.print()">印刷する</button>
+            <button style="margin-right:8px;" onclick="printPayslipOnly('adminPayslipSheet')">印刷する</button>
             <button style="margin-right:8px;" onclick="savePreviewAsPdf('adminPayslipSheet','給与明細_${p.employeeName || ""}_${fmtPayslipMonth(p, "file")}.pdf', this)">PDFとして保存する</button>
             <button class="link" onclick="document.getElementById('adminPayslipPreviewModal').remove()">とじる</button>
           </div>
@@ -5667,7 +5689,7 @@ function renderPayslipViewScreen() {
         <p class="staff-title" style="font-size:17px; margin:0;">${fmtPayslipMonth(p)}の給与明細</p>
         <button class="link" onclick="state.screen='payslips'; render();">一覧にもどる</button>
       </div>
-      <button class="primary" style="margin-top:14px;" onclick="window.print()">印刷する</button>
+      <button class="primary" style="margin-top:14px;" onclick="printPayslipOnly('staffPayslipSheet')">印刷する</button>
       <button class="secondary" style="margin-top:8px;" onclick="savePreviewAsPdf('staffPayslipSheet','給与明細_${fmtPayslipMonth(p, "file")}.pdf', this)">PDFとして保存する</button>
     </div>
     <div class="card payslip-preview" id="staffPayslipSheet">

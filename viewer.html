@@ -198,7 +198,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-09-21(10)";
+const APP_VERSION = "リーダー用 2026-10-02(11)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -358,11 +358,10 @@ function startFirebase() {
   if (!window.firebase) return false;
   viewerApp = firebase.initializeApp(firebaseConfig, SHACHO ? "shacho" : "viewer");
   db = viewerApp.firestore();
-  if (SHACHO) {
-    /* 社長用だけ：前に読んだ内容をスマホに残しておき、2回目からはすぐ出します
-       （そのあと最新の内容に入れかわります）。うまく使えないときは、ふつうに読みます。 */
-    try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) { /* 何もしない */ }
-  }
+  /* 前に読んだ内容を端末に残しておき、2回目からはすぐ出します（そのあと最新の内容に入れかわります）。
+     【読み取り節約】開き直しても30分以内なら「変わった分」だけの読み取りで済みます。
+     うまく使えないときは、ふつうに読みます。 */
+  try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) { /* 何もしない */ }
   subApp = firebase.initializeApp(firebaseConfig, "maker");
   return true;
 }
@@ -485,6 +484,7 @@ function logout() {
   state.setupEmpId = null; state.setupSearch = ""; state.setupLoginId = ""; state.setupPw = "";
   state.setupDone = null; state.secrets = {}; state.secretsLoaded = false;
   state.secretsError = ""; state.showSecretFor = null;
+  stopViewerSubscriptions();
   if (viewerApp) viewerApp.auth().signOut().catch(() => {});
   render();
 }
@@ -492,22 +492,30 @@ function logout() {
 /* 社長用：必要なものだけを、順番に読みます（重いチャットは最後）。
 ・業務日誌ボタン … 日誌を書く人の名前だけ読みます（チャット・お休み・面接は読みません）
 ・アシスト労務ボタン … まず従業員を出して、そのあとお休み・面接・チャットを読みます */
+/* 【読み取り節約】始めた購読をおぼえておき、ログアウトで止める（ログインし直すたびに二重に読むのを防ぐ） */
+let viewerUnsubs = [];
+let viewerSubscribed = false;
+function stopViewerSubscriptions() {
+  viewerUnsubs.forEach(u => { try { u(); } catch (e) {} });
+  viewerUnsubs = [];
+  viewerSubscribed = false;
+}
 function subscribeShacho() {
   if (SHACHO_LOG_ONLY) {
     /* 日誌はすぐ読みはじめます（名前の一覧は、あとから届いたら入れかえます） */
     state.loading = false;
     render();
-    db.collection("employees").where("viewerEnabled", "==", true).onSnapshot(snap => {
+    viewerUnsubs.push(db.collection("employees").where("viewerEnabled", "==", true).onSnapshot(snap => {
       state.employees = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(e => e.status !== "resigned");
       state.loading = false;
       render();
-    }, err => { state.loading = false; render(); });
+    }, err => { state.loading = false; render(); }));
     return;
   }
   let restStarted = false;
-  db.collection("employees").onSnapshot(snap => {
+  viewerUnsubs.push(db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(e => e.status !== "resigned");
@@ -515,45 +523,47 @@ function subscribeShacho() {
     render();
     if (restStarted) return;
     restStarted = true;
-    db.collection("leaveRequests").onSnapshot(s2 => {
+    viewerUnsubs.push(db.collection("leaveRequests").onSnapshot(s2 => {
       state.leaves = s2.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
-    }, err => console.error("leaveRequests購読エラー", err));
-    db.collection("interviews").onSnapshot(s3 => {
+    }, err => console.error("leaveRequests購読エラー", err)));
+    viewerUnsubs.push(db.collection("interviews").onSnapshot(s3 => {
       state.interviews = s3.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
-    }, err => console.error("interviews購読エラー", err));
-    db.collection("messages").onSnapshot(s4 => {
+    }, err => console.error("interviews購読エラー", err)));
+    viewerUnsubs.push(db.collection("messages").onSnapshot(s4 => {
       state.messages = s4.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
-    }, err => console.error("messages購読エラー", err));
-  }, err => { state.loading = false; render(); console.error("employees購読エラー", err); });
+    }, err => console.error("messages購読エラー", err)));
+  }, err => { state.loading = false; render(); console.error("employees購読エラー", err); }));
 }
 
 function subscribeAll() {
+  if (viewerSubscribed) return;
+  viewerSubscribed = true;
   if (isShacho()) return subscribeShacho();
-  db.collection("employees").onSnapshot(snap => {
+  viewerUnsubs.push(db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(e => e.status !== "resigned"); // 退職者はこのページに出しません
     state.loading = false;
     render();
-  }, err => { state.loading = false; render(); alert("従業員データを読み込めませんでした: " + err.message); });
+  }, err => { state.loading = false; render(); alert("従業員データを読み込めませんでした: " + err.message); }));
 
-  db.collection("leaveRequests").onSnapshot(snap => {
+  viewerUnsubs.push(db.collection("leaveRequests").onSnapshot(snap => {
     state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => console.error("leaveRequests購読エラー", err));
+  }, err => console.error("leaveRequests購読エラー", err)));
 
-  db.collection("messages").onSnapshot(snap => {
+  viewerUnsubs.push(db.collection("messages").onSnapshot(snap => {
     state.messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => console.error("messages購読エラー", err));
+  }, err => console.error("messages購読エラー", err)));
 
-  db.collection("interviews").onSnapshot(snap => {
+  viewerUnsubs.push(db.collection("interviews").onSnapshot(snap => {
     state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => console.error("interviews購読エラー", err));
+  }, err => console.error("interviews購読エラー", err)));
 }
 
 /* ---------- 会社用メモ（社内用）の書き込み ---------- */

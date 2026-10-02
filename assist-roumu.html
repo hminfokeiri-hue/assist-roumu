@@ -525,6 +525,11 @@ let authReady = false;
 try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  // 【読み取り節約】本社PC（管理者メールを保存している端末）だけ、読んだデータを端末に残す。
+  // 開き直したとき、30分以内なら「変わった分」だけの読み取りで済む。
+  if (localStorage.getItem("assistRoumuAdminEmail")) {
+    db.enablePersistence({ synchronizeTabs: true }).catch(e => console.warn("端末キャッシュは使えません", e.code));
+  }
   firebaseReady = firebaseConfig.apiKey !== "ここに貼り付け";
   if (firebaseReady) {
     // パートさん用：裏側で匿名認証（画面や操作は変わりません）
@@ -587,7 +592,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-02";
+const APP_VERSION = "更新: 2026-10-02b";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -889,14 +894,16 @@ async function handleAdminLogin() {
   }
   state.screen = "adminHome";
   render();
-  if (firebaseReady) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); }
-  subscribeEnvelopeSettings();
+  if (firebaseReady && !adminSubscribed) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); subscribeEnvelopeSettings(); }
+  else if (!firebaseReady) subscribeEnvelopeSettings();
 }
 
 function logout() {
   const wasAdmin = state.currentUser && state.currentUser.role === "admin";
   state.currentUser = null;
   state.screen = "login";
+  // 【読み取り節約】ログイン中に始めた購読をすべて止める（次のログインで二重に読まないように）
+  if (firebaseReady) { stopStaffSubscriptions(); stopAdminSubscriptions(); }
   // 別の人がログインした時に前の人のグループが残らないようにする
   groupsSubscribed = false;
   state.groupChats = [];
@@ -1264,7 +1271,7 @@ const PRESET_PHRASES_OFFICE = ["承知しました", "確認します", "少々�
 
 function subscribeStaffMessages() {
   if (!firebaseReady) return;
-  db.collection("messages")
+  staffUnsubs.push(db.collection("messages")
     .where("employeeId", "==", state.currentUser.id)
     .onSnapshot(snap => {
       const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1275,17 +1282,17 @@ function subscribeStaffMessages() {
       });
       state.messages = rows;
       render();
-    }, err => console.error("messages購読エラー", err));
+    }, err => console.error("messages購読エラー", err)));
 }
 
 function subscribeStaffPayslips() {
   if (!firebaseReady) return;
-  db.collection("payslips")
+  staffUnsubs.push(db.collection("payslips")
     .where("employeeId", "==", state.currentUser.id)
     .onSnapshot(snap => {
       state.payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
-    }, err => console.error("payslips購読エラー", err));
+    }, err => console.error("payslips購読エラー", err)));
 }
 
 function staffUnreadCount() {
@@ -1492,12 +1499,12 @@ function subscribeStaffGroups() {
     state.groupChats = state.groupChats || [];
     return render();
   }
-  db.collection("groupChats")
+  staffUnsubs.push(db.collection("groupChats")
     .where("members", "array-contains", state.currentUser.id)
     .onSnapshot(snap => {
       state.groupChats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
-    }, err => console.error("groupChats購読エラー", err));
+    }, err => console.error("groupChats購読エラー", err)));
 }
 
 function renderGroupsScreen() {
@@ -1695,12 +1702,15 @@ function openGroupChat(groupId) {
   markGroupRead(groupId);
 }
 
+let staffGroupMsgUnsub = null;
 function subscribeGroupMessages(groupId) {
   if (!firebaseReady) {
     state.groupMessages = state.groupMessages || [];
     return render();
   }
-  db.collection("groupMessages")
+  // 【読み取り節約】前に開いていたグループの購読を止める（開くたびに購読が増えるのを防ぐ）
+  if (staffGroupMsgUnsub) { try { staffGroupMsgUnsub(); } catch (e) {} staffGroupMsgUnsub = null; }
+  staffGroupMsgUnsub = db.collection("groupMessages")
     .where("groupId", "==", groupId)
     .onSnapshot(snap => {
       const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -2070,9 +2080,17 @@ async function denyCancelLeave(id) {
   }
 }
 
+let staffUnsubs = [];
+function stopStaffSubscriptions() {
+  staffUnsubs.forEach(u => { try { u(); } catch (e) {} });
+  staffUnsubs = [];
+  staffOrdersUnsub.forEach(fn => { try { fn(); } catch (e) {} });
+  staffOrdersUnsub = [];
+  if (staffGroupMsgUnsub) { try { staffGroupMsgUnsub(); } catch (e) {} staffGroupMsgUnsub = null; }
+}
 function subscribeStaffLeaveRequests() {
   if (!firebaseReady) return;
-  db.collection("leaveRequests")
+  staffUnsubs.push(db.collection("leaveRequests")
     .where("employeeId", "==", state.currentUser.id)
     .onSnapshot(snap => {
       const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -2085,7 +2103,7 @@ function subscribeStaffLeaveRequests() {
       render();
     }, err => {
       console.error("leaveRequests購読エラー", err);
-    });
+    }));
 }
 
 /* ---------- 面接リスト ---------- */
@@ -5311,6 +5329,7 @@ async function cleanupOldPayslips(allPayslips) {
 }
 
 function renderAdminPayslipTab() {
+  ensureAdminPayslips();
   const empId = state.payslipEmpId || (state.employees[0] && state.employees[0].id);
   const emp = state.employees.find(e => e.id === empId) || {};
   const myPayslips = filterRecentPayslips(state.payslips)
@@ -6044,9 +6063,9 @@ function subscribeEnvelopeSettings() {
     } catch (e) { /* 読み込めない場合は初期値のまま */ }
     return;
   }
-  db.collection("settings").doc("envelope").onSnapshot(doc => {
+  adminUnsubs.push(db.collection("settings").doc("envelope").onSnapshot(doc => {
     if (doc.exists) applyEnvelopeSettings(doc.data());
-  }, err => console.error("封筒設定の読み込みエラー", err));
+  }, err => console.error("封筒設定の読み込みエラー", err)));
 }
 
 function applyEnvelopeSettings(d) {
@@ -6477,39 +6496,61 @@ async function updateLeaveStatus(id, status) {
   }
 }
 
-function subscribeAllLeaveRequests() {
-  db.collection("leaveRequests").orderBy("createdAt", "desc").onSnapshot(snap => {
-    state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
-  db.collection("employees").onSnapshot(snap => {
-    state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
-  db.collection("orders").orderBy("createdAt", "desc").onSnapshot(snap => {
-    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
-  db.collection("payslips").onSnapshot(snap => {
+/* 【読み取り節約】本社側の購読をまとめて管理する。
+   ・ログアウトしたら全部止める（ログインし直すたびに購読が増えて、二重三重に読むのを防ぐ）
+   ・二重に始めない
+   ・給与明細は件数が多いので、「給与明細」タブを開いたときだけ読む */
+let adminUnsubs = [];
+let adminSubscribed = false;
+let adminPayslipsSubscribed = false;
+function stopAdminSubscriptions() {
+  adminUnsubs.forEach(u => { try { u(); } catch (e) {} });
+  adminUnsubs = [];
+  adminSubscribed = false;
+  adminPayslipsSubscribed = false;
+  if (typeof adminGroupMsgUnsub === "function") { try { adminGroupMsgUnsub(); } catch (e) {} adminGroupMsgUnsub = null; }
+}
+function ensureAdminPayslips() {
+  if (adminPayslipsSubscribed || !firebaseReady) return;
+  adminPayslipsSubscribed = true;
+  adminUnsubs.push(db.collection("payslips").onSnapshot(snap => {
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     state.payslips = rows;
     render();
     cleanupOldPayslips(rows);
-  }, err => console.error("payslips(admin)購読エラー", err));
-  db.collection("loginLogs").onSnapshot(snap => {
+  }, err => console.error("payslips(admin)購読エラー", err)));
+}
+
+function subscribeAllLeaveRequests() {
+  if (adminSubscribed) return;
+  adminSubscribed = true;
+  adminUnsubs.push(db.collection("leaveRequests").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }));
+  adminUnsubs.push(db.collection("employees").onSnapshot(snap => {
+    state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }));
+  adminUnsubs.push(db.collection("orders").orderBy("createdAt", "desc").onSnapshot(snap => {
+    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }));
+  // 給与明細はここでは読まない（「給与明細」タブを開いたときに ensureAdminPayslips() で読む）
+  adminUnsubs.push(db.collection("loginLogs").onSnapshot(snap => {
     const map = {};
     snap.docs.forEach(d => { map[d.id] = (d.data() || {}).lastLoginAt; });
     state.loginLogs = map;
     render();
-  }, err => console.error("loginLogs(admin)購読エラー", err));
-  db.collection("interviews").onSnapshot(snap => {
+  }, err => console.error("loginLogs(admin)購読エラー", err)));
+  adminUnsubs.push(db.collection("interviews").onSnapshot(snap => {
     state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => console.error("interviews(admin)購読エラー", err));
+  }, err => console.error("interviews(admin)購読エラー", err)));
 }
 
 function subscribeAllMessages() {
-  db.collection("messages").onSnapshot(snap => {
+  adminUnsubs.push(db.collection("messages").onSnapshot(snap => {
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     rows.sort((a, b) => {
       const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
@@ -6518,12 +6559,12 @@ function subscribeAllMessages() {
     });
     state.messages = rows;
     render();
-  }, err => console.error("messages(admin)購読エラー", err));
+  }, err => console.error("messages(admin)購読エラー", err)));
 }
 
 // 本社側は「グループが存在すること・メンバー数」だけ確認できる（groupMessagesは購読しない＝トーク内容は見えない）
 function subscribeAllGroups() {
-  db.collection("groupChats").onSnapshot(snap => {
+  adminUnsubs.push(db.collection("groupChats").onSnapshot(snap => {
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     rows.sort((a, b) => {
       const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
@@ -6532,7 +6573,7 @@ function subscribeAllGroups() {
     });
     state.allGroups = rows;
     render();
-  }, err => console.error("groupChats(admin)購読エラー", err));
+  }, err => console.error("groupChats(admin)購読エラー", err)));
 }
 
 async function adminDeleteGroup(groupId, name) {

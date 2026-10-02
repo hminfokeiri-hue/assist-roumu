@@ -1103,7 +1103,21 @@ function printAllLogSheets() {
 
 /* ---------- 画面の土台 ---------- */
 /* 他の人の書き込みが届いたときも、入力中の文字とカーソル位置が消えないようにする */
+/* 日本語を変換している最中は画面を作り直さない（打ちかけの文字が消えるため）。
+   変換が終わったら、待たせていた作り直しを1回だけ行う。 */
+let imeComposing = false;
+let renderWaitingForIme = false;
+function imeEnd() {
+  if (!imeComposing) return;
+  imeComposing = false;
+  if (renderWaitingForIme) { renderWaitingForIme = false; setTimeout(render, 0); }
+}
+document.addEventListener("compositionstart", () => { imeComposing = true; });
+document.addEventListener("compositionend", imeEnd);
+document.addEventListener("focusout", imeEnd);
+
 function render() {
+  if (imeComposing) { renderWaitingForIme = true; return; }
   const active = document.activeElement;
   const focusId = active && active.id ? active.id : null;
   const canSelect = active && typeof active.selectionStart === "number";

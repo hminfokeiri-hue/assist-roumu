@@ -631,6 +631,14 @@ function imeEnd() {
   imeComposing = false;
   if (renderWaitingForIme) { renderWaitingForIme = false; render(); }
 }
+/* チャット欄など、個別の設定がない入力欄でも変換中は作り直さないよう、画面全体で見張る */
+document.addEventListener("compositionstart", imeStart);
+document.addEventListener("compositionend", imeEnd);
+document.addEventListener("focusout", imeEnd);
+
+/* チャットの入力欄（data-draft のついた欄）は、画面を作り直しても打ちかけの文字を残す。
+   相手からの返信・既読・ほかの人のログインなどで画面が更新されても消えないように。 */
+const keptDrafts = {};
 
 function render() {
   if (imeComposing) { renderWaitingForIme = true; return; }
@@ -640,7 +648,14 @@ function render() {
   const selStart = canSelect ? active.selectionStart : null;
   const selEnd = canSelect ? active.selectionEnd : null;
 
+  appEl.querySelectorAll("[data-draft]").forEach(el => { keptDrafts[el.dataset.draft] = el.value; });
+
   renderScreen();
+
+  appEl.querySelectorAll("[data-draft]").forEach(el => {
+    const v = keptDrafts[el.dataset.draft];
+    if (v && !el.value) el.value = v;
+  });
 
   if (focusId) {
     const el = document.getElementById(focusId);
@@ -1307,7 +1322,7 @@ function renderStaffChat() {
       <div class="chat-compose">
         <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
         <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()"><span style="font-size:20px;">📷</span><span style="font-size:11px;">写真</span></button>
-        <textarea id="chatTextInput" placeholder="ここにメッセージを入力してください"></textarea>
+        <textarea id="chatTextInput" data-draft="staff" placeholder="ここにメッセージを入力してください"></textarea>
         <button class="primary chat-send-btn" onclick="sendStaffMessage()">送信</button>
       </div>
 
@@ -1341,6 +1356,14 @@ function renderChatBubble(m, mine) {
 
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* 送信が終わった入力欄を空にする（覚えていた打ちかけの文字も消す） */
+function clearChatBox(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.dataset.draft) delete keptDrafts[el.dataset.draft];
+  el.value = "";
 }
 
 function insertPreset(text) {
@@ -1419,6 +1442,7 @@ async function sendStaffMessage() {
   try {
     await db.collection("messages").add(data);
     state.pendingPhoto = null;
+    clearChatBox("chatTextInput");
     render();
   } catch (e) {
     alert("送信エラー: " + e.message);
@@ -1734,7 +1758,7 @@ function renderGroupChatThread() {
       <div class="chat-compose">
         <input type="file" accept="image/*" id="groupChatPhotoInput" style="display:none;" onchange="handleGroupPhotoSelect(event)" />
         <button type="button" class="chat-photo-btn" onclick="document.getElementById('groupChatPhotoInput').click()"><span style="font-size:20px;">📷</span><span style="font-size:11px;">写真</span></button>
-        <textarea id="groupChatTextInput" placeholder="ここにメッセージを入力してください"></textarea>
+        <textarea id="groupChatTextInput" data-draft="group:${state.activeGroupId}" placeholder="ここにメッセージを入力してください"></textarea>
         <button class="primary chat-send-btn" onclick="sendGroupMessage()">送信</button>
       </div>
 
@@ -1801,6 +1825,7 @@ async function sendGroupMessage() {
       ["lastRead." + state.currentUser.id]: firebase.firestore.FieldValue.serverTimestamp()
     });
     state.groupPendingPhoto = null;
+    clearChatBox("groupChatTextInput");
     render();
   } catch (e) {
     alert("送信エラー: " + e.message);
@@ -6685,7 +6710,7 @@ function renderAdminChatTab() {
         <div class="chat-compose">
           <input type="file" accept="image/*" id="chatPhotoInput" style="display:none;" onchange="handlePhotoSelect(event)" />
           <button type="button" class="chat-photo-btn" onclick="document.getElementById('chatPhotoInput').click()">📷</button>
-          <textarea id="chatTextInput" placeholder="メッセージを入力"></textarea>
+          <textarea id="chatTextInput" data-draft="admin:${selectedId}" placeholder="メッセージを入力"></textarea>
           <button class="primary chat-send-btn" onclick="sendAdminMessage('${selectedId}')">送信</button>
         </div>
       ` : `<p class="muted">左の一覧から従業員を選んでください</p>`}
@@ -6713,7 +6738,7 @@ function renderAdminChatTab() {
         </div>
         <div>
           <label>お知らせ内容<span class="muted" style="font-weight:400; font-size:12px;">（改行できます）</span></label>
-          <textarea id="broadcastText" rows="8" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical; font-size:15px; line-height:1.8; padding:12px;" placeholder="例：明日は台風のため休業します&#10;&#10;出勤の必要はありません。&#10;ご不明な点は本社までご連絡ください。"></textarea>
+          <textarea id="broadcastText" data-draft="broadcast" rows="8" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical; font-size:15px; line-height:1.8; padding:12px;" placeholder="例：明日は台風のため休業します&#10;&#10;出勤の必要はありません。&#10;ご不明な点は本社までご連絡ください。"></textarea>
           <p class="muted" style="font-size:11.5px; margin:5px 0 0;">右下をドラッグすると、さらに広げられます。改行はそのまま従業員の画面に表示されます。</p>
         </div>
         <button class="primary" style="height:50px; font-size:16px;" onclick="sendBroadcast()">送信</button>
@@ -6847,6 +6872,7 @@ async function sendAdminMessage(empId) {
   try {
     await db.collection("messages").add(data);
     state.pendingPhoto = null;
+    clearChatBox("chatTextInput");
     render();
   } catch (e) {
     alert("送信エラー: " + e.message);

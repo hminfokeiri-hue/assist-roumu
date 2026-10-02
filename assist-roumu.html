@@ -578,7 +578,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-09-29(2)";
+const APP_VERSION = "更新: 2026-10-02";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -918,7 +918,7 @@ function renderStaff() {
           <button class="big-btn" onclick="state.screen='leaveForm'; render();"><span class="emoji">🗓️</span>休み申請</button>
           <button class="big-btn" onclick="state.screen='orderForm'; render();"><span class="emoji">📦</span>備品をたのむ</button>
           <button class="big-btn" style="position:relative;" onclick="openStaffChat()">
-            <span class="emoji">💬</span>本社とお話し
+            <span class="emoji">💬</span>本社とお話し（メール）
             ${staffUnreadCount() > 0 ? `<span class="chat-badge">${staffUnreadCount()}</span>` : ""}
           </button>
           <button class="big-btn" onclick="window.location.href='tel:0666547812'"><span class="emoji">📞</span>電話する</button>
@@ -1303,7 +1303,7 @@ function renderStaffChat() {
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
-        <p class="staff-title" style="font-size:17px; margin:0;">本社とお話し</p>
+        <p class="staff-title" style="font-size:17px; margin:0;">本社とお話し（メール）</p>
         <button class="link" onclick="state.screen='staffHome'; render();">とじる</button>
       </div>
 

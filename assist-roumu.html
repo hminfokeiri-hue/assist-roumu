@@ -17,6 +17,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -608,7 +609,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-02d";
+const APP_VERSION = "更新: 2026-10-03e";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -750,6 +751,42 @@ async function disablePush() {
   } catch (e) { /* ignore */ }
   try { localStorage.removeItem("assistRoumuPushOn"); } catch (e) { /* ignore */ }
   render();
+}
+
+// ===== 本社アプリ → 通知を送る係に「この人たちのスマホに通知して」と頼む（本社の管理者でログイン中だけ使えます） =====
+async function requestPush(type, employeeIds) {
+  const ids = [...new Set((employeeIds || []).filter(Boolean))];
+  if (!PUSH_VAPID_KEY || !firebaseReady || !ids.length) return null;
+  const total = { requested: 0, people: 0, devices: 0, sent: 0, failed: 0, removed: 0 };
+  try {
+    const call = firebase.app().functions("asia-northeast1").httpsCallable("sendPush", { timeout: 120000 });
+    for (let i = 0; i < ids.length; i += 300) {          // 1回で頼めるのは300人まで
+      const res = await call({ type, employeeIds: ids.slice(i, i + 300) });
+      Object.keys(total).forEach(k => { total[k] += (res.data && res.data[k]) || 0; });
+    }
+    return total;
+  } catch (e) {
+    console.warn("通知の送信をスキップ", e && (e.code || e.message));
+    return { error: (e && (e.code || e.message)) || "unknown" };
+  }
+}
+
+// 給与明細を登録したあと：通知を送るかを本社にたずねてから送る（送るのは通知ONの人だけ）
+async function askAndNotifyPayslips(employeeIds, count) {
+  try {
+    if (!PUSH_VAPID_KEY || !firebaseReady) return;
+    const ids = [...new Set((employeeIds || []).filter(Boolean))];
+    if (!ids.length) return;
+    const yes = confirm(`給与明細を${count}件、登録しました。\n\n${ids.length}名のスマホに「新しい給与明細が届きました」と通知を送りますか？\n（通知をONにしている方にだけ届きます）\n\nOK＝送る　／　キャンセル＝送らない`);
+    if (!yes) return;
+    const r = await requestPush("payslip", ids);
+    if (!r) return;
+    if (r.error) {
+      alert("通知を送れませんでした。給与明細の登録はできています。\n（" + r.error + "）");
+    } else {
+      alert(`通知を送りました。\n\n通知ONの方：${r.people}名（スマホ${r.sent}台）` + (r.failed ? `\n届かなかった端末：${r.failed}台` : ""));
+    }
+  } catch (e) { console.warn("通知の確認でエラー", e); }
 }
 
 // ホーム画面アイコンの赤い数字（対応している端末のみ）と、タブの題名の数字
@@ -5096,6 +5133,7 @@ async function registerBulkOxpsPayslips() {
     state.bulkOxpsRecords = null;
     alert(`${targets.length}件、登録しました`);
     render();
+    await askAndNotifyPayslips(targets.map(r => r.employeeId), targets.length);
   } catch (e) {
     alert("登録エラー: " + e.message);
   }
@@ -5463,6 +5501,7 @@ async function registerBulkPayslips() {
     state.bulkPayslipPages = null;
     alert(`${targets.length}件、登録しました`);
     render();
+    await askAndNotifyPayslips(targets.map(p => p.employeeId), targets.length);
   } catch (e) {
     alert("登録エラー: " + e.message);
   }
@@ -5692,6 +5731,7 @@ async function uploadPayslip() {
     state.pendingPayslip = null;
     alert("アップロードしました");
     render();
+    await askAndNotifyPayslips([empId], 1);
   } catch (e) {
     alert("アップロードエラー: " + e.message);
   }
@@ -7129,6 +7169,7 @@ async function sendAdminMessage(empId) {
     state.pendingPhoto = null;
     clearChatBox("chatTextInput");
     render();
+    requestPush("message", [empId]);   // 相手のスマホに通知（通知ONの人だけ。待たずに進める）
   } catch (e) {
     alert("送信エラー: " + e.message);
   }
@@ -7187,6 +7228,7 @@ async function sendBroadcast() {
     await batch.commit();
     document.getElementById("broadcastText").value = "";
     render();
+    requestPush("message", targets.map(e => e.id));   // 宛先のスマホに通知（通知ONの人だけ。待たずに進める）
   } catch (e) {
     alert("送信エラー: " + e.message);
   }

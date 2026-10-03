@@ -608,7 +608,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-02c";
+const APP_VERSION = "更新: 2026-10-02d";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -657,7 +657,7 @@ const appEl = document.getElementById("app");
    → 「ウェブ プッシュ証明書」→「鍵ペアを生成」で出る長い文字を、下の "" の中に貼る。
    空のままの間は「通知をONにする」ボタンは出ません（ほかの機能には影響しません）。
    ========================================================= */
-const PUSH_VAPID_KEY = "";
+const PUSH_VAPID_KEY = "BFGFWRDHZpvqSJjG_Qg4jhVA3Kx9yMBCIIe1ivjcVnA0TxXp1hdxAUJ_tgoXBek6ysBjjXa8_ZlR9GYxJD0xzsI";
 const PUSH_SW_PATH = "firebase-messaging-sw.js";
 let pushMessaging = null;
 

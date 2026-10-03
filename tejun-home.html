@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ホーム画面に追加のしかた｜アシスト労務</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="theme-color" content="#E8873A" />
+<style>
+  :root { --orange:#E8873A; --orange-dark:#C96A1E; --bg:#FBF6ED; --text:#3A3530; --border:#EDE2CE; --green:#4A7C6F; --red:#C65D4B; --chip:#F7DDBF; }
+  * { box-sizing: border-box; }
+  html { font-size: 100%; -webkit-text-size-adjust: 100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Hiragino Sans","Yu Gothic UI","Yu Gothic","Meiryo",sans-serif; font-size:1.15rem; line-height:1.9; }
+  .wrap { max-width:720px; margin:0 auto; padding:14px 14px 80px; }
+
+  .head { background:var(--orange); color:#fff; border-radius:18px; padding:18px 18px 16px; }
+  .head h1 { margin:0 0 6px; font-size:1.3rem; line-height:1.45; }
+  .head p { margin:0; font-size:1.02rem; line-height:1.7; }
+
+  .tools { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:12px 0 4px; }
+  .size-btns { display:flex; gap:8px; align-items:center; font-size:.95rem; }
+  .size-btns button { font:inherit; font-weight:800; min-width:52px; height:46px; border-radius:12px; border:2px solid var(--orange); background:#fff; color:var(--orange-dark); }
+  .size-btns button:active { background:var(--chip); }
+
+  .tabs { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0 6px; }
+  .tabs button { font:inherit; font-weight:800; font-size:1.2rem; height:64px; border-radius:16px; border:3px solid var(--border); background:#fff; color:var(--text); }
+  .tabs button.on { border-color:var(--orange); background:var(--orange); color:#fff; }
+  body[data-mode="all"] .tabs { display:none; }
+
+  body[data-mode="iphone"] .sec-android { display:none; }
+  body[data-mode="android"] .sec-iphone { display:none; }
+  .sec-title { margin:22px 0 4px; font-size:1.35rem; font-weight:800; color:var(--orange-dark); }
+  body:not([data-mode="all"]) .sec-title { display:none; }
+
+  .open-app { display:block; text-align:center; text-decoration:none; background:var(--green); color:#fff; font-weight:800; font-size:1.2rem; border-radius:16px; padding:16px 12px; margin:12px 0; line-height:1.5; }
+  .open-app small { display:block; font-weight:400; font-size:.88rem; opacity:.95; }
+
+  .alert { background:#fdecea; border-left:7px solid var(--red); border-radius:12px; padding:12px 14px; margin:12px 0; font-size:1.05rem; line-height:1.8; }
+  .tip { background:#FFF4E5; border-left:7px solid var(--orange); border-radius:12px; padding:12px 14px; margin:12px 0; font-size:1.05rem; line-height:1.8; }
+  .ok { background:#eaf4f0; border-left:7px solid var(--green); border-radius:12px; padding:12px 14px; margin:12px 0; font-size:1.05rem; line-height:1.8; }
+
+  .step { display:flex; gap:12px; background:#fff; border:2px solid var(--border); border-radius:18px; padding:14px 14px 12px; margin:12px 0; }
+  .num { flex:0 0 auto; width:46px; height:46px; border-radius:50%; background:var(--orange); color:#fff; font-weight:800; font-size:1.4rem; display:flex; align-items:center; justify-content:center; margin-top:2px; }
+  .step .body { flex:1 1 auto; min-width:0; }
+  .step h3 { margin:0 0 2px; font-size:1.2rem; line-height:1.55; }
+  .step p { margin:4px 0; }
+  .step .sub { font-size:1rem; color:#6B5F52; }
+  b.k { background:var(--chip); border-radius:8px; padding:1px 8px; white-space:nowrap; }
+  .ico { display:inline-flex; vertical-align:middle; align-items:center; justify-content:center; width:46px; height:46px; border-radius:12px; background:#F2F2F7; border:1.5px solid #D1D1D6; margin:0 2px; }
+  .ico svg { display:block; }
+  .app-icon { display:inline-flex; vertical-align:middle; align-items:center; justify-content:center; width:50px; height:50px; border-radius:12px; background:var(--orange); color:#fff; font-weight:800; font-size:1.7rem; margin:0 2px; }
+
+  h2.sec { margin:30px 0 6px; padding:10px 14px; background:var(--green); color:#fff; border-radius:14px; font-size:1.25rem; }
+  .done { background:#fff; border:3px solid var(--green); border-radius:18px; padding:14px 16px; margin:14px 0; }
+  .tel { display:block; text-align:center; text-decoration:none; background:#fff; border:3px solid var(--orange); color:var(--orange-dark); font-weight:800; font-size:1.3rem; border-radius:16px; padding:14px; margin:10px 0; }
+  ul.plain { margin:6px 0; padding-left:1.3em; } ul.plain li { margin:6px 0; }
+
+  @media print {
+    body { background:#fff; font-size:13pt; }
+    .tools, .tabs, .open-app { display:none !important; }
+    .step { break-inside:avoid; }
+  }
+</style>
+</head>
+<body data-mode="iphone">
+<div class="wrap">
+
+  <div class="head">
+    <h1>📱 ホーム画面に追加のしかた</h1>
+    <p>アシスト労務に<b>「通知機能」</b>がつきました。給与明細やメッセージが届いたとき、スマホにお知らせが出ます。そのために、もう一度ホーム画面に追加をお願いします。</p>
+  </div>
+
+  <div class="tools">
+    <span style="font-size:.95rem;">文字の大きさ</span>
+    <span class="size-btns">
+      <button type="button" onclick="changeSize(-1)" aria-label="文字を小さく">小</button>
+      <button type="button" onclick="changeSize(1)" aria-label="文字を大きく">大</button>
+    </span>
+  </div>
+
+  <div class="tabs">
+    <button type="button" id="tab-iphone" onclick="showMode('iphone')">🍎 iPhone</button>
+    <button type="button" id="tab-android" onclick="showMode('android')">🤖 Android</button>
+  </div>
+
+  <div class="tip"><b>あなたのスマホはどちら？</b><br>スマホの裏側に、かじったりんごのマーク（🍎）があれば<b>iPhone</b>です。それ以外（Galaxy・AQUOS・Xperia・Pixel など）は<b>Android</b>です。上のボタンで切りかえられます。</div>
+
+  <div class="alert">
+    <b>はじめに：前に作ったアイコンがある人は、先に消してください。</b><br>
+    ホーム画面にある「アシスト労務」のアイコンを<b>長押し</b>して、<b>「削除」</b>（iPhoneは「ブックマークを削除」または「Appを削除」）を選びます。ホーム画面から消えるだけで、データは消えません。<br>
+    <span style="font-size:.95rem;">※ 見あたらない人、はじめての人は、このまま次へ進んでください。</span>
+  </div>
+
+  <!-- ===================== iPhone ===================== -->
+  <h2 class="sec-title sec-iphone">🍎 iPhone のやり方</h2>
+  <div class="sec-iphone">
+
+    <div class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <h3><b class="k">Safari</b> でアシスト労務のページを開く</h3>
+        <p>青いコンパスのアイコン（Safari）から開きます。LINEやメールの中で開いた画面では、うまくいきません。</p>
+        <a class="open-app" href="assist-roumu.html">👉 アシスト労務を開く<small>（このボタンを押すと、ログイン画面が出ます）</small></a>
+        <p class="sub">LINEなどから来た人は、画面の右下か右上の「Safariで開く」を押してから、このボタンを押してください。</p>
+      </div>
+    </div>
+
+    <div class="alert"><b>だいじ：</b>ホーム画面に追加するときは、<b>アシスト労務のログイン画面を出したまま</b>にしてください。この「手順表」の画面のまま追加すると、手順表のアイコンができてしまいます。</div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <h3>「共有」マークをタップ</h3>
+        <p>画面の下にある <span class="ico"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 3v11M12 3 8.2 6.8M12 3l3.8 3.8" fill="none" stroke="#007AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 10H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1.5" fill="none" stroke="#007AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>（四角に上向きの矢印）をタップします。</p>
+        <p class="sub">見あたらないときは、画面の右下（または右上）の <b>「…」</b> をタップすると、「共有」が出てきます。iPhoneの種類によって、場所が少しちがいます。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <h3><b class="k">ホーム画面に追加</b> をタップ</h3>
+        <p>出てきた一覧を、<b>指で上に動かして</b>さがします。<span class="ico"><svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5" fill="none" stroke="#3A3530" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="#3A3530" stroke-width="2" stroke-linecap="round"/></svg></span>（四角に＋）のマークの「ホーム画面に追加」です。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="body">
+        <h3>「Webアプリとして開く」を確認して、<b class="k">追加</b></h3>
+        <p>「Webアプリとして開く」というスイッチが出たら、<b>オン（緑）のまま</b>にします。そのあと、右上の<b>「追加」</b>をタップします。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <h3>ホーム画面の <span class="app-icon">労</span> から開く</h3>
+        <p>ホーム画面に、オレンジ色で「労」と書かれたアイコンができます。<b>これからは、このアイコンから開いてください。</b>Safariからではなく、アイコンから開くのが大事です。</p>
+        <p>開いたら、いつもどおりログインします。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">6</div>
+      <div class="body">
+        <h3>🔔 <b class="k">通知をONにする</b> をタップ →「許可」</h3>
+        <p>ログインすると、ホームの上に緑の枠が出ます。<b>「🔔 通知をONにする」</b>のボタンを押して、出てきた画面で<b>「許可」</b>を選びます。</p>
+      </div>
+    </div>
+
+    <div class="tip"><b>通知が使えないと出た人へ：</b>iPhoneのiOSが古いと、通知が使えません。「設定」→「一般」→「ソフトウェア・アップデート」で、新しくしてから、もう一度はじめからお願いします。</div>
+  </div>
+
+  <!-- ===================== Android ===================== -->
+  <h2 class="sec-title sec-android">🤖 Android のやり方</h2>
+  <div class="sec-android">
+
+    <div class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <h3><b class="k">Chrome</b> でアシスト労務のページを開く</h3>
+        <p>赤・黄・緑・青の丸いアイコン（Chrome）から開きます。LINEやメールの中で開いた画面では、うまくいきません。</p>
+        <a class="open-app" href="assist-roumu.html">👉 アシスト労務を開く<small>（このボタンを押すと、ログイン画面が出ます）</small></a>
+        <p class="sub">LINEなどから来た人は、右上の「︙」を押して「ほかのアプリで開く」→「Chrome」を選んでから、このボタンを押してください。</p>
+      </div>
+    </div>
+
+    <div class="alert"><b>だいじ：</b>ホーム画面に追加するときは、<b>アシスト労務のログイン画面を出したまま</b>にしてください。この「手順表」の画面のまま追加すると、手順表のアイコンができてしまうことがあります。</div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <h3>右上の「︙」をタップ</h3>
+        <p>画面の右上にある <span class="ico"><svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="#3A3530"/><circle cx="12" cy="12" r="2" fill="#3A3530"/><circle cx="12" cy="19" r="2" fill="#3A3530"/></svg></span>（縦に点が3つ）をタップします。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <h3><b class="k">ホーム画面に追加</b> をタップ</h3>
+        <p>出てきた一覧から、<b>「ホーム画面に追加」</b>（または<b>「アプリをインストール」</b>）をタップします。</p>
+        <p class="sub">一覧が長いときは、指で上に動かしてさがしてください。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="body">
+        <h3>もう一度 <b class="k">追加</b>（インストール）をタップ</h3>
+        <p>確認の画面が出たら、<b>「追加」</b>（または「インストール」）をタップします。「自動的に追加」の画面が出たときは、それを押せば大丈夫です。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <h3>ホーム画面の <span class="app-icon">労</span> から開く</h3>
+        <p>ホーム画面（または「アプリ」の一覧）に、オレンジ色で「労」と書かれたアイコンができます。<b>これからは、このアイコンから開いてください。</b></p>
+        <p>開いたら、いつもどおりログインします。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">6</div>
+      <div class="body">
+        <h3>🔔 <b class="k">通知をONにする</b> をタップ →「許可」</h3>
+        <p>ログインすると、ホームの上に緑の枠が出ます。<b>「🔔 通知をONにする」</b>のボタンを押して、出てきた画面で<b>「許可」</b>を選びます。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">できたかな？ 確認</h2>
+  <div class="done">
+    <p style="margin:0;">ホームの上に <b>「🔔 通知はONになっています」</b> と出ていれば、<b>完了</b>です。おつかれさまでした！</p>
+  </div>
+
+  <h2 class="sec">うまくいかないとき</h2>
+  <div class="step" style="display:block;">
+    <ul class="plain">
+      <li><b>「通知をONにする」が出ない</b> → ホーム画面の「労」のアイコンから開いていますか？ SafariやChromeから開いていると、出ないことがあります。</li>
+      <li><b>「許可しない」を押してしまった</b> → スマホの「設定」を開いて、「アシスト労務」（またはChrome）の通知を<b>「許可」</b>にしてください。</li>
+      <li><b>ログインの画面がちがう・出てこない</b> → ページのアドレスが「github.com」になっていませんか？ 正しくは<b>「github.io」</b>です。上の「アシスト労務を開く」のボタンから、もう一度お願いします。</li>
+    </ul>
+  </div>
+  <div class="tip">どうしてもわからないときは、遠慮なく本社へお電話ください。いっしょに確認します。</div>
+  <a class="tel" href="tel:0666547812">📞 本社 06-6654-7812</a>
+
+</div>
+
+<script>
+(function () {
+  var KEY = "assistTejunSize";
+  var step = 0;
+  try { step = parseInt(localStorage.getItem(KEY), 10) || 0; } catch (e) {}
+  function applySize() {
+    document.documentElement.style.fontSize = (100 + step * 12) + "%";
+    try { localStorage.setItem(KEY, String(step)); } catch (e) {}
+  }
+  window.changeSize = function (d) {
+    step = Math.max(-1, Math.min(4, step + d));
+    applySize();
+  };
+  applySize();
+
+  window.showMode = function (m) {
+    document.body.setAttribute("data-mode", m);
+    document.getElementById("tab-iphone").className = (m === "iphone") ? "on" : "";
+    document.getElementById("tab-android").className = (m === "android") ? "on" : "";
+  };
+
+  var q = "";
+  try { q = new URLSearchParams(location.search).get("d") || ""; } catch (e) {}
+  var ua = navigator.userAgent || "";
+  var auto = /Android/.test(ua) ? "android" : "iphone";
+  var mode = (q === "iphone" || q === "android" || q === "all") ? q : auto;
+  window.showMode(mode);
+})();
+</script>
+</body>
+</html>

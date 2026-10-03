@@ -135,6 +135,24 @@
   .chat-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
   .chat-bubble-row.mine .chat-meta { text-align: right; }
   .chat-bubble img { max-width: 100%; border-radius: 10px; margin-top: 6px; display: block; }
+  .chat-bubble[data-mid] { cursor: pointer; }
+  .chat-bubble a { color: inherit; text-decoration: underline; font-weight: 700; word-break: break-all; }
+  .chat-big-hint { font-size: 12px; font-weight: 700; color: var(--blue-dark); margin-top: 6px; }
+  .chat-bubble-row.mine .chat-big-hint { color: #fff; }
+
+  /* --- チャットの全画面表示（吹き出しをタップ） --- */
+  #bigView { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #FBF6ED; display: flex; flex-direction: column; }
+  #bigView .bv-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; background: #fff; border-bottom: 2px solid var(--border); }
+  #bigView .bv-bar button { font: inherit; font-weight: 800; font-size: 16px; min-width: 52px; height: 48px; border-radius: 12px; border: 2px solid var(--blue); background: #fff; color: var(--blue-dark); padding: 0 12px; }
+  #bigView .bv-bar button.bv-close { background: var(--blue); color: #fff; }
+  #bigView .bv-bar button:active { opacity: .7; }
+  #bigView .bv-sizes { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  #bigView .bv-body { flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px 40px; }
+  #bigView .bv-meta { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  #bigView .bv-text { white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; line-height: 1.9; color: var(--text); }
+  #bigView .bv-text a { color: var(--blue-dark); font-weight: 800; text-decoration: underline; word-break: break-all; }
+  #bigView .bv-photo { margin-top: 16px; }
+  #bigView .bv-photo img { display: block; width: 100%; height: auto; border-radius: 10px; }
   .chat-compose { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
   .chat-compose textarea {
     flex: 1 1 auto;
@@ -609,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-03e";
+const APP_VERSION = "更新: 2026-10-03f";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -830,6 +848,7 @@ function renderPushCard() {
         <li>「ホーム画面に追加」をタップ（「Webアプリとして開く」が出たらオンのまま）</li>
         <li>できたアイコンから開いて、もう一度ログイン</li>
       </ol>
+      <p style="margin:10px 0 0;"><a href="tejun-home.html?d=iphone" target="_blank" rel="noopener" style="font-weight:800;">📖 やり方を、大きな画面で見る</a></p>
     </div>`;
   }
   if (s === "need-update") {
@@ -842,6 +861,7 @@ function renderPushCard() {
     <p style="font-weight:800; margin:0 0 6px;">🔔 給与明細やメッセージを、すぐにお知らせします</p>
     <p style="margin:0 0 10px; font-size:14px;">下のボタンを押して、出てきた画面で「許可」を選んでください。</p>
     <button class="primary" style="width:100%;" onclick="enablePush()">🔔 通知をONにする</button>
+    ${isStandaloneApp() ? "" : `<p style="margin:10px 0 0; font-size:13.5px;"><a href="tejun-home.html" target="_blank" rel="noopener" style="font-weight:800;">📖 ホーム画面に追加するやり方を見る</a></p>`}
     ${state.pushMsg ? `<p style="color:var(--danger); font-size:13px; margin:8px 0 0;">${escapeHtml(state.pushMsg)}</p>` : ""}
   </div>`;
 }
@@ -1573,21 +1593,86 @@ function renderChatBubble(m, mine) {
   const time = m.createdAt && m.createdAt.seconds
     ? new Date(m.createdAt.seconds * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
+  // タップで全画面に広げられるよう、メッセージを覚えておく（写真の長い文字列を属性に埋めないため）
+  const canBig = !!(m.id && (m.text || m.photoURL));
+  if (canBig) bigViewStore[m.id] = m;
   return `
     <div class="chat-bubble-row ${mine ? "mine" : ""}">
       <div>
-        <div class="chat-bubble">
-          ${m.text ? `<div>${escapeHtml(m.text)}</div>` : ""}
-          ${m.photoURL ? `
-            <img src="${m.photoURL}" onclick="window.open('${m.photoURL}','_blank')" />
-            <div class="muted" style="font-size:11px; margin-top:3px; text-align:center;">タップで大きく見られます</div>
-          ` : ""}
+        <div class="chat-bubble"${canBig ? ` data-mid="${escapeHtml(String(m.id))}" onclick="openBigView(this.dataset.mid)"` : ""}>
+          ${m.text ? `<div>${linkifyText(escapeHtml(m.text))}</div>` : ""}
+          ${m.photoURL ? `<img src="${m.photoURL}" />` : ""}
+          ${canBig ? `<div class="chat-big-hint">🔍 タップで大きく見られます</div>` : ""}
         </div>
         <div class="chat-meta">${mine ? "" : (m.senderName || "本社") + "　"}${time}</div>
       </div>
     </div>
   `;
 }
+
+/* 文章の中の https:// から始まる住所を、タップで開けるリンクにする。
+   かならず escapeHtml を通した文字を渡すこと（http/https 以外は決してリンクにしない）。 */
+function linkifyText(escaped) {
+  return escaped.replace(/https?:\/\/[A-Za-z0-9\-._~:\/?#\[\]@!$&'()*+,;=%]+/g, function (u) {
+    let tail = "";
+    const t = u.match(/[.,:!?)]+$/);
+    if (t) { tail = t[0]; u = u.slice(0, u.length - tail.length); }
+    return `<a href="${u}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${u}</a>${tail}`;
+  });
+}
+
+/* --- チャットの全画面表示 --- */
+const bigViewStore = {};
+let bigViewSize = 22;   // 文字の大きさ(px)。開き直しても引き継ぐ
+let bigViewZoom = 1;    // 写真の拡大（1=画面の幅いっぱい）
+
+function openBigView(id) {
+  const m = bigViewStore[id];
+  if (!m) return;
+  closeBigView();
+  bigViewZoom = 1;
+  const time = m.createdAt && m.createdAt.seconds
+    ? new Date(m.createdAt.seconds * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  const ov = document.createElement("div");
+  ov.id = "bigView";
+  ov.innerHTML = `
+    <div class="bv-bar">
+      <div class="bv-sizes">
+        ${m.text ? `<span>文字</span><button type="button" onclick="bigViewResize(-2)" aria-label="文字を小さく">小</button><button type="button" onclick="bigViewResize(2)" aria-label="文字を大きく">大</button>` : ""}
+        ${m.photoURL ? `<span>写真</span><button type="button" onclick="bigViewPhotoZoom(-0.5)" aria-label="写真を小さく">－</button><button type="button" onclick="bigViewPhotoZoom(0.5)" aria-label="写真を大きく">＋</button>` : ""}
+      </div>
+      <button type="button" class="bv-close" onclick="closeBigView()">✕ とじる</button>
+    </div>
+    <div class="bv-body">
+      <div class="bv-meta">${escapeHtml(m.senderName || "")}${m.senderName ? "　" : ""}${time}</div>
+      ${m.text ? `<div class="bv-text" id="bvText" style="font-size:${bigViewSize}px;">${linkifyText(escapeHtml(m.text))}</div>` : ""}
+      ${m.photoURL ? `<div class="bv-photo"><img id="bvPhoto" src="${m.photoURL}" style="width:100%;" /></div>` : ""}
+    </div>
+  `;
+  document.body.appendChild(ov);
+  document.body.style.overflow = "hidden";
+}
+
+function closeBigView() {
+  const ov = document.getElementById("bigView");
+  if (ov) ov.remove();
+  document.body.style.overflow = "";
+}
+
+function bigViewResize(d) {
+  bigViewSize = Math.max(16, Math.min(40, bigViewSize + d));
+  const el = document.getElementById("bvText");
+  if (el) el.style.fontSize = bigViewSize + "px";
+}
+
+function bigViewPhotoZoom(d) {
+  bigViewZoom = Math.max(1, Math.min(4, bigViewZoom + d));
+  const el = document.getElementById("bvPhoto");
+  if (el) el.style.width = Math.round(bigViewZoom * 100) + "%";
+}
+
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeBigView(); });
 
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -7033,6 +7118,7 @@ function renderAdminChatTab() {
         </div>
         <div>
           <label>お知らせ内容<span class="muted" style="font-weight:400; font-size:12px;">（改行できます）</span></label>
+          <button type="button" class="link" style="font-size:14px; padding:6px 0; text-align:left;" onclick="insertHomeScreenNotice()">📲 「ホーム画面に追加のお願い」の定型文を入れる</button>
           <textarea id="broadcastText" data-draft="broadcast" rows="8" style="width:100%; box-sizing:border-box; white-space:pre-wrap; resize:vertical; font-size:15px; line-height:1.8; padding:12px;" placeholder="例：明日は台風のため休業します&#10;&#10;出勤の必要はありません。&#10;ご不明な点は本社までご連絡ください。"></textarea>
           <p class="muted" style="font-size:11.5px; margin:5px 0 0;">右下をドラッグすると、さらに広げられます。改行はそのまま従業員の画面に表示されます。</p>
         </div>
@@ -7173,6 +7259,35 @@ async function sendAdminMessage(empId) {
   } catch (e) {
     alert("送信エラー: " + e.message);
   }
+}
+
+/* 一斉送信の定型文：ホーム画面に追加のお願い（手順表 tejun-home.html へのリンクつき） */
+const HOME_SCREEN_NOTICE_TEXT = [
+  "【お願い】ホーム画面に追加してください",
+  "",
+  "アシスト労務に「通知機能」がつきました。",
+  "給与明細やメッセージが届いたとき、スマホにお知らせが出ます。",
+  "",
+  "お知らせを受け取るために、もう一度「ホーム画面に追加」をお願いします。",
+  "下の手順表を開いて、画面を見ながら進めてください。",
+  "（iPhoneとAndroidで、やり方がちがいます）",
+  "",
+  "▼ iPhoneの方",
+  "https://hminfokeiri-hue.github.io/assist-roumu/tejun-home.html?d=iphone",
+  "",
+  "▼ Androidの方",
+  "https://hminfokeiri-hue.github.io/assist-roumu/tejun-home.html?d=android",
+  "",
+  "わからないときは、本社（06-6654-7812）までお電話ください。"
+].join("\n");
+
+function insertHomeScreenNotice() {
+  const el = document.getElementById("broadcastText");
+  if (!el) return;
+  if (el.value.trim() && !confirm("いま入力中の文章は消えて、定型文に入れかわります。よろしいですか？")) return;
+  el.value = HOME_SCREEN_NOTICE_TEXT;
+  keptDrafts["broadcast"] = el.value;
+  el.focus();
 }
 
 async function sendBroadcast() {

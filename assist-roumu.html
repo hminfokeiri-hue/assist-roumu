@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-03f";
+const APP_VERSION = "更新: 2026-10-05";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3296,6 +3296,18 @@ function pastLeaveMonths() {
     if (!r.date || r.date >= todayStr) return;
     set.add(r.date.slice(0, 7));
   });
+  // 長期のお休みがかかっている月も選べるようにする（今日まで）
+  (state.employees || []).forEach(e => longLeavesOf(e).forEach(L => {
+    if (!L.start || L.start >= todayStr) return;
+    const stop = (L.end && L.end < todayStr ? L.end : todayStr).slice(0, 7);
+    let ym = L.start.slice(0, 7), guard = 0;
+    while (ym <= stop && guard < 240) {
+      set.add(ym);
+      const [y, mo] = ym.split("-").map(Number);
+      ym = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`;
+      guard++;
+    }
+  }));
   return [...set].sort().reverse();
 }
 
@@ -3363,7 +3375,7 @@ function renderPastLeaveSummary() {
 
 // 合計表と明細表をまとめて描く（検索や月を変えたとき、ここだけ差し替える）
 function renderPastLeaveBody() {
-  return renderPastLeaveSummary() + renderPastLeaveList();
+  return renderPastLeaveSummary() + renderLongLeaveMonthTable() + renderPastLeaveList();
 }
 
 // 過去のお休み一覧の本体（表）を描く。検索欄の絞り込みが反映される。
@@ -3437,7 +3449,8 @@ function handlePastLeaveMonth(el) {
 // 過去のお休みをエクセル（.xlsx）に書き出す。検索で絞り込んだときは、その結果だけを書き出す。
 function exportPastLeaveToExcel() {
   const list = filterPastLeave();
-  if (!list.length) return alert("書き出すデータがありません");
+  const longRows = longLeaveMonthRows(state.pastLeaveMonth || "");
+  if (!list.length && !longRows.length) return alert("書き出すデータがありません");
   const statusLabel = { approved: "決裁済み", pending: "確認中", cancelRequested: "取り消し依頼あり" };
   const rows = list.map(r => ({
     "日付": r.date || "",
@@ -3461,6 +3474,12 @@ function exportPastLeaveToExcel() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sumRows), "人ごとの合計");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "明細");
+    if (longRows.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(longRows.map(r => ({
+        "氏名": r.name, "エリア": r.area, "区分": r.kind, "この月のはじめ": r.from, "この月の終わり": r.to,
+        "日数": r.days, "シフト上の勤務日": r.shiftDays === null ? "シフト未登録" : r.shiftDays, "メモ": r.memo
+      }))), "長期のお休み");
+    }
     const ym = state.pastLeaveMonth || "";
     const suffix = ym ? fmtLeaveMonth(ym) : new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `過去のお休み_${suffix}.xlsx`);
@@ -3497,6 +3516,7 @@ function renderAdminLeaveTab(pending) {
         <p class="muted" style="font-size:11px; margin-top:10px;">「取り消しを承認」でその申請は取り消し済みになります。「確認中に戻す」でお願いを取り下げ、元の決裁待ちに戻します。</p>
       </div>
       ` : ""}
+      ${renderLongLeaveCard()}
       ${renderUpcomingLeaveCard()}
       ${renderPastLeaveCard()}
       <div class="card">
@@ -3833,6 +3853,241 @@ function remainingLeaveFor(emp) {
   return leaveBalance(emp).remaining;
 }
 
+/* =========================================================
+   長期のお休み（病気療養・休職など）
+   1か月以上の長いお休みを、日ごとではなく「1件の記録」で残す。
+   保存先は従業員の名簿（employees）の longLeaves（社内用・従業員の画面には出しません）。
+   ========================================================= */
+const LONG_LEAVE_KINDS = ["病気療養（私傷病）", "けが（労災）", "産前産後休業", "育児休業", "介護休業", "その他の休職"];
+
+function longLeavesOf(emp) { return Array.isArray((emp || {}).longLeaves) ? emp.longLeaves : []; }
+
+// 状態：planned＝これから／ongoing＝お休み中／ended＝終わった（復帰ずみ）
+function longLeaveStatus(L, todayStr) {
+  const t = todayStr || formatYmd(new Date());
+  if ((L.start || "") > t) return "planned";
+  if (!L.end || L.end >= t) return "ongoing";
+  return "ended";
+}
+function longLeaveNow(emp) { return longLeavesOf(emp).find(L => longLeaveStatus(L) === "ongoing") || null; }
+
+// a〜b の日数（両方の日をふくむ）
+function llDays(a, b) {
+  const x = new Date(a + "T00:00:00"), y = new Date(b + "T00:00:00");
+  if (isNaN(x) || isNaN(y)) return 0;
+  return Math.round((y - x) / 86400000) + 1;
+}
+// a〜b のあいだで、その方のシフトに入っている曜日の数（シフト未登録なら null）
+function llShiftDays(emp, a, b) {
+  const wd = workingWeekdaysOf(emp);
+  if (!wd.size) return null;
+  let n = 0, d = a, guard = 0;
+  while (d && d <= b && guard < 1000) { if (wd.has(weekdayOfYmd(d))) n++; d = addDays(d, 1); guard++; }
+  return n;
+}
+function llPeriod(L) { return `${L.start} 〜 ${L.end || "（終わり未定）"}`; }
+function llStateText(L) {
+  const t = formatYmd(new Date());
+  const st = longLeaveStatus(L, t);
+  if (st === "planned") return `${L.start} から予定`;
+  if (st === "ongoing") return `お休み中・${llDays(L.start, t)}日目${L.end ? `（あと${llDays(t, L.end) - 1}日）` : ""}`;
+  return `終了・${llDays(L.start, L.end)}日間`;
+}
+
+async function saveLongLeaves(empId, list) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) { alert("従業員が見つかりませんでした"); return false; }
+  if (!firebaseReady) { emp.longLeaves = list; render(); return true; }
+  try {
+    await db.collection("employees").doc(empId).update({ longLeaves: list });
+    emp.longLeaves = list;
+    render();
+    return true;
+  } catch (e) {
+    alert("保存できませんでした: " + e.message);
+    return false;
+  }
+}
+
+function llReadForm(prefix, key) {
+  const g = name => ((document.getElementById(prefix + name + "_" + key) || {}).value || "").trim();
+  return { start: g("Start"), end: g("End"), kind: g("Kind") || LONG_LEAVE_KINDS[0], memo: g("Memo") };
+}
+
+async function addLongLeave(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return alert("従業員が見つかりませんでした");
+  const f = llReadForm("ll", empId);
+  if (!f.start) return alert("はじめの日を入れてください");
+  if (f.end && f.end < f.start) return alert("終わりの日が、はじめの日より前になっています");
+  const list = longLeavesOf(emp).slice();
+  const over = list.find(L => !((f.end && f.end < L.start) || (L.end && L.end < f.start)));
+  if (over && !confirm(`${llPeriod(over)} の長期のお休みと期間が重なっています。それでも登録しますか？`)) return;
+  if (!confirm(`${emp.name || "この方"} さんの長期のお休みを登録します。\n\n区分：${f.kind}\n期間：${f.start} 〜 ${f.end || "終わり未定"}\n\nよろしいですか？`)) return;
+  list.push({ id: "ll" + Date.now(), start: f.start, end: f.end, kind: f.kind, memo: f.memo, createdAt: new Date().toISOString() });
+  list.sort((a, b) => (a.start < b.start ? 1 : -1));
+  await saveLongLeaves(empId, list);
+}
+
+async function saveEditLongLeave(empId, llId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  const f = llReadForm("llEd", llId);
+  if (!f.start) return alert("はじめの日を入れてください");
+  if (f.end && f.end < f.start) return alert("終わりの日が、はじめの日より前になっています");
+  const list = longLeavesOf(emp).map(L => L.id === llId ? { ...L, ...f, updatedAt: new Date().toISOString() } : L);
+  list.sort((a, b) => (a.start < b.start ? 1 : -1));
+  state.editingLongLeaveId = null;
+  await saveLongLeaves(empId, list);
+}
+
+async function deleteLongLeave(empId, llId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return;
+  const L = longLeavesOf(emp).find(x => x.id === llId);
+  if (!L || !confirm(`${llPeriod(L)}（${L.kind}）の記録を消します。よろしいですか？`)) return;
+  await saveLongLeaves(empId, longLeavesOf(emp).filter(x => x.id !== llId));
+}
+
+// 従業員ページの中の「長期のお休み」欄
+function renderLongLeaveBox(emp) {
+  const list = longLeavesOf(emp);
+  const pill = { planned: "status-pending", ongoing: "status-rejected", ended: "status-approved" };
+  const kindOptions = sel => LONG_LEAVE_KINDS.map(k => `<option value="${escapeHtml(k)}" ${k === sel ? "selected" : ""}>${escapeHtml(k)}</option>`).join("");
+  const rows = list.map(L => {
+    if (state.editingLongLeaveId === L.id) {
+      return `
+        <div style="padding:10px; border:1.5px solid var(--blue); border-radius:10px; background:#fff; margin-bottom:8px;">
+          <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
+            <div><label style="font-size:12px;">はじめの日</label><input id="llEdStart_${L.id}" type="date" value="${escapeHtml(L.start)}" style="font-size:13px; padding:8px;" /></div>
+            <div><label style="font-size:12px;">終わりの日（復帰の前日・未定なら空欄）</label><input id="llEdEnd_${L.id}" type="date" value="${escapeHtml(L.end || "")}" style="font-size:13px; padding:8px;" /></div>
+            <div><label style="font-size:12px;">区分</label><select id="llEdKind_${L.id}" style="font-size:13px; padding:8px;">${kindOptions(L.kind)}</select></div>
+            <div><label style="font-size:12px;">メモ（社内用）</label><input id="llEdMemo_${L.id}" type="text" value="${escapeHtml(L.memo || "")}" style="font-size:13px; padding:8px;" /></div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="primary" style="font-size:13px; padding:8px 14px; width:auto; margin:0;" onclick="saveEditLongLeave('${emp.id}','${L.id}')">長期のお休みを保存する</button>
+            <button style="font-size:13px; padding:8px 14px; width:auto; margin:0;" onclick="state.editingLongLeaveId=null; render();">やめる</button>
+          </div>
+        </div>`;
+    }
+    const st = longLeaveStatus(L);
+    return `
+      <div style="padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; background:#fff; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">
+          <div>
+            <span class="status-pill ${pill[st]}" style="font-size:12px;">${escapeHtml(llStateText(L))}</span>
+            <b style="margin-left:6px;">${escapeHtml(L.kind || "")}</b>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button style="font-size:12px; padding:6px 10px; width:auto; margin:0;" onclick="state.editingLongLeaveId='${L.id}'; render();">なおす${L.end ? "" : "・復帰日を入れる"}</button>
+            <button style="font-size:12px; padding:6px 10px; width:auto; margin:0; color:var(--danger); border:1.5px solid var(--danger); background:#fff;" onclick="deleteLongLeave('${emp.id}','${L.id}')">消す</button>
+          </div>
+        </div>
+        <div style="font-size:14px; margin-top:6px;">期間：${escapeHtml(llPeriod(L))}</div>
+        ${L.memo ? `<div class="muted" style="font-size:12.5px; margin-top:3px;">メモ：${escapeHtml(L.memo)}</div>` : ""}
+      </div>`;
+  }).join("");
+
+  return `
+    <div style="padding:14px; border-radius:10px; border:1.5px solid #D1C4E9; background:#F7F4FC; margin-bottom:14px;">
+      <label style="margin:0 0 6px; font-weight:700;">長期のお休み（病気療養・休職など）</label>
+      <p class="muted" style="font-size:11.5px; margin:0 0 10px;">1か月以上などの長いお休みは、ここに<b>1件</b>で記録します（下の「休み・有給を記録する」に1日ずつ入れる必要はありません）。終わりが決まっていなければ空欄のままで大丈夫です。復帰が決まったら「なおす」で終わりの日を入れてください。メモは社内用で、従業員の画面には出ません。</p>
+      ${rows || `<p class="muted" style="font-size:12px; margin:0 0 10px;">長期のお休みの記録はありません</p>`}
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; margin-top:6px;">
+        <div><label style="font-size:12px;">はじめの日</label><input id="llStart_${emp.id}" type="date" style="font-size:13px; padding:8px;" /></div>
+        <div><label style="font-size:12px;">終わりの日（復帰の前日・未定なら空欄）</label><input id="llEnd_${emp.id}" type="date" style="font-size:13px; padding:8px;" /></div>
+        <div><label style="font-size:12px;">区分</label><select id="llKind_${emp.id}" style="font-size:13px; padding:8px;">${kindOptions(LONG_LEAVE_KINDS[0])}</select></div>
+        <div><label style="font-size:12px;">メモ（社内用・にんい）</label><input id="llMemo_${emp.id}" type="text" placeholder="例：入院のため。診断書は書類ボックスに保存" style="font-size:13px; padding:8px;" /></div>
+      </div>
+      <button class="secondary" style="font-size:13px; padding:10px; margin-top:10px;" onclick="addLongLeave('${emp.id}')">長期のお休みを登録する</button>
+    </div>`;
+}
+
+// 休暇管理タブの「長期のお休み中の方」カード
+function renderLongLeaveCard() {
+  const t = formatYmd(new Date());
+  const items = [];
+  (state.employees || []).forEach(e => {
+    if (e.status === "resigned") return;
+    longLeavesOf(e).forEach(L => {
+      const st = longLeaveStatus(L, t);
+      if (st !== "ended") items.push({ e, L, st });
+    });
+  });
+  items.sort((a, b) => (a.st === b.st ? (a.L.start < b.L.start ? -1 : 1) : (a.st === "ongoing" ? -1 : 1)));
+  return `
+    <div class="card">
+      <p class="staff-title" style="font-size:16px; margin:0 0 8px;">長期のお休み（病気療養・休職など）　${items.filter(x => x.st === "ongoing").length}名お休み中</p>
+      ${items.length ? `
+        <table>
+          <thead><tr><th>氏名</th><th>エリア</th><th>区分</th><th>期間</th><th>状態</th><th></th></tr></thead>
+          <tbody>
+            ${items.map(({ e, L }) => `
+              <tr>
+                <td>${escapeHtml(e.name || "")}</td>
+                <td>${escapeHtml(e.area || "")}</td>
+                <td>${escapeHtml(L.kind || "")}</td>
+                <td style="white-space:nowrap;">${escapeHtml(llPeriod(L))}</td>
+                <td>${escapeHtml(llStateText(L))}</td>
+                <td><button style="font-size:12px; padding:6px 10px; width:auto; margin:0;" onclick="state.adminTab='emp'; state.editingEmpId='${e.id}'; render(); window.scrollTo(0,0);">ひらく</button></td>
+              </tr>`).join("")}
+          </tbody>
+        </table>` : `<p class="muted" style="font-size:12px; margin:0;">いま長期のお休み中の方はいません。</p>`}
+      <p class="muted" style="font-size:11px; margin:8px 0 0;">登録・復帰日の入力は「従業員管理」→ その方のページ →「長期のお休み」からできます。終わった記録は従業員ページと「過去のお休み」の月ごとの表に残ります。</p>
+    </div>`;
+}
+
+// 選んだ月にかかっている長期のお休み（過去のお休みの月ごとの表・エクセル用）
+function longLeaveMonthRows(ym) {
+  const m = String(ym || "").match(/^(\d{4})-(\d{2})$/);
+  if (!m) return [];
+  const first = `${m[1]}-${m[2]}-01`;
+  const last = formatYmd(new Date(parseInt(m[1], 10), parseInt(m[2], 10), 0));
+  const t = formatYmd(new Date());
+  const q = (state.pastLeaveSearch || "").trim().toLowerCase();
+  const rows = [];
+  (state.employees || []).forEach(e => {
+    longLeavesOf(e).forEach(L => {
+      if (!L.start || L.start > last || L.start > t) return;
+      if (L.end && L.end < first) return;
+      const a = L.start > first ? L.start : first;
+      let b = L.end && L.end < last ? L.end : last;
+      if (b > t) b = t > a ? addDays(t, -1) || a : a; // 今日より先はまだ数えない
+      if (b < a) return;
+      const row = { name: e.name || "", area: e.area || "", kind: L.kind || "", from: a, to: b, days: llDays(a, b), shiftDays: llShiftDays(e, a, b), memo: L.memo || "" };
+      if (q && ![row.name, row.area, row.kind, row.memo].some(f => f.toLowerCase().includes(q))) return;
+      rows.push(row);
+    });
+  });
+  return rows.sort((x, y) => x.area.localeCompare(y.area, "ja") || x.name.localeCompare(y.name, "ja"));
+}
+
+function renderLongLeaveMonthTable() {
+  const ym = state.pastLeaveMonth || "";
+  if (!ym) return "";
+  const rows = longLeaveMonthRows(ym);
+  if (!rows.length) return "";
+  return `
+    <div style="margin-top:14px; padding:12px; border:1.5px solid #D1C4E9; border-radius:10px; background:#F7F4FC;">
+      <p class="staff-title" style="font-size:14px; margin:0 0 8px;">長期のお休み（${fmtLeaveMonth(ym)}にかかっている方）　${rows.length}名</p>
+      <table>
+        <thead><tr><th>氏名</th><th>エリア</th><th>区分</th><th>この月のお休み期間</th><th>日数</th><th>シフト上の勤務日</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.name)}</td>
+              <td>${escapeHtml(r.area)}</td>
+              <td>${escapeHtml(r.kind)}</td>
+              <td style="white-space:nowrap;">${r.from} 〜 ${r.to}</td>
+              <td style="text-align:right;">${r.days}日</td>
+              <td style="text-align:right; font-weight:700;">${r.shiftDays === null ? `<span class="muted" style="font-weight:400;">シフト未登録</span>` : r.shiftDays + "日"}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:11px; margin:6px 0 0;">「シフト上の勤務日」は、この期間のうちその方のシフトに入っている曜日の数です（祝日は考えていません）。給与計算のときの欠勤日数の目安にしてください。</p>
+    </div>`;
+}
+
 function renderEmpAttendanceHistory(emp) {
   const records = (state.leaveRequests || [])
     .filter(r => r.employeeId === emp.id)
@@ -3863,6 +4118,8 @@ function renderEmpAttendanceHistory(emp) {
           `}
       </div>
       ${bal.notYet ? "" : `<p class="muted" style="font-size:11px; margin:0 0 12px;">残り＝今年の付与（${bal.grantNow}日）＋前年からの繰越（${bal.carryOver}日）−今年の消化（${bal.usedCurr}日）。繰越は前年の付与のうち使い残したぶんで、2年より前のぶんは時効で消えています。${bal.dutyTarget > 0 ? `<br>年5日義務：今年の付与が${bal.grantNow}日（10日以上）なので対象。${bal.dutyDeadline ? esc(bal.dutyDeadline) + "（次の付与日の前日）" : ""}までに5日取得させる必要があります。現在 ${bal.dutyDone}日 取得ずみ${bal.dutyLeft > 0 ? `／<b style="color:var(--danger);">あと${bal.dutyLeft}日</b>` : "（達成）"}。` : `<br>年5日義務：今年の付与が${bal.grantNow}日で10日未満のため対象外です。`}</p>`}
+
+      ${renderLongLeaveBox(emp)}
 
       <div style="padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa; margin-bottom:14px;">
         <label style="margin:0 0 8px; font-weight:700;">休み・有給を記録する</label>
@@ -4276,6 +4533,7 @@ function renderEmpTableRows() {
           <span style="font-weight:700; font-size:16px;">${e.name || "(名前未登録)"}</span>
           ${age !== null ? `<span class="status-pill status-pending" style="font-size:11px; padding:2px 8px;">満${age}歳</span>` : ""}
           ${isInProbation(e) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中</span>` : ""}
+          ${(!showResigned && longLeaveNow(e)) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#ede7f6; color:#5E35B1; font-weight:700;">長期休み中</span>` : ""}
           ${(!showResigned && !lastLogin) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fdecea; color:var(--danger); font-weight:700;">未ログイン</span>` : ""}
           ${(!showResigned && PUSH_VAPID_KEY && (state.pushCounts || {})[e.id] > 0) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#e8f3ef; color:var(--success); font-weight:700;">🔔通知ON</span>` : ""}
           ${!e.employeeCode ? `<span style="color:var(--danger); font-weight:600; font-size:12px;">⚠️未設定</span>` : ""}
@@ -4338,6 +4596,7 @@ function renderAdminEmployeeTab() {
           <div>
             ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
             ${isInProbation(editing) ? `<span class="status-pill" style="margin-right:8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中（〜${probationEndFor(editing)}）</span>` : ""}
+            ${longLeaveNow(editing) ? `<span class="status-pill" style="margin-right:8px; background:#ede7f6; color:#5E35B1; font-weight:700;">長期休み中（${escapeHtml(longLeaveNow(editing).kind || "")}）</span>` : ""}
             ${age !== null ? `<span class="status-pill status-pending" style="margin-right:8px;">満${age}歳</span>` : ""}
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
           </div>

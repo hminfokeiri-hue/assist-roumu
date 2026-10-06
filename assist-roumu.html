@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-05(2)";
+const APP_VERSION = "更新: 2026-10-06";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1081,6 +1081,8 @@ async function handleStaffLogin() {
       return alert("このログインIDは現在ご利用いただけません。本社にお問い合わせください。");
     }
     saveOrClearLoginId(loginId, code3);
+    // 前にこの画面でログインしていた人（本社を含む）の購読とデータを、先に止めて消す
+    stopStaffSubscriptions(); stopAdminSubscriptions(); clearSessionData();
     state.currentUser = { id: doc.id, role: "staff", ...empData };
     state.screen = "staffHome";
     render();
@@ -1124,6 +1126,7 @@ async function handleAdminLogin() {
       return alert("このアカウントには管理者権限がありません。本社にお問い合わせください。");
     }
     saveOrClearAdminEmail(email, pass);
+    stopStaffSubscriptions(); clearSessionData();
     state.currentUser = { role: "admin", name: cred.user.email };
   } catch (e) {
     const msg = {
@@ -1142,17 +1145,69 @@ async function handleAdminLogin() {
   else if (!firebaseReady) subscribeEnvelopeSettings();
 }
 
+/* 【情報もれ対策】ログイン・ログアウトのたびに、前の人（本社を含む）が読み込んだデータを全部消す。
+   消さないと、同じ端末・同じ画面で次の人がログインしたとき、前の人のデータが一瞬〜しばらく見えてしまう。 */
+function clearSessionData() {
+  state.leaveRequests = [];
+  state.employees = [];
+  state.orders = [];
+  state.messages = [];
+  state.payslips = [];
+  state.groupChats = [];
+  state.groupMessages = [];
+  state.allGroups = [];
+  state.adminGroupId = null;
+  state.adminGroupMessages = [];
+  state.empMedCerts = [];
+  state.empEmployeeDocs = [];
+  state.empDocsLoadedFor = null;
+  state.loginLogs = {};
+  state.pushCounts = {};
+  state.interviews = [];
+  state.interviewEditId = null;
+  state.interviewDraft = {};
+  state.chatEmployeeId = null;
+  state.activeGroupId = null;
+  state.pendingPhoto = null;
+  state.groupPendingPhoto = null;
+  state.viewingPayslipId = null;
+  state.editingEmpId = null;
+  state.editingOrderId = null;
+  state.editingLongLeaveId = null;
+  groupsSubscribed = false;
+  try { Object.keys(keptDrafts).forEach(k => delete keptDrafts[k]); } catch (e) {}
+  ["adminPayslipPreviewModal", "printSolo"].forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
+}
+
+/* 【情報もれ対策・二重の守り】従業員としてログインしているときは、
+   万一ほかの人のデータがまじっていても、画面に出す前に「自分のぶん」だけに絞る。
+   （発注は自分のぶんと、同じ現場のぶんだけ。従業員名簿などの本社用データは持たない） */
+function scopeStaffData() {
+  const u = state.currentUser;
+  if (!u || u.role !== "staff") return;
+  const me = u.id;
+  const wp = (u.workplace || "").trim();
+  const mine = r => !!r && r.employeeId === me;
+  state.orders = (state.orders || []).filter(o => mine(o) || (!!wp && (o.workplace || "").trim() === wp));
+  state.leaveRequests = (state.leaveRequests || []).filter(mine);
+  state.messages = (state.messages || []).filter(mine);
+  state.payslips = (state.payslips || []).filter(mine);
+  state.groupChats = (state.groupChats || []).filter(g => Array.isArray(g.members) && g.members.includes(me));
+  if ((state.employees || []).length) state.employees = [];
+  if ((state.interviews || []).length) state.interviews = [];
+  if ((state.allGroups || []).length) state.allGroups = [];
+  state.loginLogs = {};
+  state.pushCounts = {};
+}
+
 function logout() {
   const wasAdmin = state.currentUser && state.currentUser.role === "admin";
   state.currentUser = null;
   state.screen = "login";
   // 【読み取り節約】ログイン中に始めた購読をすべて止める（次のログインで二重に読まないように）
   if (firebaseReady) { stopStaffSubscriptions(); stopAdminSubscriptions(); }
-  // 別の人がログインした時に前の人のグループが残らないようにする
-  groupsSubscribed = false;
-  state.groupChats = [];
-  state.groupMessages = [];
-  state.activeGroupId = null;
+  // 別の人がログインした時に前の人のデータ（グループ・発注・名簿など）が残らないようにする
+  clearSessionData();
   // 管理者だった場合はFirebase側もサインアウトする（匿名認証に自動で戻ります）
   if (wasAdmin && firebaseReady) {
     firebase.auth().signOut().catch(e => console.error("サインアウトエラー", e));
@@ -1162,6 +1217,7 @@ function logout() {
 
 /* ---------- パートさん側：ホーム ---------- */
 function renderStaff() {
+  scopeStaffData();
   updateAppBadge();
   const bal = leaveBalance(state.currentUser);
   const usedOrPending = state.leaveRequests.filter(r => r.status !== "rejected" && r.status !== "cancelled").length;

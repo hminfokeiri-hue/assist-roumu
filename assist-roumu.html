@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-06";
+const APP_VERSION = "更新: 2026-10-06(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1062,8 +1062,29 @@ async function handleStaffLogin() {
   }
 
   try {
-    const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
-    let doc = snap.empty ? null : snap.docs[0];
+    // ① サーバーの「ログインの鍵」で本人を確かめ、「この端末＝この従業員」をサーバーに覚えさせる
+    const lkey = loginKeyId(loginId, code3);
+    let doc = null, keyState = "none";
+    try {
+      const k = await db.collection("loginKeys").doc(lkey).get();
+      if (k.exists) {
+        try {
+          await bindSession(k.data().employeeId, lkey);
+          const d = await db.collection("employees").doc(k.data().employeeId).get();
+          if (d.exists) { doc = d; keyState = "ok"; }
+        } catch (e) { keyState = "denied"; }
+      }
+    } catch (e) { /* 鍵が読めないとき（ルールの切りかえ前）は、下の今までのやり方で確かめる */ }
+    if (keyState === "denied") {
+      return alert("このログインIDは現在ご利用いただけません。本社にお問い合わせください。");
+    }
+    // ② 鍵がまだ作られていない方は、今までのやり方で確かめる
+    if (!doc) {
+      try {
+        const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
+        doc = snap.empty ? null : snap.docs[0];
+      } catch (e) { doc = null; }
+    }
     if (!doc) {
       // 退職した方：退職前のログインIDで、本社が決めた日（loginUntil）まではログインできる
       try {
@@ -1145,6 +1166,106 @@ async function handleAdminLogin() {
   else if (!firebaseReady) subscribeEnvelopeSettings();
 }
 
+/* =========================================================
+   ログインの鍵（サーバーに「この端末＝この従業員」を覚えさせるしくみ）
+   ・loginKeys/{ログインID_コード下3けた} … 本社が自動で作る「鍵」。中身は従業員のIDだけ
+   ・sessions/{端末のID} … 従業員がログインしたとき、鍵を見せてサーバーに覚えさせる
+   データベースのルールは、この sessions を見て「本人のデータだけ」読めるようにする
+   ========================================================= */
+function loginKeyId(loginId, code3) {
+  return String(loginId || "").replace(/\D/g, "") + "_" + String(code3 || "").replace(/\D/g, "").slice(-3).padStart(3, "0");
+}
+async function bindSession(empId, key) {
+  const u = firebase.auth().currentUser;
+  if (!u) throw new Error("no-auth");
+  await db.collection("sessions").doc(u.uid).set({
+    employeeId: empId, key, at: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+function unbindSession() {
+  try {
+    const u = firebase.auth().currentUser;
+    if (u && u.isAnonymous) db.collection("sessions").doc(u.uid).delete().catch(() => {});
+  } catch (e) {}
+}
+
+/* 本社がログインしているあいだ、従業員名簿から「ログインの鍵」と「リーダーの入口」を自動で作り直す。
+   ・在籍中の方 … ログインID＋従業員コード下3けた（本人カードの番号があれば、その分も）
+   ・退職した方 … 前のログインID＋下3けた（ログインできる最終日まで）
+   名簿が変わるたびに、変わったところだけ書きかえます */
+let loginKeyCache = null, viewerLoginCache = null, loginKeySyncTimer = null, loginKeySyncing = false;
+function scheduleLoginKeySync() {
+  if (!firebaseReady || !state.currentUser || state.currentUser.role !== "admin") return;
+  clearTimeout(loginKeySyncTimer);
+  loginKeySyncTimer = setTimeout(syncLoginKeys, 3000);
+}
+function wantedLoginKeys() {
+  const keys = {}, viewers = {};
+  (state.employees || []).forEach(e => {
+    const c3 = last3OfEmployeeCode(e.employeeCode);
+    const card = last3OfEmployeeCode(e.cardCode3 || "");
+    if (e.status !== "resigned") {
+      if (e.loginId && c3) keys[loginKeyId(e.loginId, c3)] = { employeeId: e.id, until: null };
+      if (e.loginId && card && card !== c3) keys[loginKeyId(e.loginId, card)] = { employeeId: e.id, until: null };
+      if (e.viewerEnabled && e.loginId) viewers[String(e.loginId).replace(/\D/g, "")] = Number(e.viewerAuthVersion) || 1;
+    } else if (e.formerLoginId && c3 && e.loginUntil) {
+      keys[loginKeyId(e.formerLoginId, c3)] = { employeeId: e.id, until: new Date(e.loginUntil + "T23:59:59+09:00").getTime() };
+    }
+  });
+  return { keys, viewers };
+}
+async function syncLoginKeys() {
+  if (loginKeySyncing || !firebaseReady || !state.currentUser || state.currentUser.role !== "admin") return;
+  if (!(state.employees || []).length) return;
+  loginKeySyncing = true;
+  try {
+    if (!loginKeyCache) {
+      loginKeyCache = {};
+      (await db.collection("loginKeys").get()).docs.forEach(d => {
+        const x = d.data() || {};
+        loginKeyCache[d.id] = { employeeId: x.employeeId, until: x.until && x.until.toMillis ? x.until.toMillis() : null };
+      });
+    }
+    if (!viewerLoginCache) {
+      viewerLoginCache = {};
+      (await db.collection("viewerLogins").get()).docs.forEach(d => { viewerLoginCache[d.id] = (d.data() || {}).v; });
+    }
+    const { keys, viewers } = wantedLoginKeys();
+    const ops = [];
+    Object.keys(keys).forEach(k => {
+      const w = keys[k], h = loginKeyCache[k];
+      if (!h || h.employeeId !== w.employeeId || (h.until || null) !== (w.until || null)) ops.push(["setKey", k, w]);
+    });
+    Object.keys(loginKeyCache).forEach(k => { if (!keys[k]) ops.push(["delKey", k]); });
+    Object.keys(viewers).forEach(id => { if (viewerLoginCache[id] !== viewers[id]) ops.push(["setViewer", id, viewers[id]]); });
+    Object.keys(viewerLoginCache).forEach(id => { if (!(id in viewers)) ops.push(["delViewer", id]); });
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = db.batch();
+      ops.slice(i, i + 400).forEach(([t, id, w]) => {
+        if (t === "setKey") batch.set(db.collection("loginKeys").doc(id), w.until
+          ? { employeeId: w.employeeId, until: firebase.firestore.Timestamp.fromMillis(w.until) }
+          : { employeeId: w.employeeId });
+        if (t === "delKey") batch.delete(db.collection("loginKeys").doc(id));
+        if (t === "setViewer") batch.set(db.collection("viewerLogins").doc(id), { v: w });
+        if (t === "delViewer") batch.delete(db.collection("viewerLogins").doc(id));
+      });
+      await batch.commit();
+      ops.slice(i, i + 400).forEach(([t, id, w]) => {
+        if (t === "setKey") loginKeyCache[id] = w;
+        if (t === "delKey") delete loginKeyCache[id];
+        if (t === "setViewer") viewerLoginCache[id] = w;
+        if (t === "delViewer") delete viewerLoginCache[id];
+      });
+    }
+    if (ops.length) console.log(`ログインの鍵を${ops.length}件、作り直しました`);
+  } catch (e) {
+    console.warn("ログインの鍵の作り直しをスキップ（データベースのルールが古いときは失敗します）", e && (e.code || e.message));
+    loginKeyCache = null; viewerLoginCache = null;
+  } finally {
+    loginKeySyncing = false;
+  }
+}
+
 /* 【情報もれ対策】ログイン・ログアウトのたびに、前の人（本社を含む）が読み込んだデータを全部消す。
    消さないと、同じ端末・同じ画面で次の人がログインしたとき、前の人のデータが一瞬〜しばらく見えてしまう。 */
 function clearSessionData() {
@@ -1202,6 +1323,8 @@ function scopeStaffData() {
 
 function logout() {
   const wasAdmin = state.currentUser && state.currentUser.role === "admin";
+  if (firebaseReady && state.currentUser && state.currentUser.role === "staff") unbindSession();
+  loginKeyCache = null; viewerLoginCache = null; clearTimeout(loginKeySyncTimer);
   state.currentUser = null;
   state.screen = "login";
   // 【読み取り節約】ログイン中に始めた購読をすべて止める（次のログインで二重に読まないように）
@@ -7241,6 +7364,7 @@ function subscribeAllLeaveRequests() {
   adminUnsubs.push(db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
+    scheduleLoginKeySync();   // ログインの鍵を、名簿に合わせて自動で作り直す
   }));
   adminUnsubs.push(db.collection("orders").orderBy("createdAt", "desc").onSnapshot(snap => {
     state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));

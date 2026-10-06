@@ -198,7 +198,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-10-02(11)";
+const APP_VERSION = "リーダー用 2026-10-06(12)";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -453,14 +453,29 @@ async function handleLogin() {
 
     const loginId = idRaw.replace(/[^\d]/g, "");
     await viewerApp.auth().signInAnonymously();
-    const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
-    if (snap.empty) { state.loading = false; render(); return alert("ログインIDまたはパスワードが正しくありません"); }
-    const emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
-    if (!emp.viewerEnabled) {
-      state.loading = false; render();
-      return alert("このログインIDでは閲覧用ページをご利用いただけません。本社にお問い合わせください。");
+    // リーダーの入口（viewerLogins）があれば、名簿を読まずに入る（名簿は本人確認のあとで読む）
+    let ver = null;
+    try {
+      const vl = await db.collection("viewerLogins").doc(loginId).get();
+      if (vl.exists) ver = Number((vl.data() || {}).v) || 1;
+    } catch (e) { ver = null; }
+    let emp = null;
+    if (ver === null) {
+      // 入口がまだ無いとき（切りかえ前）は、今までのやり方
+      const snap = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
+      if (snap.empty) { state.loading = false; render(); return alert("ログインIDまたはパスワードが正しくありません"); }
+      emp = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      if (!emp.viewerEnabled) {
+        state.loading = false; render();
+        return alert("このログインIDでは閲覧用ページをご利用いただけません。本社にお問い合わせください。");
+      }
+      ver = emp.viewerAuthVersion;
     }
-    const cred = await viewerApp.auth().signInWithEmailAndPassword(leaderEmail(loginId, emp.viewerAuthVersion), pass);
+    const cred = await viewerApp.auth().signInWithEmailAndPassword(leaderEmail(loginId, ver), pass);
+    if (!emp) {
+      const s2 = await db.collection("employees").where("loginId", "==", loginId).limit(1).get();
+      emp = s2.empty ? { id: "", name: loginId } : { id: s2.docs[0].id, ...s2.docs[0].data() };
+    }
     const v = await db.collection("viewers").doc(cred.user.uid).get();
     if (!v.exists) {
       await viewerApp.auth().signOut();

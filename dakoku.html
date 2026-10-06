@@ -101,6 +101,27 @@ el("main").innerHTML =
 '電波のよい場所で、画面を下に引っぱって<br>読み込み直してください。</p></div>';
 }, 12000);
 
+/* ログインの鍵で本人を確かめ、「この端末＝この従業員」をサーバーに覚えさせる。
+   鍵がまだ無いとき（切りかえ前）は、今までのやり方（ログインIDでさがす）で確かめる */
+async function findEmp(loginId, code3){
+var key = String(loginId) + "_" + String(code3);
+try{
+var k = await db.collection("loginKeys").doc(key).get();
+if (k.exists){
+var empId = k.data().employeeId;
+var u = dakokuApp.auth().currentUser;
+if (u) await db.collection("sessions").doc(u.uid).set({ employeeId: empId, key: key, at: firebase.firestore.FieldValue.serverTimestamp() });
+var d = await db.collection("employees").doc(empId).get();
+if (d.exists) return Object.assign({ id: d.id }, d.data());
+}
+}catch(e){}
+try{
+var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
+if (snap.empty) return null;
+return Object.assign({ id: snap.docs[0].id }, snap.docs[0].data());
+}catch(e){ return null; }
+}
+
 function renderLogin(){
 var saved = localStorage.getItem(LS_LOGIN) || "";
 render(
@@ -124,10 +145,8 @@ if (!loginId || !code3){ state.err = "両方を入力してください"; return
 state.err = "";
 render('<div class="card center muted">確認しています…</div>');
 try{
-var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
-if (snap.empty){ state.err = "ログインIDが見つかりません"; return renderLogin(); }
-var doc = snap.docs[0];
-var emp = Object.assign({ id: doc.id }, doc.data());
+var emp = await findEmp(loginId, code3.padStart(3,"0"));
+if (!emp){ state.err = "ログインIDが見つかりません"; return renderLogin(); }
 if (!codeOk(emp, code3.padStart(3,"0"))){
 state.err = "管理番号の下3桁が違います"; return renderLogin();
 }
@@ -244,13 +263,11 @@ var mid = (p[0]||"").replace(/[^0-9]/g,"");
 var mc  = last3(p[1]||"");
 if (!mid || !mc) return false;
 try{
-var snap = await db.collection("employees").where("loginId","==",mid).limit(1).get();
-if (snap.empty){
+var emp = await findEmp(mid, mc);
+if (!emp){
 render('<div class="card center"><p class="muted">このカードは登録されていません。<br>本社にお知らせください。</p></div>');
 return "stop";
 }
-var doc = snap.docs[0];
-var emp = Object.assign({ id: doc.id }, doc.data());
 if (!codeOk(emp, mc)){
 render('<div class="card center"><p class="muted">このカードは読み取れませんでした。<br>本社にお知らせください。</p></div>');
 return "stop";
@@ -325,10 +342,8 @@ var code3 = localStorage.getItem(LS_CODE3);
 if (!loginId || !code3) return renderLogin();
 
 try{
-var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
-if (snap.empty) return renderLogin();
-var doc = snap.docs[0];
-var emp = Object.assign({ id: doc.id }, doc.data());
+var emp = await findEmp(loginId, code3);
+if (!emp) return renderLogin();
 if (!codeOk(emp, code3)) return renderLogin();
 state.emp = emp;
 await loadRecord();

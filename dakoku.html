@@ -152,12 +152,16 @@ state.rec = d.exists ? d.data() : null;
 }catch(e){ state.rec = null; }
 }
 
+/* 現場の「予定の時間」を従業員の画面に出すかどうか。
+   いまは仮の時間しか登録していないので、出さない（false）。正しい時間がそろったら true にもどす。 */
+var SHOW_SITE_TIME = false;
+
 function renderMain(){
 var s = state.site, r = state.rec;
 var head =
 '<div class="card">' +
 '<div class="site-name">' + esc(s ? s.name : "現場が未設定") + '</div>' +
-(s && s.startTime ? '<div class="site-sub">予定 ' + esc(s.startTime) + '〜' + esc(s.endTime||"") + '</div>' : '') +
+(SHOW_SITE_TIME && s && s.startTime ? '<div class="site-sub">予定 ' + esc(s.startTime) + '〜' + esc(s.endTime||"") + '</div>' : '') +
 '<div class="who">' + esc(state.emp.name||"") + ' さん</div>';
 
 if (!r){

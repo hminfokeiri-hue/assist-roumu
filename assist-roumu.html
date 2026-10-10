@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-06(2)";
+const APP_VERSION = "更新: 2026-10-10";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -660,6 +660,7 @@ const state = {
   loginLogs: {},             // 従業員ID → 最終ログイン日時（本社がログイン状況を見るため）
   pushCounts: {},            // 従業員ID → 通知ONの端末の数（本社が通知の状況を見るため）
   pushMsg: "",               // 「通知をONにする」で出たエラーなどの案内
+  officePushMsg: "",         // 本社の「通知をONにする」で出たエラーなどの案内
   // ---- 面接リスト ----
   interviews: [],            // 応募者・面接の一覧
   interviewEditId: null,     // "new" なら新規追加、IDなら編集中
@@ -718,7 +719,7 @@ function pushSupportState() {
 }
 
 // 通知の宛先（この端末のトークン）を取得して、従業員IDとセットで保存する
-async function savePushToken() {
+async function savePushToken(asOffice) {
   const reg = await navigator.serviceWorker.register(PUSH_SW_PATH);
   await navigator.serviceWorker.ready;
   if (!pushMessaging) pushMessaging = firebase.messaging();
@@ -726,8 +727,8 @@ async function savePushToken() {
   if (!token) throw new Error("通知の宛先を取得できませんでした");
   const u = state.currentUser;
   await db.collection("pushTokens").doc(token).set({
-    employeeId: u.id,
-    name: u.name || "",
+    employeeId: asOffice ? OFFICE_PUSH_ID : u.id,
+    name: asOffice ? "本社" : (u.name || ""),
     platform: pushPlatformLabel(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
@@ -769,6 +770,107 @@ async function disablePush() {
   } catch (e) { /* ignore */ }
   try { localStorage.removeItem("assistRoumuPushOn"); } catch (e) { /* ignore */ }
   render();
+}
+
+/* ===== 本社の端末で「従業員からのチャット・発注」の通知を受け取る =====
+   本社の管理者でログインした端末を「本社の宛先」（pushTokens の employeeId が "__office__"）として登録します。
+   通知を送るのは Firebase の通知を送る係（notifyOfficeMessage / notifyOfficeOrder）で、
+   従業員が書き込んだ瞬間に自動で動きます。
+   ※1台の端末は、パートさん用か本社用のどちらか一方です（あとから押したほうに切りかわります） */
+const OFFICE_PUSH_ID = "__office__";
+
+// この端末の「本社の通知」の状態（off / on のほかは、パートさん用の通知と同じ状態名）
+function officePushState() {
+  const s = pushSupportState();
+  if (s !== "on" && s !== "off") return s;
+  let flag = null;
+  try { flag = localStorage.getItem("assistRoumuPushOn"); } catch (e) { /* ignore */ }
+  return (Notification.permission === "granted" && flag === "office") ? "on" : "off";
+}
+
+async function enableOfficePush() {
+  const u = state.currentUser;
+  if (!u || u.role !== "admin" || !firebaseReady) return;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      state.officePushMsg = "通知が許可されませんでした。もう一度ボタンを押して「許可」を選んでください。";
+      return render();
+    }
+    await savePushToken(true);
+    try { localStorage.setItem("assistRoumuPushOn", "office"); } catch (e) { /* ignore */ }
+    state.officePushMsg = "";
+  } catch (e) {
+    state.officePushMsg = "通知をONにできませんでした。この文字をClaudeにお伝えください：" + (e.code || e.message || "");
+  }
+  render();
+}
+
+// 本社でログインするたびに、ONの端末は宛先を最新に更新しておく
+function refreshOfficePushQuietly() {
+  if (officePushState() !== "on") return;
+  savePushToken(true).catch(e => console.warn("本社の通知の宛先の更新をスキップ", e && e.message));
+}
+
+async function disableOfficePush() {
+  if (!confirm("この端末への、本社の通知をOFFにします。よろしいですか？")) return;
+  try {
+    if (!pushMessaging) pushMessaging = firebase.messaging();
+    const reg = await navigator.serviceWorker.getRegistration();
+    const token = await pushMessaging.getToken({ vapidKey: PUSH_VAPID_KEY, serviceWorkerRegistration: reg }).catch(() => null);
+    if (token) await db.collection("pushTokens").doc(token).delete().catch(() => {});
+    await pushMessaging.deleteToken().catch(() => {});
+  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem("assistRoumuPushOn"); } catch (e) { /* ignore */ }
+  render();
+}
+
+// ホーム画面アイコンの赤い数字（本社用）＝ 未読メッセージ ＋ 未確認の発注。通知を送る係が付ける数字と同じ数え方です
+let lastAdminBadge = null;
+function updateAdminBadge() {
+  const u = state.currentUser;
+  if (!u || u.role !== "admin") return;
+  const total = adminUnreadCount() + (state.orders || []).filter(o => o.status === "pending").length;
+  if (total === lastAdminBadge) return;
+  lastAdminBadge = total;
+  try {
+    if (navigator.setAppBadge) {
+      const p = total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
+  document.title = total > 0 ? `(${total}) アシスト労務` : "アシスト労務";
+}
+
+// 本社画面の一番上：「通知をONにする」まわりの案内
+function renderOfficePushCard() {
+  if (!firebaseReady) return "";
+  const s = officePushState();
+  if (s === "disabled" || s === "unsupported") return "";
+  if (s === "on") {
+    const n = (state.pushCounts && state.pushCounts[OFFICE_PUSH_ID]) || 0;
+    return `<p class="muted" style="font-size:12.5px; margin:0 0 10px;">🔔 この端末に、従業員のチャット・発注の通知が届きます${n ? `（本社の通知ONの端末：${n}台）` : ""}　<button class="link" style="font-size:12.5px; padding:0;" onclick="disableOfficePush()">OFFにする</button></p>`;
+  }
+  if (s === "need-install") {
+    return `<div class="card push-card" style="margin-bottom:12px;">
+      <p style="font-weight:800; margin:0 0 6px;">🔔 従業員のチャット・発注の通知を受け取るには</p>
+      <p style="margin:0 0 6px; font-size:14px;">iPhoneでは、このアプリを「ホーム画面に追加」して、そのアイコンから開いてログインし直すと、通知が使えます。</p>
+      <p style="margin:6px 0 0;"><a href="tejun-home.html?d=iphone" target="_blank" rel="noopener" style="font-weight:800;">📖 やり方を、大きな画面で見る</a></p>
+    </div>`;
+  }
+  if (s === "need-update") {
+    return `<div class="card push-card" style="margin-bottom:12px;"><p style="margin:0; font-size:14px;">🔔 このiPhoneでは通知が使えません。「設定」→「一般」→「ソフトウェア・アップデート」で更新すると、使えるようになります。</p></div>`;
+  }
+  if (s === "denied") {
+    return `<div class="card push-card" style="margin-bottom:12px;"><p style="margin:0; font-size:14px;">🔔 通知が「許可しない」になっています。この端末の設定で、このアプリ（またはブラウザ）の通知を「許可」にしてください。</p></div>`;
+  }
+  return `<div class="card push-card" style="margin-bottom:12px;">
+    <p style="font-weight:800; margin:0 0 6px;">🔔 従業員のチャットと発注を、この端末にお知らせします</p>
+    <p style="margin:0 0 10px; font-size:14px;">下のボタンを押して、出てきた画面で「許可」を選んでください。チャットや発注が入ると、この端末に通知が出ます。</p>
+    <button class="primary" style="width:100%;" onclick="enableOfficePush()">🔔 本社の通知をONにする</button>
+    <p class="muted" style="font-size:12px; margin:8px 0 0;">※1台の端末は、パートさん用か本社用のどちらか一方です。この端末でパートさんの通知をONにしている場合は、こちらに切りかわります。</p>
+    ${state.officePushMsg ? `<p style="color:var(--danger); font-size:13px; margin:8px 0 0;">${escapeHtml(state.officePushMsg)}</p>` : ""}
+  </div>`;
 }
 
 // ===== 本社アプリ → 通知を送る係に「この人たちのスマホに通知して」と頼む（本社の管理者でログイン中だけ使えます） =====
@@ -1164,6 +1266,7 @@ async function handleAdminLogin() {
   render();
   if (firebaseReady && !adminSubscribed) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); subscribeEnvelopeSettings(); }
   else if (!firebaseReady) subscribeEnvelopeSettings();
+  refreshOfficePushQuietly();
 }
 
 /* =========================================================
@@ -1319,6 +1422,7 @@ function scopeStaffData() {
   if ((state.allGroups || []).length) state.allGroups = [];
   state.loginLogs = {};
   state.pushCounts = {};
+  lastAdminBadge = null;
 }
 
 function logout() {
@@ -2862,6 +2966,7 @@ async function hireInterview(id) {
 
 /* ---------- 本社側：ダッシュボード ---------- */
 function renderAdmin() {
+  updateAdminBadge();
   const pending = state.leaveRequests.filter(r => r.status === "pending");
   const cancelReqs = state.leaveRequests.filter(r => r.status === "cancelRequested");
 
@@ -2871,6 +2976,7 @@ function renderAdmin() {
       <button onclick="logout()">ログアウト</button>
     </header>
     <main>
+      ${renderOfficePushCard()}
       <div class="stat-grid">
         <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
         <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>

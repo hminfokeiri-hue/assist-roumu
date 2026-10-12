@@ -184,14 +184,12 @@ if (!ymd) return "";
 return jpHolidays(Number(String(ymd).slice(0,4)))[ymd] || "";
 }
 /* その現場が、その日に入る予定かどうか
-・祝日の日 … 「祝」にチェックがあれば入る／なければ休み（曜日は見ません）
-・祝日をまだ決めていない現場（前から登録してある現場）… 今までどおり曜日で決めます
+・祝日の日 … 「祝」にチェックがある現場だけ入る（ほとんどの現場は祝日は休み）
 ・ふつうの日 … 曜日で決めます */
 function isPlannedOn(site, ymd){
+if (holidayName(ymd)) return site.holiday === true;
 var wd = new Date(String(ymd).replace(/-/g,"/")).getDay();
-var byWeekday = Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
-if (holidayName(ymd) && typeof site.holiday === "boolean") return site.holiday;
-return byWeekday;
+return Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
 }
 
 var state = {
@@ -370,10 +368,8 @@ return '<div class="site-card '+st.cls+'">' +
 };
 
 var hol = holidayName(state.today);
-var undecided = hol ? sites.filter(function(s){ return typeof s.holiday !== "boolean"; }).length : 0;
 var holNote = hol ? '<div class="card no-print" style="border-left:6px solid var(--warning);padding:12px 16px">' +
 '🎌 今日は祝日（' + esc(hol) + '）です。「祝」にチェックのある現場だけを「今日の現場」にしています。' +
-(undecided ? '<br><span class="muted">祝日に入るかどうかをまだ決めていない現場が ' + undecided + ' か所あります。この現場は、今までどおり曜日で出しています。「現場の登録」で決めておけます。</span>' : '') +
 '</div>' : '';
 return holNote + '<div class="sum">' +
 '<div><div class="n">'+today.length+'</div><div class="l">今日の現場</div></div>' +
@@ -409,7 +405,7 @@ return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":
 '</div>' +
 '<p class="muted" style="margin:6px 0 0;font-size:12px">「祝」にチェックすると、祝日（振替休日・国民の休日もふくみます）も入る日になります。' +
 'チェックしないと、祝日は曜日にかかわらず「今日は予定なし」になります。祝日は法律どおりに自動で判定します。</p>' +
-(e.id && typeof e.holiday !== "boolean" ? '<p class="muted" style="margin:4px 0 0;font-size:12px;color:var(--warning)">この現場は、祝日に入るかどうかがまだ決まっていません（今は祝日も曜日どおり）。保存すると「祝」のチェックのとおりに決まります。</p>' : '') +
+
 '<div class="row" style="margin-top:12px">' +
 '<div><label>開始</label><input id="fStart" type="time" value="'+esc(e.startTime||"")+'"></div>' +
 '<div><label>終了</label><input id="fEnd" type="time" value="'+esc(e.endTime||"")+'"></div>' +
@@ -426,8 +422,7 @@ var rows = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCom
 .map(function(s){
 var wds = Array.isArray(s.weekdays) ? s.weekdays.map(function(i){return WD[i];}).join("・") : "－";
 if (s.holiday === true) wds += (wds && wds !== "－" ? "・" : "") + '<b style="color:var(--danger)">祝</b>';
-else if (s.holiday === false) wds += '<br><span class="muted" style="font-size:11px">祝日は休み</span>';
-else wds += '<br><span class="muted" style="font-size:11px">祝日：未設定（曜日どおり）</span>';
+else wds += '<br><span class="muted" style="font-size:11px">祝日は休み</span>';
 return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span></td>' +
 '<td>'+wds+'</td><td>'+esc(s.startTime||"")+(s.endTime?"〜"+esc(s.endTime):"")+'</td>' +
 '<td>'+(s.headcount||"")+'</td>' +

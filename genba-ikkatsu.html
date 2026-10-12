@@ -41,6 +41,7 @@
   .wd{display:flex;gap:2px;justify-content:center}
   .wd label{margin:0;font-size:11px;color:var(--ink);cursor:pointer;user-select:none}
   .wd input{width:14px;height:14px;display:block;margin:0 auto}
+  .wd label.hol{color:#C65D4B;font-weight:700;margin-left:4px;padding-left:4px;border-left:1px solid #ddd}
   .msg{padding:11px 13px;border-radius:8px;margin:12px 0;font-size:14px;display:none}
   .msg.on{display:block}
   .msg.ok{background:#e6f5ec;color:#14663a;border:1px solid #b7e0c8}
@@ -148,13 +149,16 @@
         <div class="sum" id="sum1"></div>
         <p class="note" style="margin:0 0 10px">
           曜日は<b>月〜土</b>、時刻は<b>7:30〜11:00</b>、人数は<b>1人</b>を初めから入れてあります。ちがう現場は表の上で直してください。
-          曜日を空にすると、その現場は信号板にふだん出ず、<b>誰かがそこで打刻した日だけ</b>出てきます。あとから信号板でも直せます。
+          曜日を空にすると、その現場は信号板にふだん出ず、<b>誰かがそこで打刻した日だけ</b>出てきます。あとから信号板でも直せます。<br>
+          <b style="color:#C65D4B">「祝」</b>にチェックした現場は、祝日（振替休日・国民の休日もふくむ）も入る日になります。チェックしない現場は、祝日は「予定なし」になります。
         </p>
         <div class="btns" style="margin:0 0 12px">
           <button class="sub" id="btnAll">全部えらぶ</button>
           <button class="sub" id="btnNone">全部はずす</button>
           <button class="sub" id="btnWdOn">曜日を月〜土にする</button>
           <button class="sub" id="btnWdOff">曜日を全部空にする</button>
+          <button class="sub" id="btnHolOn">全部「祝日も入る」にする</button>
+          <button class="sub" id="btnHolOff">全部「祝日は休み」にする</button>
           <button class="sub" id="btnTime">時刻と人数を入れ直す</button>
           <button class="sub" id="btnAddOne">＋ 現場を手で足す（本社など）</button>
         </div>
@@ -406,7 +410,7 @@ $("btnLoad").onclick = async function(){
     ROWS = list.map(function(o){
       var nm = pickName(o);
       return { name:nm, area:pickArea(o), memo:pickMemo(o),
-               weekdays:DEF_WD.slice(), startTime:DEF_ST, endTime:DEF_ET, headcount:DEF_HC,
+               weekdays:DEF_WD.slice(), holiday:false, startTime:DEF_ST, endTime:DEF_ET, headcount:DEF_HC,
                dup: !!have[norm(nm)], sel: !have[norm(nm)] && !!nm };
     }).filter(function(r){ return r.name; });
 
@@ -427,7 +431,7 @@ function draw1(){
     if(r.dup) tr.className="dup";
     var wd='<div class="wd">'+WD.map(function(w,k){
       return '<label>'+w+'<input type="checkbox" data-i="'+i+'" data-w="'+k+'"'+(r.weekdays.indexOf(k)>=0?" checked":"")+'></label>';
-    }).join("")+'</div>';
+    }).join("")+'<label class="hol">祝<input type="checkbox" data-i="'+i+'" data-f="holiday"'+(r.holiday?" checked":"")+'></label></div>';
     tr.innerHTML=
       '<td><input type="checkbox" data-i="'+i+'" data-f="sel"'+(r.sel?" checked":"")+'></td>'+
       '<td class="l"><input type="text" data-i="'+i+'" data-f="name" value="'+esc(r.name)+'"></td>'+
@@ -448,7 +452,7 @@ function draw1(){
         a.sort();
       }else{
         var f=e.target.dataset.f;
-        ROWS[i][f] = (f==="sel") ? e.target.checked
+        ROWS[i][f] = (f==="sel" || f==="holiday") ? e.target.checked
                    : (f==="headcount") ? (Number(e.target.value)||0)
                    : e.target.value;
       }
@@ -466,9 +470,11 @@ $("btnAll").onclick=function(){ ROWS.forEach(function(r){ r.sel=true; }); draw1(
 $("btnNone").onclick=function(){ ROWS.forEach(function(r){ r.sel=false; }); draw1(); };
 $("btnWdOn").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=DEF_WD.slice(); }); draw1(); };
 $("btnWdOff").onclick=function(){ ROWS.forEach(function(r){ r.weekdays=[]; }); draw1(); };
+$("btnHolOn").onclick=function(){ ROWS.forEach(function(r){ r.holiday=true; }); draw1(); };
+$("btnHolOff").onclick=function(){ ROWS.forEach(function(r){ r.holiday=false; }); draw1(); };
 $("btnTime").onclick=function(){ ROWS.forEach(function(r){ r.startTime=DEF_ST; r.endTime=DEF_ET; r.headcount=DEF_HC; }); draw1(); };
 $("btnAddOne").onclick=function(){
-  ROWS.unshift({ name:"本社", area:"大阪", memo:"", weekdays:DEF_WD.slice(),
+  ROWS.unshift({ name:"本社", area:"大阪", memo:"", weekdays:DEF_WD.slice(), holiday:false,
                  startTime:DEF_ST, endTime:DEF_ET, headcount:DEF_HC, dup:false, sel:true });
   $("listCard").classList.remove("hide");
   draw1();
@@ -494,6 +500,7 @@ $("btnSave").onclick = async function(){
         batch.set(ref,{
           name:String(r.name).trim(), area:String(r.area||"").trim(),
           weekdays:r.weekdays.slice().sort(function(a,b){return a-b;}),
+          holiday:!!r.holiday,
           startTime:r.startTime||"", endTime:r.endTime||"",
           headcount:Number(r.headcount)||0, memo:String(r.memo||"").trim(), active:true
         });

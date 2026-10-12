@@ -86,6 +86,7 @@ th{color:var(--muted);font-weight:700;font-size:12px;}
 .wd label{display:flex;align-items:center;gap:4px;margin:0;font-size:14px;color:var(--text);
 background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;}
 .wd input{width:auto;}
+.wd label.hol{border-color:var(--danger);color:var(--danger);font-weight:700;margin-left:6px;}
 .qr-sheet{background:#fff;border:2px solid #333;border-radius:6px;padding:24px;text-align:center;
 max-width:420px;margin:0 auto 20px;}
 .qr-sheet h2{font-size:26px;margin:0 0 4px;}
@@ -123,6 +124,75 @@ var watchTimer = null;
 
 const WD = ["日","月","火","水","木","金","土"];
 const GRACE_MIN = 15;
+
+/* ---- 日本の祝日（「国民の祝日に関する法律」どおりに計算します） ----
+・第2条の祝日16日（成人の日・海の日・敬老の日・スポーツの日は第○月曜日）
+・春分の日・秋分の日は計算式（1980〜2099年まで正しい値になります）
+・第3条第2項：日曜と重なった祝日は、次の「祝日でない日」が休日（振替休日）
+・第3条第3項：前の日と次の日が祝日の日は休日（国民の休日。例：2026年9月22日）
+※オリンピックのときのような臨時の祝日は入っていません。
+※viewer.html（リーダー用）と同じ計算です。法律が変わったら両方を直します。 */
+var HOLIDAY_CACHE = {};
+function jpHolidays(y){
+if (HOLIDAY_CACHE[y]) return HOLIDAY_CACHE[y];
+var p = function(n){ return String(n).padStart(2,"0"); };
+var key = function(m,d){ return y+"-"+p(m)+"-"+p(d); };
+var nthMonday = function(m,n){ var first = new Date(y,m-1,1).getDay(); return 1 + ((1-first+7)%7) + (n-1)*7; };
+var shunbun = Math.floor(20.8431 + 0.242194*(y-1980) - Math.floor((y-1980)/4));
+var shubun  = Math.floor(23.2488 + 0.242194*(y-1980) - Math.floor((y-1980)/4));
+var h = {};
+h[key(1,1)] = "元日";
+h[key(1,nthMonday(1,2))] = "成人の日";
+h[key(2,11)] = "建国記念の日";
+h[key(2,23)] = "天皇誕生日";
+h[key(3,shunbun)] = "春分の日";
+h[key(4,29)] = "昭和の日";
+h[key(5,3)] = "憲法記念日";
+h[key(5,4)] = "みどりの日";
+h[key(5,5)] = "こどもの日";
+h[key(7,nthMonday(7,3))] = "海の日";
+h[key(8,11)] = "山の日";
+h[key(9,nthMonday(9,3))] = "敬老の日";
+h[key(9,shubun)] = "秋分の日";
+h[key(10,nthMonday(10,2))] = "スポーツの日";
+h[key(11,3)] = "文化の日";
+h[key(11,23)] = "勤労感謝の日";
+/* 振替休日：日曜と重なったら、次の「祝日でない日」にずらす */
+Object.keys(h).forEach(function(k){
+var d = new Date(k.replace(/-/g,"/"));
+if (d.getDay() !== 0) return;
+var n = new Date(d);
+do { n.setDate(n.getDate()+1); } while (h[key(n.getMonth()+1, n.getDate())]);
+h[key(n.getMonth()+1, n.getDate())] = "振替休日";
+});
+/* 国民の休日：祝日と祝日にはさまれた日（日曜はもともと休みなので除く） */
+var d = new Date(y,0,1);
+while (d.getFullYear() === y){
+var k = key(d.getMonth()+1, d.getDate());
+if (!h[k] && d.getDay() !== 0){
+var a = new Date(d); a.setDate(a.getDate()-1);
+var b = new Date(d); b.setDate(b.getDate()+1);
+if (h[key(a.getMonth()+1,a.getDate())] && h[key(b.getMonth()+1,b.getDate())]) h[k] = "国民の休日";
+}
+d.setDate(d.getDate()+1);
+}
+HOLIDAY_CACHE[y] = h;
+return h;
+}
+function holidayName(ymd){
+if (!ymd) return "";
+return jpHolidays(Number(String(ymd).slice(0,4)))[ymd] || "";
+}
+/* その現場が、その日に入る予定かどうか
+・祝日の日 … 「祝」にチェックがあれば入る／なければ休み（曜日は見ません）
+・祝日をまだ決めていない現場（前から登録してある現場）… 今までどおり曜日で決めます
+・ふつうの日 … 曜日で決めます */
+function isPlannedOn(site, ymd){
+var wd = new Date(String(ymd).replace(/-/g,"/")).getDay();
+var byWeekday = Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
+if (holidayName(ymd) && typeof site.holiday === "boolean") return site.holiday;
+return byWeekday;
+}
 
 var state = {
 user:null, tab:"board", sites:[], attend:[], memo:"", today:"",
@@ -197,8 +267,7 @@ if (todayStr() !== state.today) startWatch(); else render();
 /* ---------- 判定 ---------- */
 function siteStatus(site){
 var list = state.attend.filter(function(a){ return a.siteId === site.id; });
-var wd = new Date().getDay();
-var planned = Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
+var planned = isPlannedOn(site, state.today || todayStr());
 var need = parseInt(site.headcount,10) || 0;
 var start = toMin(site.startTime);
 var cls, label;
@@ -246,7 +315,8 @@ function render(){
 if (!state.user) return;
 var head =
 '<header class="topbar no-print"><h1>信号板<small>｜アシスト労務</small></h1><div class="hright">' +
-'<span>' + esc(state.today) + '（' + WD[new Date().getDay()] + '）</span>' +
+'<span>' + esc(state.today) + '（' + WD[new Date().getDay()] + '）' +
+(holidayName(state.today) ? ' 🎌' + esc(holidayName(state.today)) : '') + '</span>' +
 (state.soundOn ? '<span>🔔 音あり</span>' : '<button class="hbtn" onclick="enableSound()">🔕 音を出す</button>') +
 '<button class="hbtn" onclick="state.privacy=!state.privacy;render()">' + (state.privacy?"名前を表示":"名前を隠す") + '</button>' +
 '<button class="hbtn" onclick="doLogout()">ログアウト</button>' +
@@ -299,7 +369,13 @@ return '<div class="site-card '+st.cls+'">' +
 '</div>';
 };
 
-return '<div class="sum">' +
+var hol = holidayName(state.today);
+var undecided = hol ? sites.filter(function(s){ return typeof s.holiday !== "boolean"; }).length : 0;
+var holNote = hol ? '<div class="card no-print" style="border-left:6px solid var(--warning);padding:12px 16px">' +
+'🎌 今日は祝日（' + esc(hol) + '）です。「祝」にチェックのある現場だけを「今日の現場」にしています。' +
+(undecided ? '<br><span class="muted">祝日に入るかどうかをまだ決めていない現場が ' + undecided + ' か所あります。この現場は、今までどおり曜日で出しています。「現場の登録」で決めておけます。</span>' : '') +
+'</div>' : '';
+return holNote + '<div class="sum">' +
 '<div><div class="n">'+today.length+'</div><div class="l">今日の現場</div></div>' +
 '<div><div class="n" style="color:var(--success)">'+ok+'</div><div class="l">出勤あり</div></div>' +
 '<div><div class="n" style="color:var(--danger)">'+ng+'</div><div class="l">未出勤</div></div>' +
@@ -329,7 +405,11 @@ WD.map(function(w,i){
 var on = Array.isArray(e.weekdays) && e.weekdays.indexOf(i)>=0;
 return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":"")+'>'+w+'</label>';
 }).join("") +
+'<label class="hol"><input type="checkbox" id="fHol"'+(e.holiday===true?" checked":"")+'>祝</label>' +
 '</div>' +
+'<p class="muted" style="margin:6px 0 0;font-size:12px">「祝」にチェックすると、祝日（振替休日・国民の休日もふくみます）も入る日になります。' +
+'チェックしないと、祝日は曜日にかかわらず「今日は予定なし」になります。祝日は法律どおりに自動で判定します。</p>' +
+(e.id && typeof e.holiday !== "boolean" ? '<p class="muted" style="margin:4px 0 0;font-size:12px;color:var(--warning)">この現場は、祝日に入るかどうかがまだ決まっていません（今は祝日も曜日どおり）。保存すると「祝」のチェックのとおりに決まります。</p>' : '') +
 '<div class="row" style="margin-top:12px">' +
 '<div><label>開始</label><input id="fStart" type="time" value="'+esc(e.startTime||"")+'"></div>' +
 '<div><label>終了</label><input id="fEnd" type="time" value="'+esc(e.endTime||"")+'"></div>' +
@@ -345,6 +425,9 @@ return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":
 var rows = state.sites.slice().sort(function(a,b){ return (a.name||"").localeCompare(b.name||"","ja"); })
 .map(function(s){
 var wds = Array.isArray(s.weekdays) ? s.weekdays.map(function(i){return WD[i];}).join("・") : "－";
+if (s.holiday === true) wds += (wds && wds !== "－" ? "・" : "") + '<b style="color:var(--danger)">祝</b>';
+else if (s.holiday === false) wds += '<br><span class="muted" style="font-size:11px">祝日は休み</span>';
+else wds += '<br><span class="muted" style="font-size:11px">祝日：未設定（曜日どおり）</span>';
 return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span></td>' +
 '<td>'+wds+'</td><td>'+esc(s.startTime||"")+(s.endTime?"〜"+esc(s.endTime):"")+'</td>' +
 '<td>'+(s.headcount||"")+'</td>' +
@@ -356,13 +439,14 @@ return (e ? form : '<div class="card"><button class="btn" onclick="newSite()">�
 '<div class="card"><table><thead><tr><th>現場</th><th>曜日</th><th>時間</th><th>人数</th><th></th></tr></thead>' +
 '<tbody>' + (rows || '<tr><td colspan="5" class="muted">まだありません</td></tr>') + '</tbody></table></div>';
 }
-function newSite(){ state.editing = { name:"", area:"", weekdays:[1,2,3,4,5], startTime:"", endTime:"", headcount:"", memo:"" }; render(); }
+function newSite(){ state.editing = { name:"", area:"", weekdays:[1,2,3,4,5], holiday:false, startTime:"", endTime:"", headcount:"", memo:"" }; render(); }
 function editSite(id){ var s = state.sites.filter(function(x){return x.id===id;})[0]; if(s) state.editing = JSON.parse(JSON.stringify(s)); render(); }
 function saveSite(){
 var wds = [];
 Array.prototype.forEach.call(document.querySelectorAll(".fWd"), function(c){ if(c.checked) wds.push(parseInt(c.value,10)); });
 var data = {
 name: el("fName").value.trim(), area: el("fArea").value.trim(), weekdays: wds,
+holiday: !!(el("fHol") && el("fHol").checked),
 startTime: el("fStart").value, endTime: el("fEnd").value,
 headcount: parseInt(el("fNum").value,10) || 0, memo: el("fMemo").value.trim(), active:true
 };

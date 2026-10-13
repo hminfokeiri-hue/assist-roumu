@@ -86,6 +86,14 @@ th{color:var(--muted);font-weight:700;font-size:12px;}
 .wd label{display:flex;align-items:center;gap:4px;margin:0;font-size:14px;color:var(--text);
 background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;}
 .wd input{width:auto;}
+.dt{display:flex;flex-direction:column;gap:6px;max-width:460px;}
+.dt-row{display:flex;align-items:center;gap:8px;}
+.dt-row input[type=time]{flex:1;min-width:0;padding:8px;font-size:15px;}
+.dt-row.off input[type=time]{opacity:.35;}
+.dt-sep{color:var(--muted);}
+.dt-day{display:flex;align-items:center;gap:6px;margin:0;width:64px;flex-shrink:0;font-size:16px;font-weight:700;color:var(--text);cursor:pointer;}
+.dt-day input{width:18px;height:18px;margin:0;}
+.dt-row.hol .dt-day{color:var(--danger);}
 .wd label.hol{border-color:var(--danger);color:var(--danger);font-weight:700;margin-left:6px;}
 .qr-sheet{background:#fff;border:2px solid #333;border-radius:6px;padding:24px;text-align:center;
 max-width:420px;margin:0 auto 20px;}
@@ -192,6 +200,45 @@ var wd = new Date(String(ymd).replace(/-/g,"/")).getDay();
 return Array.isArray(site.weekdays) ? site.weekdays.indexOf(wd) >= 0 : false;
 }
 
+/* ---- 曜日ごとの時間 ----
+sites の dayTimes に { "1":{s:"07:30",e:"11:00"}, … "0":日曜, "h":祝日 } の形で入れます。
+前から登録してある現場（dayTimes が無い）は、今までの startTime／endTime をどの曜日にも使います。
+startTime／endTime は「代表の時間」として残します（打刻画面やまとめて登録のため）。 */
+var DAY_ORDER = ["1","2","3","4","5","6","0","h"];
+function dayLabel(k){ return k === "h" ? "祝" : WD[+k]; }
+function dayTimeOf(site, k){
+var t = site.dayTimes && site.dayTimes[k];
+if (t && t.s) return { s:t.s, e:t.e || "" };
+if (k === "h"){ /* 祝日の時間が空なら、その日の曜日の時間を使う */
+var wd = String(new Date(String(state.today || todayStr()).replace(/-/g,"/")).getDay());
+var w = site.dayTimes && site.dayTimes[wd];
+if (w && w.s) return { s:w.s, e:w.e || "" };
+}
+return { s:site.startTime || "", e:site.endTime || "" };
+}
+/* その日に使う時間 */
+function timeOn(site, ymd){
+if (holidayName(ymd)) return dayTimeOf(site, "h");
+return dayTimeOf(site, String(new Date(String(ymd).replace(/-/g,"/")).getDay()));
+}
+/* 一覧用：「月・水・木・金 07:30〜11:00／火 09:00〜12:00」のように、同じ時間の曜日をまとめる */
+function timeSummary(site){
+var on = DAY_ORDER.filter(function(k){
+return k === "h" ? site.holiday === true : (Array.isArray(site.weekdays) && site.weekdays.indexOf(+k) >= 0);
+});
+if (!on.length) return site.startTime ? esc(site.startTime) + (site.endTime ? "〜" + esc(site.endTime) : "") : "";
+var groups = [];
+on.forEach(function(k){
+var t = dayTimeOf(site, k), txt = t.s ? t.s + (t.e ? "〜" + t.e : "") : "時間なし";
+var g = groups.filter(function(x){ return x.txt === txt; })[0];
+if (g) g.days.push(k); else groups.push({ txt:txt, days:[k] });
+});
+if (groups.length === 1) return esc(groups[0].txt);
+return groups.map(function(g){
+return '<span style="white-space:nowrap">' + g.days.map(dayLabel).join("・") + " " + esc(g.txt) + '</span>';
+}).join("<br>");
+}
+
 var state = {
 user:null, tab:"board", sites:[], attend:[], memo:"", today:"",
 editing:null, soundOn:false, privacy:false, redSet:{}, qrSite:null, unsub:[]
@@ -267,7 +314,8 @@ function siteStatus(site){
 var list = state.attend.filter(function(a){ return a.siteId === site.id; });
 var planned = isPlannedOn(site, state.today || todayStr());
 var need = parseInt(site.headcount,10) || 0;
-var start = toMin(site.startTime);
+var tt = timeOn(site, state.today || todayStr());
+var start = toMin(tt.s);
 var cls, label;
 if (list.length > 0){
 if (need && list.length < need){ cls="few"; label="出勤 "+list.length+"／"+need+"名"; }
@@ -279,7 +327,7 @@ cls="ng"; label="未出勤";
 } else {
 cls="wait"; label="まだ時間前";
 }
-return { cls:cls, label:label, list:list, planned:planned };
+return { cls:cls, label:label, list:list, planned:planned, time:tt };
 }
 
 /* ---------- 音 ---------- */
@@ -311,6 +359,7 @@ function pageUrl(f){ return BASE_URL + f + "?v=" + Date.now(); }
 /* ---------- 画面 ---------- */
 function render(){
 if (!state.user) return;
+if (state.tab === "sites" && state.editing) captureForm();
 var head =
 '<header class="topbar no-print"><h1>信号板<small>｜アシスト労務</small></h1><div class="hright">' +
 '<span>' + esc(state.today) + '（' + WD[new Date().getDay()] + '）' +
@@ -360,7 +409,7 @@ return '<div class="sc-person"><span>'+name+'</span><span class="t">'+time+'</sp
 }).join("");
 return '<div class="site-card '+st.cls+'">' +
 '<div class="sc-name">'+esc(s.name)+'</div>' +
-'<div class="sc-time">'+ (s.startTime ? esc(s.startTime)+"〜"+esc(s.endTime||"") : "時間の予定なし") +
+'<div class="sc-time">'+ (st.time.s ? esc(st.time.s)+"〜"+esc(st.time.e||"") : "時間の予定なし") +
 (s.headcount ? ' '+esc(s.headcount)+'名' : '') + '</div>' +
 '<div class="sc-state st-'+st.cls+'">'+st.label+'</div>' +
 (people ? '<div class="sc-people">'+people+'</div>' : '') +
@@ -396,20 +445,26 @@ var form = e ? '<div class="card">' +
 '<div style="font-size:15px;font-weight:700;margin-bottom:12px">' + (e.id ? "現場をなおす" : "新しい現場") + '</div>' +
 '<div class="row"><div><label>現場名</label><input id="fName" value="'+esc(e.name||"")+'"></div>' +
 '<div><label>エリア</label><input id="fArea" value="'+esc(e.area||"")+'"></div></div>' +
-'<label style="margin-top:12px">入る曜日</label><div class="wd">' +
-WD.map(function(w,i){
-var on = Array.isArray(e.weekdays) && e.weekdays.indexOf(i)>=0;
-return '<label><input type="checkbox" class="fWd" value="'+i+'"'+(on?" checked":"")+'>'+w+'</label>';
+'<label style="margin-top:14px">入る曜日と時間（曜日ごと）</label>' +
+'<div class="dt">' +
+DAY_ORDER.map(function(k){
+var on = k === "h" ? e.holiday === true : (Array.isArray(e.weekdays) && e.weekdays.indexOf(+k) >= 0);
+var t = (e.dayTimes && e.dayTimes[k]) || { s:"", e:"" };
+return '<div class="dt-row' + (on ? "" : " off") + (k === "h" ? " hol" : "") + '" id="dtRow'+k+'">' +
+'<label class="dt-day"><input type="checkbox" class="fDay" data-k="'+k+'"'+(on?" checked":"")+' onchange="onDayCheck(this)">'+dayLabel(k)+'</label>' +
+'<input type="time" class="fDs" data-k="'+k+'" value="'+esc(t.s||"")+'">' +
+'<span class="dt-sep">〜</span>' +
+'<input type="time" class="fDe" data-k="'+k+'" value="'+esc(t.e||"")+'">' +
+'</div>';
 }).join("") +
-'<label class="hol"><input type="checkbox" id="fHol"'+(e.holiday===true?" checked":"")+'>祝</label>' +
 '</div>' +
-'<p class="muted" style="margin:6px 0 0;font-size:12px">「祝」にチェックすると、祝日（振替休日・国民の休日もふくみます）も入る日になります。' +
-'チェックしないと、祝日は曜日にかかわらず「今日は予定なし」になります。祝日は法律どおりに自動で判定します。</p>' +
+'<div style="margin-top:8px"><button type="button" class="btn sec sm" onclick="copyFirstTime()">いちばん上の時間を、チェックした曜日ぜんぶに入れる</button></div>' +
+'<p class="muted" style="margin:6px 0 0;font-size:12px">入る曜日にチェックして、その日の時間を入れてください。休みの曜日はチェックを外します。' +
+'「祝」にチェックすると、祝日（振替休日・国民の休日もふくみます）も入る日になります。チェックしないと、祝日は「今日は予定なし」になります。' +
+'祝日の時間が空のときは、その日の曜日の時間を使います。祝日は法律どおりに自動で判定します。</p>' +
 
 '<div class="row" style="margin-top:12px">' +
-'<div><label>開始</label><input id="fStart" type="time" value="'+esc(e.startTime||"")+'"></div>' +
-'<div><label>終了</label><input id="fEnd" type="time" value="'+esc(e.endTime||"")+'"></div>' +
-'<div><label>人数</label><input id="fNum" type="number" min="0" value="'+esc(e.headcount||"")+'"></div>' +
+'<div style="max-width:160px"><label>人数</label><input id="fNum" type="number" min="0" value="'+esc(e.headcount||"")+'"></div>' +
 '</div>' +
 '<label style="margin-top:12px">メモ</label><input id="fMemo" value="'+esc(e.memo||"")+'">' +
 '<div style="display:flex;gap:10px;margin-top:16px">' +
@@ -424,7 +479,7 @@ var wds = Array.isArray(s.weekdays) ? s.weekdays.map(function(i){return WD[i];})
 if (s.holiday === true) wds += (wds && wds !== "－" ? "・" : "") + '<b style="color:var(--danger)">祝</b>';
 else wds += '<br><span class="muted" style="font-size:11px">祝日は休み</span>';
 return '<tr><td>'+esc(s.name)+'<br><span class="muted">'+esc(s.area||"")+'</span></td>' +
-'<td>'+wds+'</td><td>'+esc(s.startTime||"")+(s.endTime?"〜"+esc(s.endTime):"")+'</td>' +
+'<td>'+wds+'</td><td>'+timeSummary(s)+'</td>' +
 '<td>'+(s.headcount||"")+'</td>' +
 '<td style="text-align:right"><button class="btn sec sm" onclick=\'editSite("'+s.id+'")\'>なおす</button></td></tr>';
 }).join("");
@@ -434,18 +489,83 @@ return (e ? form : '<div class="card"><button class="btn" onclick="newSite()">�
 '<div class="card"><table><thead><tr><th>現場</th><th>曜日</th><th>時間</th><th>人数</th><th></th></tr></thead>' +
 '<tbody>' + (rows || '<tr><td colspan="5" class="muted">まだありません</td></tr>') + '</tbody></table></div>';
 }
-function newSite(){ state.editing = { name:"", area:"", weekdays:[1,2,3,4,5], holiday:false, startTime:"", endTime:"", headcount:"", memo:"" }; render(); }
-function editSite(id){ var s = state.sites.filter(function(x){return x.id===id;})[0]; if(s) state.editing = JSON.parse(JSON.stringify(s)); render(); }
+function newSite(){ state.editing = { name:"", area:"", weekdays:[1,2,3,4,5], holiday:false, startTime:"", endTime:"", dayTimes:{}, headcount:"", memo:"" }; render(); }
+function editSite(id){
+var s = state.sites.filter(function(x){return x.id===id;})[0];
+if (!s) return;
+var e = JSON.parse(JSON.stringify(s));
+/* 前から登録してある現場は、今までの時間を入る曜日に入れておく */
+var dt = e.dayTimes || {};
+DAY_ORDER.forEach(function(k){
+var on = k === "h" ? e.holiday === true : (Array.isArray(e.weekdays) && e.weekdays.indexOf(+k) >= 0);
+if (!(dt[k] && dt[k].s) && on && e.startTime) dt[k] = { s:e.startTime, e:e.endTime || "" };
+});
+e.dayTimes = dt;
+state.editing = e; render();
+}
+/* 画面の入力を state.editing に写す（1分ごとの画面の書きなおしで、入力が消えないように） */
+function captureForm(){
+var e = state.editing; if (!e || !el("fName")) return;
+e.name = el("fName").value; e.area = el("fArea").value;
+e.headcount = el("fNum").value; e.memo = el("fMemo").value;
+var wds = [], hol = false, dt = {};
+DAY_ORDER.forEach(function(k){
+var c = document.querySelector('.fDay[data-k="'+k+'"]');
+var on = !!(c && c.checked);
+if (k === "h") hol = on; else if (on) wds.push(+k);
+dt[k] = { s:(document.querySelector('.fDs[data-k="'+k+'"]')||{}).value || "",
+e:(document.querySelector('.fDe[data-k="'+k+'"]')||{}).value || "" };
+});
+e.weekdays = wds.sort(function(a,b){return a-b;}); e.holiday = hol; e.dayTimes = dt;
+}
+/* チェックを入れた曜日の時間が空なら、上の曜日の時間を入れておく */
+function onDayCheck(c){
+var k = c.dataset.k, row = el("dtRow"+k);
+if (row) row.classList.toggle("off", !c.checked);
+if (!c.checked) return;
+var s = document.querySelector('.fDs[data-k="'+k+'"]'), e = document.querySelector('.fDe[data-k="'+k+'"]');
+if (s.value) return;
+var src = null;
+DAY_ORDER.some(function(j){
+if (j === k) return false;
+var cj = document.querySelector('.fDay[data-k="'+j+'"]'), sj = document.querySelector('.fDs[data-k="'+j+'"]');
+if (cj && cj.checked && sj && sj.value){ src = j; return true; }
+return false;
+});
+if (src){ s.value = document.querySelector('.fDs[data-k="'+src+'"]').value; e.value = document.querySelector('.fDe[data-k="'+src+'"]').value; }
+}
+function copyFirstTime(){
+var first = null;
+DAY_ORDER.some(function(k){
+var c = document.querySelector('.fDay[data-k="'+k+'"]'), sv = document.querySelector('.fDs[data-k="'+k+'"]');
+if (c && c.checked && sv && sv.value){ first = k; return true; } return false;
+});
+if (!first) return alert("先に、いちばん上のチェックした曜日に時間を入れてください");
+var fs = document.querySelector('.fDs[data-k="'+first+'"]').value, fe = document.querySelector('.fDe[data-k="'+first+'"]').value;
+DAY_ORDER.forEach(function(k){
+var c = document.querySelector('.fDay[data-k="'+k+'"]');
+if (c && c.checked){ document.querySelector('.fDs[data-k="'+k+'"]').value = fs; document.querySelector('.fDe[data-k="'+k+'"]').value = fe; }
+});
+}
 function saveSite(){
-var wds = [];
-Array.prototype.forEach.call(document.querySelectorAll(".fWd"), function(c){ if(c.checked) wds.push(parseInt(c.value,10)); });
+captureForm();
+var e = state.editing;
+var dayTimes = {}, first = null, missing = [];
+DAY_ORDER.forEach(function(k){
+var on = k === "h" ? e.holiday : e.weekdays.indexOf(+k) >= 0;
+var t = e.dayTimes[k] || { s:"", e:"" };
+dayTimes[k] = on ? { s:t.s || "", e:t.e || "" } : { s:"", e:"" };
+if (on && !t.s && k !== "h") missing.push(dayLabel(k));
+if (on && t.s && !first) first = dayTimes[k];
+});
 var data = {
-name: el("fName").value.trim(), area: el("fArea").value.trim(), weekdays: wds,
-holiday: !!(el("fHol") && el("fHol").checked),
-startTime: el("fStart").value, endTime: el("fEnd").value,
-headcount: parseInt(el("fNum").value,10) || 0, memo: el("fMemo").value.trim(), active:true
+name: String(e.name||"").trim(), area: String(e.area||"").trim(), weekdays: e.weekdays,
+holiday: !!e.holiday, dayTimes: dayTimes,
+startTime: first ? first.s : "", endTime: first ? first.e : "",
+headcount: parseInt(e.headcount,10) || 0, memo: String(e.memo||"").trim(), active:true
 };
 if (!data.name) return alert("現場名を入れてください");
+if (missing.length && !confirm(missing.join("・") + " は、開始の時間が入っていません。\n（時間がないと「未出勤」の赤が出ません）\nこのまま保存しますか？")) return;
 var p = state.editing.id
 ? db.collection("sites").doc(state.editing.id).set(data,{merge:true})
 : db.collection("sites").add(data);

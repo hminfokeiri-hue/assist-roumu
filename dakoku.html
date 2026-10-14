@@ -14,7 +14,7 @@
 --text:#3A3530; --muted:#6B5F52; --danger:#C65D4B; --success:#4A7C6F;
 }
 *{box-sizing:border-box;}
-body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Arial,sans-serif;
+body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP","Noto Sans CJK JP",Arial,sans-serif;
 background:var(--bg);color:#111;font-weight:500;}
 #app{max-width:480px;margin:0 auto;min-height:100vh;}
 header.topbar{background:var(--blue);color:#fff;padding:16px 20px;}
@@ -33,6 +33,12 @@ color:#fff;background:var(--blue);font-family:inherit;cursor:pointer;line-height
 .big-btn:active{background:var(--blue-dark);}
 .big-btn.out{background:var(--success);}
 .big-btn[disabled]{opacity:.5;}
+/* 出勤・退勤ボタンの下の案内（押してもボタンと同じ動き） */
+.hint-btn{width:100%;margin-top:10px;background:#FFF6E8;color:var(--blue-dark);border:2px dashed var(--blue);
+border-radius:14px;padding:10px 12px 14px;font-family:inherit;font-size:17px;font-weight:700;line-height:1.5;cursor:pointer;}
+.hint-btn .arrow{display:block;font-size:34px;line-height:1;margin-bottom:4px;animation:hintUp 1s ease-in-out infinite;}
+.hint-btn.out{background:#EAF4F0;color:#2f5c50;border-color:var(--success);}
+@keyframes hintUp{0%,100%{transform:translateY(4px);}50%{transform:translateY(-4px);}}
 .sub-btn{width:100%;margin-top:12px;background:#fff;color:var(--blue);border:1.5px solid var(--blue);
 border-radius:12px;padding:14px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;}
 .done{text-align:center;padding:20px 0;}
@@ -186,6 +192,8 @@ var head =
 if (!r){
 render(head +
 '<button class="big-btn" onclick="punch(\'in\')">出勤</button>' +
+'<button class="hint-btn" onclick="punch(\'in\')"><span class="arrow">⬆</span>' +
+'この「出勤」ボタンを<br>押すと、出勤になります。<br>かならず押してくださいね</button>' +
 '<button class="sub-btn" onclick="switchUser()">ちがう人が使う</button>' +
 '</div>');
 return;
@@ -194,6 +202,8 @@ if (r && r.inAt && !r.outAt){
 render(head +
 '<div class="status">' + hhmm(r.inAt) + ' に出勤しました</div>' +
 '<button class="big-btn out" onclick="punch(\'out\')">退勤</button>' +
+'<button class="hint-btn out" onclick="punch(\'out\')"><span class="arrow">⬆</span>' +
+'帰るときは、この「退勤」ボタンを<br>押してくださいね</button>' +
 '<button class="sub-btn" onclick="switchUser()">ちがう人が使う</button>' +
 '</div>');
 return;

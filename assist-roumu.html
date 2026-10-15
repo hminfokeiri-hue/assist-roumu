@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-10";
+const APP_VERSION = "更新: 2026-10-15";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4166,6 +4166,162 @@ function remainingLeaveFor(emp) {
 }
 
 /* =========================================================
+   雇用契約書の更新（1年ごとの自動更新の管理）
+   ・「雇用終了日」の2か月前になったら、従業員一覧に「雇用契約書更新期間中」と出す
+   ・個人のページで「送り済み」にチェック → 返ってきたら「更新OK」を押す
+   ・更新OKを押すと、雇用終了日が1年先に進み、表示は消える（また来年の2か月前に出る）
+   保存先は従業員の名簿（employees）の contractSent / contractSentAt / contractRenewals（社内用）。
+   ========================================================= */
+const CONTRACT_RENEW_MONTHS_BEFORE = 2;   // 満了日の何か月前から「更新期間中」にするか
+const CONTRACT_RENEW_GRACE_DAYS = 60;     // 満了日をすぎても「満了日すぎ」と出し続ける日数（これより古い日付は、直し忘れとみなして一覧には出さない）
+
+function lastDayOfMonth(y, m0) { return new Date(y, m0 + 1, 0).getDate(); }
+function daysBetweenYmd(a, b) {
+  const x = new Date(a + "T00:00:00"), y = new Date(b + "T00:00:00");
+  if (isNaN(x) || isNaN(y)) return 0;
+  return Math.round((y - x) / 86400000);
+}
+// 月を足し引きする。31日→2月のように存在しない日は、その月の末日に合わせる
+function shiftMonthsClamped(dateStr, n) {
+  const b = parseFlexibleDate(dateStr);
+  if (!b || isNaN(b)) return "";
+  const t = new Date(b.getFullYear(), b.getMonth() + n, 1);
+  const last = lastDayOfMonth(t.getFullYear(), t.getMonth());
+  return formatYmd(new Date(t.getFullYear(), t.getMonth(), Math.min(b.getDate(), last)));
+}
+// 雇用終了日の1年後。月末が終了日なら、1年後も月末（2/28 → 翌年2/29 など）
+function nextContractEnd(endStr, years) {
+  const b = parseFlexibleDate(endStr);
+  if (!b || isNaN(b)) return "";
+  const y = b.getFullYear() + (years || 1), mo = b.getMonth();
+  const last = lastDayOfMonth(y, mo);
+  const isEom = b.getDate() === lastDayOfMonth(b.getFullYear(), b.getMonth());
+  return formatYmd(new Date(y, mo, isEom ? last : Math.min(b.getDate(), last)));
+}
+
+// 雇用契約書の更新の状態。表示しない（退職者・雇用終了日が空など）ときは null
+//   phase: before＝まだ先／renewing＝更新期間中／overdue＝満了日をすぎた／stale＝満了日がだいぶ前（直し忘れ）
+function contractRenewInfo(e, todayStr) {
+  if (!e || e.status === "resigned") return null;
+  const endD = parseFlexibleDate(e.contractEnd);
+  if (!endD || isNaN(endD)) return null;
+  const end = formatYmd(endD);
+  const t = todayStr || formatYmd(new Date());
+  const start = shiftMonthsClamped(end, -CONTRACT_RENEW_MONTHS_BEFORE);
+  const base = { end, start, sent: !!e.contractSent, sentAt: e.contractSentAt || "" };
+  if (t < start) return { ...base, phase: "before" };
+  if (t <= end) return { ...base, phase: "renewing", daysLeft: daysBetweenYmd(t, end) };
+  const over = daysBetweenYmd(end, t);
+  return { ...base, phase: over <= CONTRACT_RENEW_GRACE_DAYS ? "overdue" : "stale", overDays: over };
+}
+function isContractRenewing(e) {
+  const c = contractRenewInfo(e);
+  return !!c && (c.phase === "renewing" || c.phase === "overdue");
+}
+
+// 一覧・個人ページの名前のとなりに出す表示（通知ONの表示と同じ形）
+function contractRenewPills(e, extraStyle) {
+  if (!isContractRenewing(e)) return "";
+  const c = contractRenewInfo(e);
+  const over = c.phase === "overdue";
+  const st = (bg, fg) => `style="font-size:11px; padding:2px 8px; background:${bg}; color:${fg}; font-weight:700; ${extraStyle || ""}"`;
+  const main = `<span class="status-pill" ${over ? st("#fdecea", "var(--danger)") : st("#e3f2fd", "#1565C0")}>📄雇用契約書更新期間中${over ? "（満了日すぎ）" : ""}</span>`;
+  const sent = c.sent ? `<span class="status-pill" ${st("#e8f3ef", "var(--success)")}>送り済み</span>` : "";
+  return main + sent;
+}
+
+// 個人ページの「雇用契約書の更新」欄
+function renderContractRenewBox(emp) {
+  if (!emp || emp.status === "resigned") return "";
+  const c = contractRenewInfo(emp);
+  const wrap = (inner, border, bg) => `<div id="contractRenewBox" style="margin:0 0 14px; padding:12px 14px; border-radius:10px; border:1.5px solid ${border}; background:${bg};">${inner}</div>`;
+  const title = `<label style="margin:0 0 4px; font-weight:700;">📄 雇用契約書の更新</label>`;
+  if (!c) {
+    return wrap(`${title}<p class="muted" style="font-size:12px; margin:0;">下の「雇用終了日」が入っていないため、更新の時期はわかりません。1年ごとに更新する方は、「雇用終了日」を入れて保存してください。</p>`, "var(--border)", "#fafafa");
+  }
+  const last = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice(-1)[0];
+  const lastLine = last ? `<p class="muted" style="font-size:12px; margin:8px 0 0;">前回の更新OK：${escapeHtml(last.okAt || "")}（${escapeHtml(last.from || "")} → ${escapeHtml(last.to || "")}）</p>` : "";
+  if (c.phase === "before") {
+    return wrap(`${title}<p class="muted" style="font-size:12.5px; margin:0;">いまの期間は <b style="color:var(--text);">${c.end}</b> まで。更新期間は <b style="color:var(--text);">${c.start}</b> から始まり、そのときに一覧へ「雇用契約書更新期間中」と出ます。</p>${lastLine}`, "var(--border)", "#fafafa");
+  }
+  if (c.phase === "stale") {
+    return wrap(`${title}<p style="font-size:12.5px; margin:0; color:var(--danger);">雇用終了日が <b>${c.end}</b> のまま、${c.overDays}日すぎています。すでに更新ずみなら、下の「雇用終了日」を新しい日付に直して、いちばん下の「保存」を押してください。</p>${lastLine}`, "#f3c9c4", "#fdf3f2");
+  }
+  const over = c.phase === "overdue";
+  const state1 = over
+    ? `<span style="color:var(--danger); font-weight:700;">${c.end} に満了しています（${c.overDays}日すぎ）</span>`
+    : `<span style="color:#1565C0; font-weight:700;">${c.end} 満了（あと${c.daysLeft}日）</span>`;
+  const sentNote = c.sent && c.sentAt ? `<p class="muted" style="font-size:12px; margin:-6px 0 10px 30px;">${escapeHtml(c.sentAt)} に送付しました</p>` : "";
+  return wrap(`
+    ${title}
+    <p style="font-size:14px; margin:0 0 8px;">雇用契約書更新期間中　${state1}</p>
+    <label style="margin:0 0 10px; display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; cursor:pointer;">
+      <input type="checkbox" id="contractSentCb" ${c.sent ? "checked" : ""} style="width:22px; height:22px; margin:0;" onchange="toggleContractSent('${emp.id}', this.checked)" />
+      雇用契約書を送った（送り済み）
+    </label>
+    ${sentNote}
+    <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; align-items:end;">
+      <div>
+        <label style="font-size:12px; margin:0 0 4px;">更新後の雇用終了日（ふつうは1年後）</label>
+        <input id="contractNewEnd" type="date" value="${nextContractEnd(c.end, 1)}" style="font-size:14px; padding:9px;" />
+      </div>
+      <div>
+        <button type="button" class="primary" style="margin:0; padding:11px; font-size:14px;" onclick="confirmContractRenewal('${emp.id}')">✅ 雇用契約書 更新OK（返ってきた）</button>
+      </div>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">契約書が返ってきたら「更新OK」を押してください。雇用終了日が上の日付に進み、「更新期間中」の表示が消えます。</p>
+    ${lastLine}
+  `, over ? "#f3c9c4" : "#90caf9", over ? "#fdf3f2" : "#f1f8fe");
+}
+
+async function toggleContractSent(empId, checked) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return alert("従業員が見つかりませんでした");
+  const patch = checked
+    ? { contractSent: true, contractSentAt: formatYmd(new Date()) }
+    : { contractSent: false, contractSentAt: "" };
+  const before = { contractSent: !!emp.contractSent, contractSentAt: emp.contractSentAt || "" };
+  Object.assign(emp, patch);
+  if (!firebaseReady) return render();
+  try {
+    await db.collection("employees").doc(empId).update(patch);
+    render();
+  } catch (e) {
+    Object.assign(emp, before);
+    render();
+    alert("保存できませんでした: " + e.message);
+  }
+}
+
+async function confirmContractRenewal(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return alert("従業員が見つかりませんでした");
+  const c = contractRenewInfo(emp);
+  if (!c) return alert("雇用終了日が入っていないため、更新OKにできません");
+  const inp = document.getElementById("contractNewEnd");
+  const newEnd = inp ? (inp.value || "").trim() : "";
+  if (!newEnd) return alert("更新後の雇用終了日を入れてください");
+  if (newEnd <= c.end) return alert("更新後の雇用終了日が、いまの雇用終了日（" + c.end + "）より前か、同じ日になっています");
+  const warn = emp.contractSent ? "" : "\n\n※「送り済み」にチェックが入っていません。";
+  if (!confirm(`${emp.name || "この方"} さんの雇用契約書の更新をOKにします。\n\n雇用終了日：${c.end} → ${newEnd}${warn}\n\nよろしいですか？`)) return;
+  const log = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice();
+  log.push({ okAt: formatYmd(new Date()), sentAt: emp.contractSentAt || "", from: c.end, to: newEnd });
+  const patch = { contractEnd: newEnd, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
+  const before = { contractEnd: emp.contractEnd, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
+  Object.assign(emp, patch);
+  if (!firebaseReady) { render(); return alert("（お試し表示のため保存はされません）"); }
+  try {
+    await db.collection("employees").doc(empId).update(patch);
+    render();
+    alert(`更新OKにしました。\n雇用終了日を ${newEnd} にしました。`);
+  } catch (e) {
+    Object.assign(emp, before);
+    render();
+    alert("保存できませんでした: " + e.message);
+  }
+}
+
+/* =========================================================
    長期のお休み（病気療養・休職など）
    1か月以上の長いお休みを、日ごとではなく「1件の記録」で残す。
    保存先は従業員の名簿（employees）の longLeaves（社内用・従業員の画面には出しません）。
@@ -4826,7 +4982,9 @@ function renderEmpTableRows() {
   const notLoggedCount = activeEmps.filter(e => !logins[e.id]).length;
   const loginSummary = showResigned ? "" : `　／　<span style="color:var(--danger); font-weight:700;">まだログインしていない人 ${notLoggedCount}名</span>`;
   const pushSummary = (showResigned || !PUSH_VAPID_KEY) ? "" : `　／　🔔通知ON ${activeEmps.filter(e => (state.pushCounts || {})[e.id] > 0).length}名`;
-  const summary = `<p class="muted" style="font-size:12.5px; margin:0 0 8px;">${showResigned ? "退職者" : "在籍者"} 合計 <b style="font-size:16px; color:var(--text);">${total}名</b>${list.length !== total ? `　／　絞り込み後 ${list.length}名` : ""}${loginSummary}${pushSummary}</p>`;
+  const renewing = showResigned ? [] : activeEmps.filter(isContractRenewing);
+  const renewSummary = renewing.length ? `　／　<span style="color:#1565C0; font-weight:700;">📄契約更新中 ${renewing.length}名（まだ送っていない ${renewing.filter(e => !e.contractSent).length}名）</span>` : "";
+  const summary = `<p class="muted" style="font-size:12.5px; margin:0 0 8px;">${showResigned ? "退職者" : "在籍者"} 合計 <b style="font-size:16px; color:var(--text);">${total}名</b>${list.length !== total ? `　／　絞り込み後 ${list.length}名` : ""}${loginSummary}${pushSummary}${renewSummary}</p>`;
   if (!list.length) {
     return summary + `<p class="muted" style="padding:16px 4px;">${showResigned ? "退職者はいません" : "従業員データがまだありません"}</p>`;
   }
@@ -4845,6 +5003,7 @@ function renderEmpTableRows() {
           <span style="font-weight:700; font-size:16px;">${e.name || "(名前未登録)"}</span>
           ${age !== null ? `<span class="status-pill status-pending" style="font-size:11px; padding:2px 8px;">満${age}歳</span>` : ""}
           ${isInProbation(e) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中</span>` : ""}
+          ${showResigned ? "" : contractRenewPills(e)}
           ${(!showResigned && longLeaveNow(e)) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#ede7f6; color:#5E35B1; font-weight:700;">長期休み中</span>` : ""}
           ${(!showResigned && !lastLogin) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#fdecea; color:var(--danger); font-weight:700;">未ログイン</span>` : ""}
           ${(!showResigned && PUSH_VAPID_KEY && (state.pushCounts || {})[e.id] > 0) ? `<span class="status-pill" style="font-size:11px; padding:2px 8px; background:#e8f3ef; color:var(--success); font-weight:700;">🔔通知ON</span>` : ""}
@@ -4908,6 +5067,7 @@ function renderAdminEmployeeTab() {
           <div>
             ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
             ${isInProbation(editing) ? `<span class="status-pill" style="margin-right:8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中（〜${probationEndFor(editing)}）</span>` : ""}
+            ${contractRenewPills(editing, "margin-right:8px;")}
             ${longLeaveNow(editing) ? `<span class="status-pill" style="margin-right:8px; background:#ede7f6; color:#5E35B1; font-weight:700;">長期休み中（${escapeHtml(longLeaveNow(editing).kind || "")}）</span>` : ""}
             ${age !== null ? `<span class="status-pill status-pending" style="margin-right:8px;">満${age}歳</span>` : ""}
             <span class="status-pill status-approved">有給残 ${remainingLeaveFor(editing)}日</span>
@@ -4920,6 +5080,8 @@ function renderAdminEmployeeTab() {
             ? `<p class="muted" style="font-size:12.5px; margin:0 0 10px;">最終ログイン：<b style="color:var(--text);">${lastLogin}</b></p>`
             : `<p style="font-size:12.5px; margin:0 0 10px; color:var(--danger); font-weight:700;">最終ログイン：まだ一度もログインされていません</p>`;
         })()}
+
+        ${renderContractRenewBox(editing)}
 
         <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
           ${EMP_FIELDS_TOP.map(([key, label]) => {

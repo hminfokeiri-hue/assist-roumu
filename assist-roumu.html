@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-15";
+const APP_VERSION = "更新: 2026-10-21";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1623,7 +1623,7 @@ function changeQty(d) {
 
 function renderOrderHistory(onHome) {
   if (!state.orders || !state.orders.length) return "";
-  const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっちゅう済み", arrived: "とどきました", received: "受け取りずみ", cancelled: "取消済み" };
+  const statusLabel = { pending: "みかくにん", arranging: "手配中です", ordered: "はっそう済み", arrived: "とどきました", received: "受け取りずみ", cancelled: "取消済み" };
   const statusClass = { pending: "status-pending", arranging: "status-pending", ordered: "status-approved", arrived: "status-approved", received: "status-approved", cancelled: "status-pending" };
 
   const me = state.currentUser.id;
@@ -3044,7 +3044,7 @@ function renderAdminOrderTab() {
   const shownActive = orderFilter === "all" ? activeOrders : activeOrders.filter(o => o.status === orderFilter);
   const orderFilterDefs = [
     ["all", "すべて"], ["pending", "未確認"], ["arranging", "手配中"],
-    ["ordered", "発注済み"], ["arrived", "到着済み"]
+    ["ordered", "発送済み"], ["arrived", "到着済み"]
   ];
   const doneRecent = doneOrders.filter(o => isRecentDone(o));   // 直近3週間に受け取り完了したぶん
   const doneOld = doneOrders.filter(o => !isRecentDone(o));     // それより前に受け取り完了したぶん
@@ -3053,7 +3053,7 @@ function renderAdminOrderTab() {
   const showCancelled = !!state.showCancelledOrders;
   const isNarrow = window.innerWidth <= 700; // スマホでは表をやめてカード表示にする
   const statusOptions = [
-    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
+    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発送済み"],
     ["arrived", "到着済み"], ["received", "受け取り完了"], ["cancelled", "取り消し"]
   ];
   const showForm = !!state.showPhoneOrderForm;
@@ -3115,7 +3115,7 @@ function renderAdminOrderTab() {
                 <tbody>${shownActive.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
               </table>`)
         : `<p class="muted">${activeOrders.length ? "この状態の発注はありません" : (doneOrders.length ? "対応中の発注はありません" : "発注はまだありません")}</p>`}
-      <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発注済み」まで見えます。</p>
+      <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発送済み」まで見えます。</p>
       <p class="muted" style="font-size:11px; margin-top:4px;">聞き間違いなどは「なおす」から直せます。削除も同じ画面からできます。「受け取り完了」にすると、下の完了ぶんへ移ります。</p>
     </div>
 
@@ -3224,7 +3224,7 @@ function handleDoneOrderSearch(el, scope) {
   if (!body) return;
   const isNarrow = window.innerWidth <= 700;
   const statusOptions = [
-    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発注済み"],
+    ["pending", "未確認"], ["arranging", "手配中"], ["ordered", "発送済み"],
     ["arrived", "到着済み"], ["received", "受け取り完了"], ["cancelled", "取り消し"]
   ];
   body.innerHTML = renderDoneOrderList(isNarrow, statusOptions, which);
@@ -3235,7 +3235,7 @@ function handleDoneOrderSearch(el, scope) {
 function exportDoneOrdersToExcel(scope) {
   const list = filterDoneOrders(scope);
   if (!list.length) return alert("書き出すデータがありません");
-  const statusLabel = { pending: "未確認", arranging: "手配中", ordered: "発注済み", arrived: "到着済み", received: "受け取り完了", cancelled: "取り消し" };
+  const statusLabel = { pending: "未確認", arranging: "手配中", ordered: "発送済み", arrived: "到着済み", received: "受け取り完了", cancelled: "取り消し" };
   const rows = list.map(o => ({
     "申請者": o.employeeName || "",
     "エリア": o.area || "",

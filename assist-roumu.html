@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-21";
+const APP_VERSION = "更新: 2026-10-22";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -874,14 +874,14 @@ function renderOfficePushCard() {
 }
 
 // ===== 本社アプリ → 通知を送る係に「この人たちのスマホに通知して」と頼む（本社の管理者でログイン中だけ使えます） =====
-async function requestPush(type, employeeIds) {
+async function requestPush(type, employeeIds, preview) {   // preview＝通知に出すメッセージの内容（メッセージの通知のときだけ使われる）
   const ids = [...new Set((employeeIds || []).filter(Boolean))];
   if (!PUSH_VAPID_KEY || !firebaseReady || !ids.length) return null;
   const total = { requested: 0, people: 0, devices: 0, sent: 0, failed: 0, removed: 0 };
   try {
     const call = firebase.app().functions("asia-northeast1").httpsCallable("sendPush", { timeout: 120000 });
     for (let i = 0; i < ids.length; i += 300) {          // 1回で頼めるのは300人まで
-      const res = await call({ type, employeeIds: ids.slice(i, i + 300) });
+      const res = await call({ type, employeeIds: ids.slice(i, i + 300), ...(preview ? { preview: String(preview) } : {}) });
       Object.keys(total).forEach(k => { total[k] += (res.data && res.data[k]) || 0; });
     }
     return total;
@@ -8048,7 +8048,7 @@ async function sendAdminMessage(empId) {
     state.pendingPhoto = null;
     clearChatBox("chatTextInput");
     render();
-    requestPush("message", [empId]);   // 相手のスマホに通知（通知ONの人だけ。待たずに進める）
+    requestPush("message", [empId], text || (photoURL ? "📷 写真が届きました" : ""));   // 相手のスマホに通知（通知ONの人だけ。待たずに進める）。ロック画面には本文の先頭が出る
   } catch (e) {
     alert("送信エラー: " + e.message);
   }
@@ -8136,7 +8136,7 @@ async function sendBroadcast() {
     await batch.commit();
     document.getElementById("broadcastText").value = "";
     render();
-    requestPush("message", targets.map(e => e.id));   // 宛先のスマホに通知（通知ONの人だけ。待たずに進める）
+    requestPush("message", targets.map(e => e.id), text);   // 宛先のスマホに通知（通知ONの人だけ。待たずに進める）。ロック画面には本文の先頭が出る
   } catch (e) {
     alert("送信エラー: " + e.message);
   }

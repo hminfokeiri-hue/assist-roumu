@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-22";
+const APP_VERSION = "更新: 2026-10-23(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3871,7 +3871,7 @@ const WEEKDAY_FIELDS = [
   ["shiftFri", "金"], ["shiftSat", "土"], ["shiftSun", "日"]
 ];
 const EMP_FIELDS_SIMPLE = [
-  ["contractEnd", "雇用終了日（期間の定めがある場合）"], ["weeklyDays", "週の勤務日数"],
+  ["contractStart", "雇用契約書開始日"], ["contractEnd", "雇用契約書終了日（期間の定めがある場合）"], ["weeklyDays", "週の勤務日数"],
   ["workHours", "就業時間"], ["holiday", "休日"], ["jobType", "業務の種類"], ["baseWage", "基本給"],
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
@@ -4167,9 +4167,9 @@ function remainingLeaveFor(emp) {
 
 /* =========================================================
    雇用契約書の更新（1年ごとの自動更新の管理）
-   ・「雇用終了日」の2か月前になったら、従業員一覧に「雇用契約書更新期間中」と出す
+   ・「雇用契約書終了日」の2か月前になったら、従業員一覧に「雇用契約書更新期間中」と出す
    ・個人のページで「送り済み」にチェック → 返ってきたら「更新OK」を押す
-   ・更新OKを押すと、雇用終了日が1年先に進み、表示は消える（また来年の2か月前に出る）
+   ・更新OKを押すと、雇用契約書終了日が1年先に進み、表示は消える（また来年の2か月前に出る）
    保存先は従業員の名簿（employees）の contractSent / contractSentAt / contractRenewals（社内用）。
    ========================================================= */
 const CONTRACT_RENEW_MONTHS_BEFORE = 2;   // 満了日の何か月前から「更新期間中」にするか
@@ -4189,7 +4189,7 @@ function shiftMonthsClamped(dateStr, n) {
   const last = lastDayOfMonth(t.getFullYear(), t.getMonth());
   return formatYmd(new Date(t.getFullYear(), t.getMonth(), Math.min(b.getDate(), last)));
 }
-// 雇用終了日の1年後。月末が終了日なら、1年後も月末（2/28 → 翌年2/29 など）
+// 雇用契約書終了日の1年後。月末が終了日なら、1年後も月末（2/28 → 翌年2/29 など）
 function nextContractEnd(endStr, years) {
   const b = parseFlexibleDate(endStr);
   if (!b || isNaN(b)) return "";
@@ -4199,7 +4199,7 @@ function nextContractEnd(endStr, years) {
   return formatYmd(new Date(y, mo, isEom ? last : Math.min(b.getDate(), last)));
 }
 
-// 雇用契約書の更新の状態。表示しない（退職者・雇用終了日が空など）ときは null
+// 雇用契約書の更新の状態。表示しない（退職者・雇用契約書終了日が空など）ときは null
 //   phase: before＝まだ先／renewing＝更新期間中／overdue＝満了日をすぎた／stale＝満了日がだいぶ前（直し忘れ）
 function contractRenewInfo(e, todayStr) {
   if (!e || e.status === "resigned") return null;
@@ -4237,7 +4237,7 @@ function renderContractRenewBox(emp) {
   const wrap = (inner, border, bg) => `<div id="contractRenewBox" style="margin:0 0 14px; padding:12px 14px; border-radius:10px; border:1.5px solid ${border}; background:${bg};">${inner}</div>`;
   const title = `<label style="margin:0 0 4px; font-weight:700;">📄 雇用契約書の更新</label>`;
   if (!c) {
-    return wrap(`${title}<p class="muted" style="font-size:12px; margin:0;">下の「雇用終了日」が入っていないため、更新の時期はわかりません。1年ごとに更新する方は、「雇用終了日」を入れて保存してください。</p>`, "var(--border)", "#fafafa");
+    return wrap(`${title}<p class="muted" style="font-size:12px; margin:0;">下の「雇用契約書終了日」が入っていないため、更新の時期はわかりません。1年ごとに更新する方は、「雇用契約書終了日」を入れて保存してください。</p>`, "var(--border)", "#fafafa");
   }
   const last = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice(-1)[0];
   const lastLine = last ? `<p class="muted" style="font-size:12px; margin:8px 0 0;">前回の更新OK：${escapeHtml(last.okAt || "")}（${escapeHtml(last.from || "")} → ${escapeHtml(last.to || "")}）</p>` : "";
@@ -4245,7 +4245,7 @@ function renderContractRenewBox(emp) {
     return wrap(`${title}<p class="muted" style="font-size:12.5px; margin:0;">いまの期間は <b style="color:var(--text);">${c.end}</b> まで。更新期間は <b style="color:var(--text);">${c.start}</b> から始まり、そのときに一覧へ「雇用契約書更新期間中」と出ます。</p>${lastLine}`, "var(--border)", "#fafafa");
   }
   if (c.phase === "stale") {
-    return wrap(`${title}<p style="font-size:12.5px; margin:0; color:var(--danger);">雇用終了日が <b>${c.end}</b> のまま、${c.overDays}日すぎています。すでに更新ずみなら、下の「雇用終了日」を新しい日付に直して、いちばん下の「保存」を押してください。</p>${lastLine}`, "#f3c9c4", "#fdf3f2");
+    return wrap(`${title}<p style="font-size:12.5px; margin:0; color:var(--danger);">雇用契約書終了日が <b>${c.end}</b> のまま、${c.overDays}日すぎています。すでに更新ずみなら、下の「雇用契約書終了日」を新しい日付に直して、いちばん下の「保存」を押してください。</p>${lastLine}`, "#f3c9c4", "#fdf3f2");
   }
   const over = c.phase === "overdue";
   const state1 = over
@@ -4262,14 +4262,14 @@ function renderContractRenewBox(emp) {
     ${sentNote}
     <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; align-items:end;">
       <div>
-        <label style="font-size:12px; margin:0 0 4px;">更新後の雇用終了日（ふつうは1年後）</label>
+        <label style="font-size:12px; margin:0 0 4px;">更新後の雇用契約書終了日（ふつうは1年後）</label>
         <input id="contractNewEnd" type="date" value="${nextContractEnd(c.end, 1)}" style="font-size:14px; padding:9px;" />
       </div>
       <div>
         <button type="button" class="primary" style="margin:0; padding:11px; font-size:14px;" onclick="confirmContractRenewal('${emp.id}')">✅ 雇用契約書 更新OK（返ってきた）</button>
       </div>
     </div>
-    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">契約書が返ってきたら「更新OK」を押してください。雇用終了日が上の日付に進み、「更新期間中」の表示が消えます。</p>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">契約書が返ってきたら「更新OK」を押してください。雇用契約書終了日が上の日付に進み、「更新期間中」の表示が消えます。</p>
     ${lastLine}
   `, over ? "#f3c9c4" : "#90caf9", over ? "#fdf3f2" : "#f1f8fe");
 }
@@ -4297,23 +4297,24 @@ async function confirmContractRenewal(empId) {
   const emp = (state.employees || []).find(e => e.id === empId);
   if (!emp) return alert("従業員が見つかりませんでした");
   const c = contractRenewInfo(emp);
-  if (!c) return alert("雇用終了日が入っていないため、更新OKにできません");
+  if (!c) return alert("雇用契約書終了日が入っていないため、更新OKにできません");
   const inp = document.getElementById("contractNewEnd");
   const newEnd = inp ? (inp.value || "").trim() : "";
-  if (!newEnd) return alert("更新後の雇用終了日を入れてください");
-  if (newEnd <= c.end) return alert("更新後の雇用終了日が、いまの雇用終了日（" + c.end + "）より前か、同じ日になっています");
+  if (!newEnd) return alert("更新後の雇用契約書終了日を入れてください");
+  if (newEnd <= c.end) return alert("更新後の雇用契約書終了日が、いまの雇用契約書終了日（" + c.end + "）より前か、同じ日になっています");
   const warn = emp.contractSent ? "" : "\n\n※「送り済み」にチェックが入っていません。";
-  if (!confirm(`${emp.name || "この方"} さんの雇用契約書の更新をOKにします。\n\n雇用終了日：${c.end} → ${newEnd}${warn}\n\nよろしいですか？`)) return;
+  const newStart = addDays(c.end, 1);
+  if (!confirm(`${emp.name || "この方"} さんの雇用契約書の更新をOKにします。\n\n雇用契約書開始日：${newStart}\n雇用契約書終了日：${c.end} → ${newEnd}${warn}\n\nよろしいですか？`)) return;
   const log = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice();
   log.push({ okAt: formatYmd(new Date()), sentAt: emp.contractSentAt || "", from: c.end, to: newEnd });
-  const patch = { contractEnd: newEnd, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
-  const before = { contractEnd: emp.contractEnd, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
+  const patch = { contractStart: newStart, contractEnd: newEnd, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
+  const before = { contractStart: emp.contractStart, contractEnd: emp.contractEnd, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
   Object.assign(emp, patch);
   if (!firebaseReady) { render(); return alert("（お試し表示のため保存はされません）"); }
   try {
     await db.collection("employees").doc(empId).update(patch);
     render();
-    alert(`更新OKにしました。\n雇用終了日を ${newEnd} にしました。`);
+    alert(`更新OKにしました。\n雇用契約書開始日を ${newStart}、終了日を ${newEnd} にしました。`);
   } catch (e) {
     Object.assign(emp, before);
     render();
@@ -5504,6 +5505,7 @@ async function saveEmployee(id) {
     const el = document.getElementById("emp_" + key);
     if (el) data[key] = el.value;
   });
+  if (data.baseWage != null) data.baseWage = cleanWage(data.baseWage);
   // 就業時間・休日・週の勤務日数を「自動計算」にするか「手入力」にするかの設定
   const shiftAutoEl = document.getElementById("emp_shiftAuto");
   if (shiftAutoEl) data.shiftAuto = shiftAutoEl.value !== "0";
@@ -5556,6 +5558,17 @@ function addDays(dateStr, days) {
   if (!base || isNaN(base)) return "";
   const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
   return isNaN(d) ? "" : formatYmd(d);
+}
+
+// 雇用契約書の開始日。「雇用契約書開始日」が空の方は、これまでどおり入社日を使う
+function contractStartOf(e) {
+  const raw = (e && (e.contractStart || e.hireDate)) || "";
+  const d = parseFlexibleDate(raw);
+  return d && !isNaN(d) ? formatYmd(d) : raw;
+}
+// 基本給の欄に「円」が混ざっていたら取りのぞく（印刷のとき「円」を別に付けるため）
+function cleanWage(v) {
+  return (v == null ? "" : String(v)).replace(/[円圓]/g, "").trim();
 }
 
 function computeContractEmpOptions() {
@@ -7378,7 +7391,9 @@ function renderEnvelopeSheet(emp) {
 
 
 function renderKoyoKeiyaku(emp) {
-  const yen = emp.baseWage ? emp.baseWage : "";
+  const yen = cleanWage(emp.baseWage);
+  const cStart = contractStartOf(emp);
+  const signDate = addDays(cStart, -1);
   // 原本に合わせ、基本給の右側に手当などを手書きできる空欄の行を並べる（1行=空の枠2つ）
   // 印刷時にセルの高さが自動でつぶれないよう、中に高さを持つ空divを入れて行の高さを保つ
   const emptyWageRow = `<tr><td><div style="height:22px;"></div></td><td></td></tr>`;
@@ -7410,7 +7425,7 @@ function renderKoyoKeiyaku(emp) {
       </colgroup>
       <tr>
         <td class="c-label" style="text-align:center;" rowspan="3">雇用期間</td>
-        <td rowspan="3" style="vertical-align:middle;">${toWareki(emp.hireDate)}より${emp.contractEnd ? "<br>" + toWareki(emp.contractEnd) + "まで" : "<br>（期間の定めなし）"}</td>
+        <td rowspan="3" style="vertical-align:middle;">${toWareki(cStart)}より${emp.contractEnd ? "<br>" + toWareki(emp.contractEnd) + "まで" : "<br>（期間の定めなし）"}</td>
         <td class="c-label" style="text-align:center;">基　本　給</td>
         <td style="text-align:right; padding-right:12px;">${yen ? yen + "　円" : "　　　　　円"}</td>
       </tr>
@@ -7474,7 +7489,7 @@ function renderKoyoKeiyaku(emp) {
     </table>
 
     <p style="margin-top:10px; font-size:13px;">上記以外の労働条件等については当社就業規則によります。</p>
-    <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:24px;">${toWareki(emp.hireDate)}</p>
+    <p style="text-align:right; margin-top:10px; font-size:13px; padding-right:24px;">${toWareki(signDate)}</p>
     <div style="margin-top:20px; font-size:14px; line-height:2;">
       <div style="padding-left:48%;">会　社</div>
       <div>&nbsp;</div>

@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-23(3)";
+const APP_VERSION = "更新: 2026-10-28";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4916,6 +4916,7 @@ function exportEmployeesToExcel() {
     });
     row["満年齢"] = calcAge(e.birthDate) ?? "";
     row["在籍状況"] = e.status === "resigned" ? "退職済み" : "在籍中";
+    row["退職日"] = e.status === "resigned" ? (e.resignedDate || "") : "";
     row["最終ログイン"] = fmtLoginAt((state.loginLogs || {})[e.id]) || "未ログイン";
     return row;
   });
@@ -4997,6 +4998,7 @@ function renderEmpTableRows() {
     if (shift) metaParts.push(shift);
     const lastLogin = (state.loginLogs || {})[e.id];
     if (!showResigned && lastLogin) metaParts.push("最終ログイン " + fmtYmd(lastLogin));
+    if (showResigned) metaParts.unshift(e.resignedDate ? "退職 " + fmtMonthDay(e.resignedDate) : "退職日 未入力");
     return `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid var(--border); cursor:pointer;" onclick="state.editingEmpId='${e.id}'; render();">
       <div style="min-width:0; flex:1;">
@@ -5066,7 +5068,7 @@ function renderAdminEmployeeTab() {
         <div class="row-between" style="margin-bottom:4px;">
           <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
           <div>
-            ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み</span>` : ""}
+            ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み（${editing.resignedDate ? fmtMonthDay(editing.resignedDate) : "退職日 未入力"}）</span>` : ""}
             ${isInProbation(editing) ? `<span class="status-pill" style="margin-right:8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中（〜${probationEndFor(editing)}）</span>` : ""}
             ${contractRenewPills(editing, "margin-right:8px;")}
             ${longLeaveNow(editing) ? `<span class="status-pill" style="margin-right:8px; background:#ede7f6; color:#5E35B1; font-weight:700;">長期休み中（${escapeHtml(longLeaveNow(editing).kind || "")}）</span>` : ""}
@@ -5191,6 +5193,13 @@ function renderAdminEmployeeTab() {
         ${isResigned
           ? `
             <div style="margin-top:14px; padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa;">
+              <label style="margin:0 0 4px; font-weight:700;">退職日</label>
+              <p style="margin:0 0 8px; font-size:13px;">${editing.resignedDate ? `<b style="font-size:15px;">${fmtMonthDay(editing.resignedDate)}</b>` : `<span style="color:var(--danger); font-weight:700;">まだ入っていません</span>`}</p>
+              <input id="resignedDate_${editing.id}" type="date" value="${escapeHtml(editing.resignedDate || "")}" />
+              <button style="margin-top:8px; width:100%; padding:10px; border-radius:10px; border:1.5px solid var(--border); background:#fff;" onclick="saveResignedDate('${editing.id}')">退職日を保存する（入れる・直す）</button>
+              <p class="muted" style="font-size:11.5px; margin:4px 0 0;">労働者名簿の「解雇・退職」の日付にも、この日が入ります。</p>
+            </div>
+            <div style="margin-top:14px; padding:14px; border-radius:10px; border:1.5px solid var(--border); background:#fafafa;">
               <label style="margin:0 0 4px; font-weight:700;">退職したあとも、ログインできる最終日</label>
               <p style="margin:0 0 8px; font-size:13px;">${canResignedLogin(editing)
                 ? `<span class="status-pill status-approved">いまログインできます（${fmtMonthDay(editing.loginUntil)}まで）</span>`
@@ -5308,6 +5317,25 @@ async function saveLoginUntil(id) {
     await db.collection("employees").doc(id).update({ loginUntil });
   } catch (e) {
     alert("更新エラー: " + e.message);
+  }
+}
+
+// 退職した方の「退職日」を、あとから入れる・直す
+async function saveResignedDate(id) {
+  const el = document.getElementById(`resignedDate_${id}`);
+  const resignedDate = el ? el.value : "";
+  if (!resignedDate) return alert("退職日を選んでください");
+  if (!confirm(`退職日を ${fmtMonthDay(resignedDate)} にします。よろしいですか？`)) return;
+  if (!firebaseReady) {
+    const idx = state.employees.findIndex(e => e.id === id);
+    if (idx >= 0) state.employees[idx] = { ...state.employees[idx], resignedDate };
+    return render();
+  }
+  try {
+    await db.collection("employees").doc(id).update({ resignedDate });
+    alert("退職日を保存しました");
+  } catch (e) {
+    alert("保存できませんでした: " + e.message);
   }
 }
 

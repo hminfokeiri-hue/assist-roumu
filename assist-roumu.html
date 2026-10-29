@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-28";
+const APP_VERSION = "更新: 2026-10-29";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1499,7 +1499,7 @@ function renderStaff() {
 
         <div class="card" style="margin-top:20px;">
           <div class="row-between">
-            <div><p class="muted" style="margin:0;">使える有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.remainingThisYear}日</p></div>
+            <div><p class="muted" style="margin:0;">使える有給</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${bal.selfServiceLeft}日</p></div>
             <div><p class="muted" style="margin:0;">申請中・決裁ずみ</p><p style="font-size:26px;font-weight:700;margin:4px 0;">${usedOrPending}件</p></div>
           </div>
         </div>
@@ -4112,7 +4112,7 @@ function usedPaidLeaveFor(empId) {
    ・消化は「有給休暇」で否決でないものを、付与日を境に前年ぶん／今年ぶんに振り分ける。
    返り値: { grantNow, grantPrev, carryOver, usedPrev, usedCurr, remaining, hasData, notYet } */
 function leaveBalance(emp) {
-  const empty = { grantNow: 0, grantPrev: 0, carryOver: 0, usedPrev: 0, usedCurr: 0, remaining: 0, remainingThisYear: 0, dutyTarget: 0, dutyDone: 0, dutyLeft: 0, dutyDeadline: "", lastGrantDate: "", nextGrantDate: "", hasData: false, notYet: false };
+  const empty = { grantNow: 0, grantPrev: 0, carryOver: 0, usedPrev: 0, usedCurr: 0, remaining: 0, remainingThisYear: 0, selfLimit: 0, selfServiceLeft: 0, dutyTarget: 0, dutyDone: 0, dutyLeft: 0, dutyDeadline: "", lastGrantDate: "", nextGrantDate: "", hasData: false, notYet: false };
   if (!emp || !emp.hireDate || !emp.weeklyDays) return empty;
   const months = monthsBetween(emp.hireDate, new Date());
   if (months < 6) return { ...empty, hasData: true, notYet: true }; // まだ初回付与前（6か月未満）
@@ -4150,11 +4150,19 @@ function leaveBalance(emp) {
   const nextGrantDate = addMonths(emp.hireDate, 6 + k * 12);
   const dutyDeadline = nextGrantDate ? addDays(nextGrantDate, -1) : "";
 
+  /* 従業員の画面に出す「使える有給」。
+     本来の残日数ではなく、【年5日の義務の範囲であと何日ぶん残っているか】を出す。
+     本来の残日数は本社側（従業員管理）でだけ見て、長期の病気などのときに会社の判断で使う。
+     付与が5日に満たない方は、その付与日数が上限になる。 */
+  const selfLimit = Math.min(5, grantNow);
+  const selfServiceLeft = Math.max(0, selfLimit - usedCurr);
+
   const r1 = n => Math.round(n * 10) / 10;
   return {
     grantNow: r1(grantNow), grantPrev: r1(grantPrev), carryOver: r1(carryOver),
     usedPrev: r1(usedPrev), usedCurr: r1(usedCurr), remaining: r1(remaining),
     remainingThisYear: r1(remainingThisYear),
+    selfLimit: r1(selfLimit), selfServiceLeft: r1(selfServiceLeft),
     dutyTarget, dutyDone: r1(dutyDone), dutyLeft: r1(dutyLeft), dutyDeadline,
     lastGrantDate, nextGrantDate,
     hasData: true, notYet: false

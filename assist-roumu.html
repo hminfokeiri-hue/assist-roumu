@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-30";
+const APP_VERSION = "更新: 2026-10-30(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4251,6 +4251,27 @@ function nextContractEnd(endStr, years) {
   return formatYmd(new Date(y, mo, isEom ? last : Math.min(b.getDate(), last)));
 }
 
+// 新しい期間（雇用契約書開始日・終了日）をさきに入れてある方の更新の状態。
+//   雇用契約書開始日が「これから」なら、いまの契約は「開始日の前日」まで。返ってくるまで「更新期間中」を出し続ける。
+//   「更新OK」は日付を変えず、contractRenewOk（返ってきた新しい開始日）に記録するだけ。
+function contractPendingInfo(e, t) {
+  const sd = parseFlexibleDate(e.contractStart), ed = parseFlexibleDate(e.contractEnd);
+  if (!sd || isNaN(sd) || !ed || isNaN(ed)) return null;
+  const newStart = formatYmd(sd), newEnd = formatYmd(ed);
+  if (newEnd < newStart) return null;
+  const hd = parseFlexibleDate(e.hireDate);
+  if (hd && !isNaN(hd) && formatYmd(hd) >= newStart) return null;   // 入社のときの契約は「更新」ではない
+  const oldEnd = addDays(newStart, -1);
+  const okD = parseFlexibleDate(e.contractRenewOk);
+  const confirmed = !!okD && !isNaN(okD) && formatYmd(okD) === newStart;
+  const base = { pending: true, newStart, newEnd, end: oldEnd, start: shiftMonthsClamped(oldEnd, -CONTRACT_RENEW_MONTHS_BEFORE), sent: !!e.contractSent, sentAt: e.contractSentAt || "" };
+  if (confirmed) return t < newStart ? { ...base, phase: "done" } : null;
+  if (t < base.start) return { ...base, phase: "before" };
+  if (t <= oldEnd) return { ...base, phase: "renewing", daysLeft: daysBetweenYmd(t, oldEnd) };
+  const over = daysBetweenYmd(oldEnd, t);
+  return over <= CONTRACT_RENEW_GRACE_DAYS ? { ...base, phase: "overdue", overDays: over } : null;
+}
+
 // 雇用契約書の更新の状態。表示しない（退職者・雇用契約書終了日が空など）ときは null
 //   phase: before＝まだ先／renewing＝更新期間中／overdue＝満了日をすぎた／stale＝満了日がだいぶ前（直し忘れ）
 function contractRenewInfo(e, todayStr) {
@@ -4259,6 +4280,8 @@ function contractRenewInfo(e, todayStr) {
   if (!endD || isNaN(endD)) return null;
   const end = formatYmd(endD);
   const t = todayStr || formatYmd(new Date());
+  const pend = contractPendingInfo(e, t);
+  if (pend) return pend;
   const start = shiftMonthsClamped(end, -CONTRACT_RENEW_MONTHS_BEFORE);
   const base = { end, start, sent: !!e.contractSent, sentAt: e.contractSentAt || "" };
   if (t < start) return { ...base, phase: "before" };
@@ -4293,6 +4316,33 @@ function renderContractRenewBox(emp) {
   }
   const last = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice(-1)[0];
   const lastLine = last ? `<p class="muted" style="font-size:12px; margin:8px 0 0;">前回の更新OK：${escapeHtml(last.okAt || "")}（${escapeHtml(last.from || "")} → ${escapeHtml(last.to || "")}）</p>` : "";
+  if (c.pending) {
+    const period = `新しい期間 <b style="color:var(--text);">${c.newStart}</b> 〜 <b style="color:var(--text);">${c.newEnd}</b>（入力ずみ）`;
+    if (c.phase === "done") {
+      return wrap(`${title}<p style="font-size:13px; margin:0; color:var(--success); font-weight:700;">✅ 更新OKずみ　<span style="font-weight:400; color:var(--text);">${period}</span></p>${lastLine}`, "#cfe8db", "#f4f9f6");
+    }
+    if (c.phase === "before") {
+      return wrap(`${title}<p class="muted" style="font-size:12.5px; margin:0;">いまの期間は <b style="color:var(--text);">${c.end}</b> まで。${period}。更新期間は <b style="color:var(--text);">${c.start}</b> から始まり、そのときに一覧へ「雇用契約書更新期間中」と出ます。</p>${lastLine}`, "var(--border)", "#fafafa");
+    }
+    const overP = c.phase === "overdue";
+    const stateP = overP
+      ? `<span style="color:var(--danger); font-weight:700;">${c.end} に満了しています（${c.overDays}日すぎ）</span>`
+      : `<span style="color:#1565C0; font-weight:700;">${c.end} 満了（あと${c.daysLeft}日）</span>`;
+    const sentNoteP = c.sent && c.sentAt ? `<p class="muted" style="font-size:12px; margin:-6px 0 10px 30px;">${escapeHtml(c.sentAt)} に送付しました</p>` : "";
+    return wrap(`
+      ${title}
+      <p style="font-size:14px; margin:0 0 4px;">雇用契約書更新期間中　${stateP}</p>
+      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">${period}</p>
+      <label style="margin:0 0 10px; display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; cursor:pointer;">
+        <input type="checkbox" id="contractSentCb" ${c.sent ? "checked" : ""} style="width:22px; height:22px; margin:0;" onchange="toggleContractSent('${emp.id}', this.checked)" />
+        雇用契約書を送った（送り済み）
+      </label>
+      ${sentNoteP}
+      <button type="button" class="primary" style="margin:0; padding:11px; font-size:14px;" onclick="confirmContractPending('${emp.id}')">✅ 雇用契約書 更新OK（返ってきた）</button>
+      <p class="muted" style="font-size:11.5px; margin:8px 0 0;">契約書が返ってきたら「更新OK」を押してください。日付はすでに入っているので変わりません。「更新期間中」の表示だけが消えます。</p>
+      ${lastLine}
+    `, overP ? "#f3c9c4" : "#90caf9", overP ? "#fdf3f2" : "#f1f8fe");
+  }
   if (c.phase === "before") {
     return wrap(`${title}<p class="muted" style="font-size:12.5px; margin:0;">いまの期間は <b style="color:var(--text);">${c.end}</b> まで。更新期間は <b style="color:var(--text);">${c.start}</b> から始まり、そのときに一覧へ「雇用契約書更新期間中」と出ます。</p>${lastLine}`, "var(--border)", "#fafafa");
   }
@@ -4345,6 +4395,31 @@ async function toggleContractSent(empId, checked) {
   }
 }
 
+// 新しい期間をさきに入れてある方の「更新OK」：日付は変えず、返ってきたことだけを記録する
+async function confirmContractPending(empId) {
+  const emp = (state.employees || []).find(e => e.id === empId);
+  if (!emp) return alert("従業員が見つかりませんでした");
+  const c = contractRenewInfo(emp);
+  if (!c || !c.pending) return alert("更新OKにできる状態ではありません");
+  const warn = emp.contractSent ? "" : "\n\n※「送り済み」にチェックが入っていません。";
+  if (!confirm(`${emp.name || "この方"} さんの雇用契約書の更新をOKにします。\n\n新しい期間：${c.newStart} 〜 ${c.newEnd}（日付は変わりません）${warn}\n\nよろしいですか？`)) return;
+  const log = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice();
+  log.push({ okAt: formatYmd(new Date()), sentAt: emp.contractSentAt || "", from: c.end, to: c.newEnd });
+  const patch = { contractRenewOk: c.newStart, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
+  const before = { contractRenewOk: emp.contractRenewOk, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
+  Object.assign(emp, patch);
+  if (!firebaseReady) { render(); return alert("（お試し表示のため保存はされません）"); }
+  try {
+    await db.collection("employees").doc(empId).update(patch);
+    render();
+    alert("更新OKにしました。");
+  } catch (e) {
+    Object.assign(emp, before);
+    render();
+    alert("保存できませんでした: " + e.message);
+  }
+}
+
 async function confirmContractRenewal(empId) {
   const emp = (state.employees || []).find(e => e.id === empId);
   if (!emp) return alert("従業員が見つかりませんでした");
@@ -4359,8 +4434,8 @@ async function confirmContractRenewal(empId) {
   if (!confirm(`${emp.name || "この方"} さんの雇用契約書の更新をOKにします。\n\n雇用契約書開始日：${newStart}\n雇用契約書終了日：${c.end} → ${newEnd}${warn}\n\nよろしいですか？`)) return;
   const log = (Array.isArray(emp.contractRenewals) ? emp.contractRenewals : []).slice();
   log.push({ okAt: formatYmd(new Date()), sentAt: emp.contractSentAt || "", from: c.end, to: newEnd });
-  const patch = { contractStart: newStart, contractEnd: newEnd, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
-  const before = { contractStart: emp.contractStart, contractEnd: emp.contractEnd, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
+  const patch = { contractStart: newStart, contractEnd: newEnd, contractRenewOk: newStart, contractSent: false, contractSentAt: "", contractRenewals: log.slice(-10) };
+  const before = { contractStart: emp.contractStart, contractEnd: emp.contractEnd, contractRenewOk: emp.contractRenewOk, contractSent: emp.contractSent, contractSentAt: emp.contractSentAt, contractRenewals: emp.contractRenewals };
   Object.assign(emp, patch);
   if (!firebaseReady) { render(); return alert("（お試し表示のため保存はされません）"); }
   try {

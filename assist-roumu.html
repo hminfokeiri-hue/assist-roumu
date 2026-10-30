@@ -627,7 +627,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-29";
+const APP_VERSION = "更新: 2026-10-30";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3857,6 +3857,50 @@ function renderAdminLeaveTab(pending) {
 }
 
 /* ---------- 従業員管理（本社共有・全項目編集可） ---------- */
+/* 「契約更新の有無」に入れる、会社で決めた文言。
+   これから登録する方の初期値にも、まとめて書きかえるときにも、この文言を使う。 */
+const CONTRACT_RENEW_VALUE = "有　原則：自動更新";
+
+/* まとめて書きかえる対象＝在籍の方のうち、「自動更新」が入っていて、まだ「有」が付いていない方。
+   「無」の方（期間の定めがあって更新しない方）と、すでに「有」が付いている方には触れない。 */
+function contractRenewTargets() {
+  return (state.employees || []).filter(e =>
+    e.status !== "resigned" &&
+    String(e.continuedYN || "").includes("自動更新") &&
+    !String(e.continuedYN || "").trim().startsWith("有")
+  );
+}
+
+async function fixContractRenewAll() {
+  const targets = contractRenewTargets();
+  if (!targets.length) return alert("書きかえる方はいませんでした。");
+  const names = targets.slice(0, 5).map(e => e.name || "（氏名なし）").join("、");
+  if (!confirm(
+    `在籍の ${targets.length}名の「契約更新の有無」を\n「${CONTRACT_RENEW_VALUE}」に書きかえます。\n\n` +
+    `対象の例：${names}${targets.length > 5 ? " ほか" : ""}\n\nよろしいですか？`
+  )) return;
+  if (!confirm(`もう一度おたずねします。\n\n${targets.length}名を「${CONTRACT_RENEW_VALUE}」にします。\n\nよろしければ「OK」をおしてください。`)) return;
+
+  if (!firebaseReady) {
+    targets.forEach(e => { e.continuedYN = CONTRACT_RENEW_VALUE; });
+    alert(`（お試し表示のため実際の保存はされません）${targets.length}名が対象です`);
+    return render();
+  }
+  try {
+    let done = 0;
+    for (let i = 0; i < targets.length; i += 400) {   // Firestoreの一括処理は500件までなので余裕をみて400件ずつ
+      const chunk = targets.slice(i, i + 400);
+      const batch = db.batch();
+      chunk.forEach(e => batch.update(db.collection("employees").doc(e.id), { continuedYN: CONTRACT_RENEW_VALUE }));
+      await batch.commit();
+      done += chunk.length;
+    }
+    alert(`${done}名の「契約更新の有無」を書きかえました。`);
+  } catch (e) {
+    alert("書きかえできませんでした: " + e.message);
+  }
+}
+
 const EMP_FIELDS_TOP = [
   ["loginId", "ログインID（8桁）"], ["employeeCode", "管理番号"], ["name", "氏名"], ["furigana", "フリガナ"], ["phone", "電話番号"],
   ["gender", "性別"], ["birthDate", "生年月日"]
@@ -3875,7 +3919,7 @@ const EMP_FIELDS_SIMPLE = [
   ["workHours", "就業時間"], ["holiday", "休日"], ["jobType", "業務の種類"], ["baseWage", "基本給"],
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
-  ["continuedYN", "継続雇用の有無"], ["contactPerson", "相談窓口担当者"],
+  ["continuedYN", "契約更新の有無"], ["contactPerson", "相談窓口担当者"],
   ["cardCode3", "本人カードの番号（管理番号が変わった方だけ・前の番号の下3けた）"],
   ["homePhone", "自宅電話（労働者名簿用）"], ["yuchoKigo", "ゆうちょ 記号（5桁）"], ["yuchoBango", "ゆうちょ 番号（8桁）"],
   ["resignReason", "退職・解雇の事由（労働者名簿用）"],
@@ -5284,6 +5328,31 @@ function renderAdminEmployeeTab() {
         <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "age" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "age" ? "var(--blue)" : "#fff"}; color:${sortKey === "age" ? "#fff" : "var(--text)"};" onclick="state.empSortKey='age'; render();">年齢順</button>
         <button style="font-size:12.5px; padding:7px 14px; border-radius:999px; border:1.5px solid ${sortKey === "hire" ? "var(--blue)" : "var(--border)"}; background:${sortKey === "hire" ? "var(--blue)" : "#fff"}; color:${sortKey === "hire" ? "#fff" : "var(--text)"};" onclick="if(state.empSortKey==='hire'){state.empHireDir=(state.empHireDir==='asc'?'desc':'asc');}else{state.empSortKey='hire'; state.empHireDir=state.empHireDir||'desc';} render();">入社日順${sortKey === "hire" ? (state.empHireDir === "asc" ? " ↑古い順" : " ↓新しい順") : ""}</button>
       </div>
+      ${(() => {
+        if (state.showResignedList) return "";
+        const targets = contractRenewTargets();
+        if (!targets.length) return "";
+        const counts = {};
+        (state.employees || []).filter(e => e.status !== "resigned").forEach(e => {
+          const v = String(e.continuedYN || "").trim() || "（空）";
+          counts[v] = (counts[v] || 0) + 1;
+        });
+        const rows = Object.entries(counts).sort((a, b) => b[1] - a[1])
+          .map(([v, n]) => `<li>「${escapeHtml(v)}」… ${n}名</li>`).join("");
+        return `
+          <div style="margin:0 0 12px; padding:12px 14px; border:1.5px solid var(--blue); border-radius:10px; background:#FFF6EA;">
+            <p style="margin:0 0 6px; font-weight:700; font-size:13.5px;">「契約更新の有無」をまとめて書きかえられます</p>
+            <p class="muted" style="margin:0 0 4px; font-size:12px;">いま在籍の方に入っている値：</p>
+            <ul class="muted" style="margin:0 0 8px; padding-left:18px; font-size:12px; line-height:1.8;">${rows}</ul>
+            <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.7;">
+              このうち「自動更新」が入っていて「有」が付いていない <b>${targets.length}名</b> を
+              「${escapeHtml(CONTRACT_RENEW_VALUE)}」に書きかえます。<br>
+              「無」の方と、すでに「有」が付いている方、退職された方には触れません。
+            </p>
+            <button style="font-size:13px; padding:9px 16px; color:#fff; background:var(--blue); border-color:var(--blue);"
+                    onclick="fixContractRenewAll()">${targets.length}名をまとめて書きかえる</button>
+          </div>`;
+      })()}
       <div id="empTableBody">
         ${renderEmpTableRows()}
       </div>
@@ -5461,7 +5530,7 @@ async function addNewEmployee(preset) {
     raiseYN: "無",
     bonusYN: "無",
     retirementYN: "無",
-    continuedYN: "自動更新",
+    continuedYN: CONTRACT_RENEW_VALUE,
     contactPerson: "本社　尾藤",
     ...(preset || {})
   };
@@ -7511,7 +7580,7 @@ function renderKoyoKeiyaku(emp) {
         <td colspan="3">${emp.retirementYN || ""}</td>
       </tr>
       <tr>
-        <td class="c-label" style="text-align:center;">継続雇用の有無</td>
+        <td class="c-label" style="text-align:center;">契約更新の有無</td>
         <td colspan="3">${emp.continuedYN || ""}</td>
       </tr>
       <tr>

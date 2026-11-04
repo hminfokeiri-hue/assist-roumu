@@ -94,6 +94,17 @@
   .sheet.four .pc .act {font-size:18pt}
   .sheet.four .pc .cam {font-size:10.5pt}
   .sheet.four .pc .hint{font-size:8pt}
+  /* A4に6枚（2列×3段）。1枚の高さをそろえて、3段で必ず1ページに収める */
+  .sheet.six{gap:4mm}
+  .sheet.six .pc{height:86mm;box-sizing:border-box;padding:3mm 4mm;overflow:hidden;
+                 display:flex;flex-direction:column;justify-content:center}
+  .sheet.six .pc .site{font-size:13pt;margin-bottom:.5mm}
+  .sheet.six .pc .job {font-size:8pt;margin-bottom:1.5mm}
+  .sheet.six .pc .who {font-size:11pt;margin-bottom:2mm;padding:1mm 0}
+  .sheet.six .pc .qr  {margin-bottom:2mm}
+  .sheet.six .pc .act {font-size:13pt}
+  .sheet.six .pc .cam {font-size:8pt}
+  .sheet.six .pc .hint{font-size:7pt;margin-top:1.5mm}
   @media print{
     body{background:#fff}
     header,.tabs,.noprint{display:none !important}
@@ -101,6 +112,7 @@
     .card{border:0;padding:0;margin:0}
     .pc{border:1px dashed #bbb}
     .sheet.one .pc{page-break-after:always}
+    .sheet.six .pc:nth-child(6n):not(:last-child){break-after:page;page-break-after:always}
   }
 </style>
 </head>
@@ -209,7 +221,7 @@
             <div><label>現場をえらぶ</label><select id="cSite"></select></div>
             <div><label>現場名の下に出す文字</label><input type="text" id="cJob" value="日常清掃業務"></div>
             <div><label>1枚あたりの大きさ</label>
-              <select id="cSize"><option value="2">A4に2枚</option><option value="4">A4に4枚</option></select></div>
+              <select id="cSize"><option value="2">A4に2枚</option><option value="4">A4に4枚</option><option value="6">A4に6枚</option></select></div>
           </div>
           <div class="row" style="margin-top:10px">
             <div><label>フリガナに使う項目</label><select id="cKana"></select></div>
@@ -794,6 +806,14 @@ $("cSite").onchange=function(){ EMPS && EMPS.forEach(function(e){ e.sel=undefine
 $("btnEmpAll").onclick=function(){ EROWS.forEach(function(e){ e.sel=true; }); drawEmp(); };
 $("btnEmpNone").onclick=function(){ EROWS.forEach(function(e){ e.sel=false; }); drawEmp(); };
 
+/* 6枚のときだけ、印刷の余白を8mmに固定（ほかの枚数の印刷は今までどおり） */
+function setPageStyle(on){
+  var st=$("pageStyle");
+  if(!on){ if(st) st.remove(); return; }
+  if(!st){ st=document.createElement("style"); st.id="pageStyle"; document.head.appendChild(st); }
+  st.textContent="@page{size:A4 portrait;margin:8mm}";
+}
+
 function makeCard(siteName, job, who, url, px, hint){
   var c=document.createElement("div"); c.className="pc";
   c.innerHTML='<div class="site">'+esc(siteName)+'</div>'+
@@ -838,7 +858,7 @@ $("btnSiteMake").onclick = async function(){
   var one=($("sSize").value==="1");
   var withQr=$("sQr").checked;
   var px=one?240:170;
-  var sh=$("sheet"); sh.className="sheet"+(one?" one":""); sh.innerHTML="";
+  var sh=$("sheet"); sh.className="sheet"+(one?" one":""); sh.innerHTML=""; setPageStyle(false);
   SITES.forEach(function(s){ makePoster(s.name, job, warn, withQr, dakokuUrl(s.id), px); });
   show($("qMsg"),"ok",SITES.length+" 件ぶんの貼り紙を出しました。「印刷する」を押してください。");
 };
@@ -853,9 +873,11 @@ $("btnCardMake").onclick = async function(){
   var targets=EROWS.filter(function(e){ return e.sel; });
   if(!targets.length) return show($("qMsg"),"err","カードを作る人がえらばれていません。");
   var job=$("cJob").value.trim();
-  var four=($("cSize").value==="4");
-  var px=four?130:190;
-  var sh=$("sheet"); sh.className="sheet"+(four?" four":""); sh.innerHTML="";
+  var per=$("cSize").value;
+  var four=(per==="4"), six=(per==="6");
+  var px=six?120:(four?130:190);
+  var sh=$("sheet"); sh.className="sheet"+(four?" four":"")+(six?" six":""); sh.innerHTML="";
+  setPageStyle(six);
   targets.forEach(function(e){
     makeCard(site.name, job, e.card, dakokuUrl(siteId, e.loginId+"-"+e.code3), px, "");
   });

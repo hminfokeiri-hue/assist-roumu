@@ -685,7 +685,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-09";
+const APP_VERSION = "更新: 2026-11-09(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3008,7 +3008,7 @@ async function hireInterview(id) {
   const preset = {};
   if (v.name) preset.name = v.name;
   if (v.phone) preset.phone = v.phone;
-  if (v.appliedSite) preset.workplace = v.appliedSite;
+  if (v.appliedSite) { preset.workplace = v.appliedSite; preset.contractWorkplace = v.appliedSite; }
   if (memoLines.length) preset.companyMemo = memoLines.join("\n");
 
   state.adminTab = "emp";
@@ -4167,7 +4167,7 @@ const WEEKDAY_FIELDS = [
   ["shiftFri", "金"], ["shiftSat", "土"], ["shiftSun", "日"]
 ];
 const EMP_FIELDS_SIMPLE = [
-  ["contractStart", "雇用契約書開始日"], ["contractEnd", "雇用契約書終了日（期間の定めがある場合）"], ["weeklyDays", "週の勤務日数"],
+  ["contractStart", "雇用契約書開始日"], ["contractEnd", "雇用契約書終了日（期間の定めがある場合）"], ["contractWorkplace", "就業場所（雇用契約書に印字）"], ["weeklyDays", "週の勤務日数"],
   ["workHours", "就業時間"], ["holiday", "休日"], ["jobType", "業務の種類"], ["baseWage", "基本給"],
   ["payCutoffDay", "賃金締切日"], ["payDay", "賃金支払日"], ["deduction", "支払時の控除"],
   ["raiseYN", "昇給の有無"], ["bonusYN", "賞与の有無"], ["retirementYN", "退職手当の有無"],
@@ -7892,7 +7892,7 @@ function renderKoyoKeiyaku(emp) {
       </tr>
       <tr>
         <td class="c-label" style="text-align:center; height:50px;">就業場所</td>
-        <td colspan="3">${emp.workplace || ""}</td>
+        <td colspan="3">${emp.contractWorkplace || ""}</td>
       </tr>
       <tr>
         <td class="c-label" style="text-align:center;">昇給の有無</td>

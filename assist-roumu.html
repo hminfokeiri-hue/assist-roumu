@@ -528,6 +528,64 @@
     .responsive-grid { grid-template-columns: 1fr !important; }
     .stat-grid { grid-template-columns: 1fr 1fr !important; }
   }
+  /* お休み予定カレンダー */
+  .lc-seg { display: inline-flex; border: 1.5px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+  .lc-seg button { border: 0; background: transparent; padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 700; color: var(--muted); cursor: pointer; width: auto; margin: 0; border-radius: 0; }
+  .lc-seg button.on { background: var(--blue); color: #fff; }
+  .lc-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .lc-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .lc-chip { border: 1.5px solid var(--border); background: #fff; border-radius: 20px; padding: 5px 13px; font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; width: auto; margin: 0; }
+  .lc-chip.on { background: var(--sun-soft); border-color: var(--blue); color: var(--blue-dark); }
+  .lc-sitesel { font-size: 13px; font-weight: 700; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .lc-sitesel select { font: inherit; font-size: 14px; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; color: var(--text); width: auto; max-width: 100%; margin: 0; }
+  .lc-nav { border: 1.5px solid var(--border); background: #fff; border-radius: 10px; width: 40px; height: 38px; font-size: 16px; cursor: pointer; color: var(--text); padding: 0; margin: 0; }
+  .lc-nav.wide { width: auto; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 700; }
+  .lc-month { font-size: 20px; font-weight: 700; min-width: 8.5em; text-align: center; }
+  .lc-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 10px; }
+  .lc-sum { background: #FBF6ED; border-radius: 10px; padding: 6px 12px; font-size: 13px; }
+  .lc-sum b { font-size: 16px; }
+  .lc-head, .lc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .lc-head div { text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+  .lc-head .sun { color: var(--danger); } .lc-head .sat { color: #4a78a8; }
+  .lc-cell { position: relative; min-height: 110px; border: 1.5px solid var(--border); border-radius: 10px; background: #fff;
+    padding: 5px 6px; text-align: left; font: inherit; color: inherit; cursor: pointer; overflow: hidden; margin: 0; display: block; width: auto; }
+  .lc-cell.lc-out { visibility: hidden; }
+  .lc-cell.past { opacity: .5; }
+  .lc-cell.off { background: #fbf3ee; }
+  .lc-cell.sat.off { background: #eff4fa; }
+  .lc-cell.today { border-color: var(--blue); box-shadow: 0 0 0 2px var(--sun-soft); }
+  .lc-cell.sel { border-color: var(--blue-dark); box-shadow: 0 0 0 3px rgba(232,135,58,.35); }
+  .lc-cell .d { font-size: 13px; font-weight: 700; }
+  .lc-cell.sun .d, .lc-cell.hol .d { color: var(--danger); }
+  .lc-cell.sat .d { color: #4a78a8; }
+  .lc-cell .hn { font-size: 10px; color: var(--danger); margin-left: 3px; font-weight: 600; }
+  .lc-cell .cnt { position: absolute; top: 4px; right: 5px; font-size: 12px; font-weight: 800; border-radius: 10px; padding: 1px 8px; }
+  .lc-lv1 { background: #F7DDBF; color: #8a4a12; }
+  .lc-lv2 { background: #F0B375; color: #6b3507; }
+  .lc-lv3 { background: #E8873A; color: #fff; }
+  .lc-lv4 { background: #C65D4B; color: #fff; }
+  .lc-cell .names { margin-top: 5px; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+  .lc-cell .nm { font-size: 11.5px; line-height: 1.3; white-space: normal; word-break: break-all; padding-left: 11px; text-indent: -11px; margin-bottom: 2px; display: block; }
+  .lc-cell .nm i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 0; text-indent: 0; }
+  .lc-cell .nm.pend { color: var(--muted); }
+  .lc-cell .nm.pend::after { content: "?"; font-size: 10px; color: var(--warning); margin-left: 2px; font-weight: 800; }
+  .lc-cell .nm .x { margin-left: 3px; color: var(--blue-dark); font-size: 11px; }
+  .lc-cell .more { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .lc-cell.busiest::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--danger); }
+  .lc-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .lc-detail-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+  .lc-site-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 6px 10px; background: #FBF6ED; border-radius: 8px; font-weight: 700; font-size: 14px; }
+  .lc-site-head i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .lc-site-head .n { margin-left: auto; color: var(--blue-dark); font-size: 13px; }
+  .lc-person { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .lc-person:last-child { border-bottom: 0; }
+  @media (max-width: 640px) {
+    .lc-head, .lc-grid { gap: 3px; }
+    .lc-cell { min-height: 54px; padding: 3px; border-radius: 8px; text-align: center; }
+    .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: 30px; padding: 2px 0; font-size: 13px; text-align: center; }
+    .lc-cell .names, .lc-cell .hn { display: none; }
+    .lc-month { font-size: 17px; min-width: 7em; }
+  }
 </style>
 </head>
 <body>
@@ -627,7 +685,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-10-30(2)";
+const APP_VERSION = "更新: 2026-11-09";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3540,8 +3598,202 @@ function leaveDateLabel(dateStr) {
   return { label, urgency, soon: days <= 1 };
 }
 
-// これから先（今日以降）の休み・有給の予定を、日付順でまとめて表示する
+// ===== お休み予定：カレンダー表示（2026-11-09 追加） =====
+// 日本の祝日（振替休日・国民の休日をふくむ）。カレンダーの色分け用。2000〜2099年で使えます。
+function jpHolidayName(y, m, d) {
+  const dow = (yy, mm, dd) => new Date(yy, mm - 1, dd).getDay();
+  const nthMon = (n) => { const first = (8 - dow(y, m, 1)) % 7 + 1; return first + 7 * (n - 1); };
+  const base = (yy, mm, dd) => {
+    if (mm === 1 && dd === 1) return "元日";
+    if (mm === 1 && dd === nthMonOf(yy, 1, 2)) return "成人の日";
+    if (mm === 2 && dd === 11) return "建国記念の日";
+    if (mm === 2 && dd === 23) return "天皇誕生日";
+    if (mm === 3 && dd === Math.floor(20.8431 + 0.242194 * (yy - 1980) - Math.floor((yy - 1980) / 4))) return "春分の日";
+    if (mm === 4 && dd === 29) return "昭和の日";
+    if (mm === 5 && dd === 3) return "憲法記念日";
+    if (mm === 5 && dd === 4) return "みどりの日";
+    if (mm === 5 && dd === 5) return "こどもの日";
+    if (mm === 7 && dd === nthMonOf(yy, 7, 3)) return "海の日";
+    if (mm === 8 && dd === 11) return "山の日";
+    if (mm === 9 && dd === nthMonOf(yy, 9, 3)) return "敬老の日";
+    if (mm === 9 && dd === Math.floor(23.2488 + 0.242194 * (yy - 1980) - Math.floor((yy - 1980) / 4))) return "秋分の日";
+    if (mm === 10 && dd === nthMonOf(yy, 10, 2)) return "スポーツの日";
+    if (mm === 11 && dd === 3) return "文化の日";
+    if (mm === 11 && dd === 23) return "勤労感謝の日";
+    return "";
+  };
+  function nthMonOf(yy, mm, n) { const f = new Date(yy, mm - 1, 1).getDay(); return (8 - f) % 7 + 1 + 7 * (n - 1); }
+  const b = base(y, m, d);
+  if (b) return b;
+  const wd = dow(y, m, d);
+  if (wd === 0) return "";
+  // 振替休日：前日までさかのぼって、日曜が祝日なら、その次の平日が休み
+  let k = 1, found = false;
+  while (k < 7) {
+    const t = new Date(y, m - 1, d - k);
+    if (!base(t.getFullYear(), t.getMonth() + 1, t.getDate())) break;
+    if (t.getDay() === 0) { found = true; break; }
+    k++;
+  }
+  if (found) return "振替休日";
+  // 国民の休日：前日と翌日がどちらも祝日にはさまれた平日
+  const p = new Date(y, m - 1, d - 1), n = new Date(y, m - 1, d + 1);
+  if (base(p.getFullYear(), p.getMonth() + 1, p.getDate()) && base(n.getFullYear(), n.getMonth() + 1, n.getDate()) && wd !== 0) return "国民の休日";
+  return "";
+}
+
+// 休み申請の「現場」：従業員名簿の就業場所（workplace）から引く（申請にはエリアしか入っていないため）
+const LC_NOSITE = "（現場の登録なし）";
+function lcSiteOf(r) {
+  const emps = state.employees || [];
+  let e = r.employeeId ? emps.find(x => x.id === r.employeeId) : null;
+  if (!e && r.employeeName) e = emps.find(x => x.name === r.employeeName);
+  return ((e && e.workplace) || "").trim() || LC_NOSITE;
+}
+function lcSiteColor(s) {
+  const P = ["#E8873A", "#4A7C6F", "#5b7fb5", "#b0568c", "#8b7a2e", "#3f9aa6", "#a4553d", "#7a6bb3", "#6b8e3a", "#c2556b", "#5c6f7e", "#b58a2b"];
+  if (s === LC_NOSITE) return "#aaa";
+  let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return P[h % P.length];
+}
+function lcState() {
+  if (!state.lc) {
+    let v = "cal";
+    try { v = localStorage.getItem("assistRoumuLeaveView") === "list" ? "list" : "cal"; } catch (e) { /* ignore */ }
+    const t = formatYmd(new Date());
+    state.lc = { view: v, month: t.slice(0, 7), area: "all", site: "all", sel: t };
+  }
+  return state.lc;
+}
+function lcRerender() { const y = window.scrollY; render(); window.scrollTo(0, y); }
+function lcSetView(v) { lcState().view = v; try { localStorage.setItem("assistRoumuLeaveView", v); } catch (e) { /* ignore */ } lcRerender(); }
+function lcSetArea(a) { const s = lcState(); s.area = a; s.site = "all"; lcRerender(); }
+function lcSetSite(v) { lcState().site = v; lcRerender(); }
+function lcPick(ds) { lcState().sel = ds; lcRerender(); }
+function lcMove(n) {
+  const s = lcState(); let [y, m] = s.month.split("-").map(Number); m += n;
+  if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+  s.month = `${y}-${pad2(m)}`; lcRerender();
+}
+function lcToday() { const s = lcState(); const t = formatYmd(new Date()); s.month = t.slice(0, 7); s.sel = t; lcRerender(); }
+
+// 否決・取り消しを除いた休み（エリア・現場の絞り込みつき）
+function lcLeaves() {
+  const s = lcState();
+  return (state.leaveRequests || []).filter(r =>
+    r.status !== "rejected" && r.status !== "cancelled" && r.date &&
+    (s.area === "all" || (r.area || "") === s.area) &&
+    (s.site === "all" || lcSiteOf(r) === s.site));
+}
+function lcByDate(list) { const m = {}; list.forEach(r => (m[r.date] = m[r.date] || []).push(r)); return m; }
+function lcGroupBySite(list) {
+  const g = new Map();
+  list.forEach(r => { const k = lcSiteOf(r); if (!g.has(k)) g.set(k, []); g.get(k).push(r); });
+  return [...g.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "ja"));
+}
+function lcWd(ds) { return "日月火水木金土"[new Date(ds + "T00:00:00").getDay()]; }
+function lcJpDate(ds) { const [, m, d] = ds.split("-").map(Number); return `${m}月${d}日（${lcWd(ds)}）`; }
+function lcLv(n) { return n >= 6 ? "lc-lv4" : n >= 4 ? "lc-lv3" : n >= 2 ? "lc-lv2" : "lc-lv1"; }
+function lcPill(r) {
+  return r.status === "approved" ? `<span class="status-pill status-approved">決裁済み</span>`
+    : r.status === "cancelRequested" ? `<span class="status-pill status-rejected">取り消し依頼あり</span>`
+    : `<span class="status-pill status-pending">確認中</span>`;
+}
+function lcPersonRow(r, showSite) {
+  const typeColor = { "有給休暇": "#2f855a", "欠勤（無給）": "#b7791f", "遅刻・早退": "#b7791f", "忌引き": "#4a5568" };
+  return `
+    <div class="lc-person">
+      <div style="min-width:0;">
+        <div><b>${escapeHtml(r.employeeName || "")}</b>${showSite ? `<span class="muted" style="margin-left:8px;">${escapeHtml(lcSiteOf(r))}</span>` : ""}</div>
+        <div class="muted" style="margin-top:2px;"><span style="color:${typeColor[r.type] || "var(--text)"}; font-weight:700;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
+        ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${escapeHtml(r.substitute)}</div>` : ""}
+      </div>
+      <div style="flex-shrink:0;">${lcPill(r)}</div>
+    </div>`;
+}
+function lcViewSeg() {
+  const v = lcState().view;
+  return `<div class="lc-seg"><button class="${v === "cal" ? "on" : ""}" onclick="lcSetView('cal')">カレンダー</button><button class="${v === "list" ? "on" : ""}" onclick="lcSetView('list')">一覧</button></div>`;
+}
+function lcFilters() {
+  const s = lcState();
+  const sites = [...new Set((state.leaveRequests || []).filter(r => s.area === "all" || (r.area || "") === s.area).map(lcSiteOf))].sort((a, b) => a.localeCompare(b, "ja"));
+  if (s.site !== "all" && !sites.includes(s.site)) s.site = "all";
+  return `
+    <div class="lc-filters">
+      <div class="lc-chips">${[["all", "全員"], ["大阪", "大阪"], ["鳥取", "鳥取"]].map(([v, l]) => `<button class="lc-chip ${s.area === v ? "on" : ""}" onclick="lcSetArea('${v}')">${l}</button>`).join("")}</div>
+      <label class="lc-sitesel">現場 <select onchange="lcSetSite(this.value)"><option value="all">すべての現場</option>${sites.map(x => `<option value="${escapeHtml(x)}" ${s.site === x ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>
+    </div>`;
+}
+
+function renderLeaveCalendar() {
+  const s = lcState();
+  const todayStr = formatYmd(new Date());
+  const [y, m] = s.month.split("-").map(Number);
+  const first = new Date(y, m - 1, 1), last = new Date(y, m, 0).getDate();
+  const map = lcByDate(lcLeaves());
+  const counts = Object.keys(map).filter(d => d.startsWith(s.month)).map(d => [d, map[d].length]);
+  const total = counts.reduce((a, b) => a + b[1], 0);
+  const peak = counts.reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
+  const pendingN = lcLeaves().filter(r => r.date.startsWith(s.month) && r.status === "pending").length;
+  let cells = "";
+  for (let i = 0; i < first.getDay(); i++) cells += `<div class="lc-cell lc-out"></div>`;
+  for (let d = 1; d <= last; d++) {
+    const ds = `${y}-${pad2(m)}-${pad2(d)}`, w = new Date(y, m - 1, d).getDay();
+    const list = map[ds] || [], hn = jpHolidayName(y, m, d), off = w === 0 || w === 6 || !!hn;
+    const cls = ["lc-cell", w === 0 ? "sun" : "", w === 6 ? "sat" : "", off ? "off" : "", hn ? "hol" : "",
+      ds < todayStr ? "past" : "", ds === todayStr ? "today" : "", ds === s.sel ? "sel" : "", (peak[1] >= 4 && ds === peak[0]) ? "busiest" : ""].join(" ");
+    const groups = lcGroupBySite(list), shown = groups.slice(0, 5);
+    cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${list.length}人">
+      <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
+      ${list.length ? `<span class="cnt ${lcLv(list.length)}">${list.length}<span style="font-size:10px;font-weight:700;">人</span></span>` : ""}
+      <span class="names">${shown.map(([site, rs]) => `<span class="nm ${rs.some(r => r.status !== "approved") ? "pend" : ""}"><i style="background:${lcSiteColor(site)}"></i>${escapeHtml(site)}${rs.length > 1 ? `<b class="x">×${rs.length}</b>` : ""}</span>`).join("")}
+      ${groups.length > 5 ? `<span class="more">ほか${groups.length - 5}現場</span>` : ""}</span></button>`;
+  }
+  const selList = map[s.sel] || [];
+  return `
+    <div class="card">
+      <div class="row-between" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+        <p class="staff-title" style="font-size:16px; margin:0;">お休み予定</p>
+        ${lcViewSeg()}
+      </div>
+      <div class="row-between" style="margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="lc-nav" onclick="lcMove(-1)" aria-label="前の月">◀</button>
+          <div class="lc-month">${y}年${m}月</div>
+          <button class="lc-nav" onclick="lcMove(1)" aria-label="次の月">▶</button>
+          <button class="lc-nav wide" onclick="lcToday()">今日</button>
+        </div>
+      </div>
+      ${lcFilters()}
+      <div class="lc-summary">
+        <div class="lc-sum">この月の休み <b>${total}</b> 件</div>
+        ${peak[1] ? `<div class="lc-sum">いちばん多い日 <b>${Number(peak[0].slice(8))}日（${lcWd(peak[0])}）${peak[1]}人</b></div>` : ""}
+        ${pendingN ? `<div class="lc-sum" style="background:#fdf0d5;">決裁待ち <b>${pendingN}</b> 件</div>` : ""}
+      </div>
+      <div class="lc-head"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
+      <div class="lc-grid">${cells}</div>
+      <div class="lc-legend">
+        <span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span>
+      </div>
+      <p class="muted" style="font-size:11px; margin:8px 0 0;">否決・取り消しのものは出しません。日付を押すと、下にその日の方が現場ごとに出ます。決裁は下の「決裁待ちの休暇申請」からできます。</p>
+    </div>
+    <div class="card">
+      <p class="lc-detail-title">${lcJpDate(s.sel)}${s.sel === todayStr ? `<span style="color:var(--danger); font-size:13px; margin-left:8px;">今日</span>` : ""}</p>
+      <p class="muted" style="margin:0 0 6px;">${selList.length ? `${selList.length}人がお休みです` : "お休みの予定はありません"}</p>
+      ${lcGroupBySite(selList).map(([site, rs]) => `
+        <div class="lc-site-head"><i style="background:${lcSiteColor(site)}"></i>${escapeHtml(site)}<span class="n">${rs.length}人</span></div>
+        ${rs.map(r => lcPersonRow(r, false)).join("")}`).join("")}
+    </div>`;
+}
+
+// これから先（今日以降）の休み・有給の予定。「カレンダー」と「一覧」を切りかえて見られる
 function renderUpcomingLeaveCard() {
+  return lcState().view === "list" ? renderUpcomingLeaveList() : renderLeaveCalendar();
+}
+
+// これから先（今日以降）の休み・有給の予定を、日付順でまとめて表示する（一覧表示）
+function renderUpcomingLeaveList() {
   const todayStr = formatYmd(new Date());
   const list = (state.leaveRequests || [])
     .filter(r => r.status !== "rejected" && r.status !== "cancelled" && r.date && r.date >= todayStr)
@@ -3553,8 +3805,8 @@ function renderUpcomingLeaveCard() {
   return `
     <div class="card">
       <div class="row-between" style="margin-bottom:12px;">
-        <p class="staff-title" style="font-size:16px; margin:0;">これからのお休み予定（日付順）</p>
-        <span class="muted" style="font-size:13px;">${list.length}件</span>
+        <p class="staff-title" style="font-size:16px; margin:0;">これからのお休み予定（日付順）<span class="muted" style="font-size:13px; margin-left:8px;">${list.length}件</span></p>
+        ${lcViewSeg()}
       </div>
       ${list.length ? list.map(r => {
         const { label, urgency, soon } = leaveDateLabel(r.date);
@@ -3568,7 +3820,7 @@ function renderUpcomingLeaveCard() {
             <div class="row-between" style="margin:0; align-items:flex-start; gap:10px;">
               <div style="min-width:0;">
                 <div style="font-weight:700;">${escapeHtml(label)}${urgency ? `<span style="color:var(--danger); font-size:12px; margin-left:8px;">${urgency}</span>` : ""}</div>
-                <div style="margin-top:3px;">${escapeHtml(r.employeeName || "")}<span class="muted" style="margin-left:8px; font-size:13px;">${escapeHtml(r.area || "")}</span></div>
+                <div style="margin-top:3px;">${escapeHtml(r.employeeName || "")}<span class="muted" style="margin-left:8px; font-size:13px;">${escapeHtml(lcSiteOf(r))}</span></div>
                 <div class="muted" style="font-size:13px; margin-top:2px;"><span style="color:${typeColor[r.type] || "var(--text)"}; font-weight:600;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
                 ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${escapeHtml(r.substitute)}</div>` : ""}
               </div>

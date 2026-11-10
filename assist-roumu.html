@@ -685,7 +685,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-09(2)";
+const APP_VERSION = "更新: 2026-11-10";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3036,8 +3036,8 @@ function renderAdmin() {
     <main>
       ${renderOfficePushCard()}
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
         <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
+        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
         <div class="stat-card"><div class="num">${adminUnreadCount()}</div><div class="label">未読メッセージ</div></div>
         <div class="stat-card"><div class="num">${state.employees.filter(e => e.status !== "resigned").length || "-"}</div><div class="label">従業員在籍数</div></div>
       </div>

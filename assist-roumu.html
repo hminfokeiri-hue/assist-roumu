@@ -581,7 +581,7 @@
   .lc-person:last-child { border-bottom: 0; }
   /* 会社が把握しているお休み（2026-11-12 追加） */
   .lc-cell .nm.co { color: #5E35B1; font-weight: 700; }
-  .lc-cell .sdot { display: none; }
+  .lc-cell .snm { display: none; }
   .cpl-add { border: 1.5px solid #5E35B1; background: #fff; color: #5E35B1; border-radius: 12px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; width: auto; margin: 0; }
   .cpl-mini { font: inherit; font-size: 12.5px; font-weight: 700; padding: 6px 10px; border: 1.5px solid var(--border); background: #fff; border-radius: 10px; cursor: pointer; width: auto; margin: 0; color: var(--text); }
   .cpl-picklist { max-height: 260px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 8px; }
@@ -598,7 +598,9 @@
     .lc-cell { min-height: 54px; padding: 3px; border-radius: 8px; text-align: center; }
     .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: 30px; padding: 2px 0; font-size: 13px; text-align: center; }
     .lc-cell .names, .lc-cell .hn { display: none; }
-    .lc-cell .sdot { display: block; width: 8px; height: 8px; border-radius: 50%; background: #5E35B1; margin: 5px auto 0; }
+    .lc-cell.hs { display: flex; flex-direction: column; justify-content: flex-start; }
+    .lc-cell .snm { display: block; margin-top: 4px; }
+    .lc-cell .snm span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 8.5px; line-height: 1.25; font-weight: 700; color: #5E35B1; word-break: break-all; margin-bottom: 2px; text-align: center; }
     .lc-month { font-size: 17px; min-width: 7em; }
   }
 </style>
@@ -700,7 +702,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-12(3)";
+const APP_VERSION = "更新: 2026-11-12(4)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3773,7 +3775,7 @@ function renderLeaveCalendar() {
   for (let d = 1; d <= last; d++) {
     const ds = `${y}-${pad2(m)}-${pad2(d)}`, w = new Date(y, m - 1, d).getDay();
     const list = map[ds] || [], hn = jpHolidayName(y, m, d), off = w === 0 || w === 6 || !!hn;
-    const cls = ["lc-cell", w === 0 ? "sun" : "", w === 6 ? "sat" : "", off ? "off" : "", hn ? "hol" : "",
+    const cls = ["lc-cell", (siteMap[ds] || []).length ? "hs" : "", w === 0 ? "sun" : "", w === 6 ? "sat" : "", off ? "off" : "", hn ? "hol" : "",
       ds < todayStr ? "past" : "", ds === todayStr ? "today" : "", ds === s.sel ? "sel" : "", (peak[1] >= 4 && ds === peak[0]) ? "busiest" : ""].join(" ");
     const sitesToday = siteMap[ds] || [];
     // 現場だけの入力（紫の文字）→ 申請など → 会社が把握している方（紫の文字）の順に並べる
@@ -3786,7 +3788,7 @@ function renderLeaveCalendar() {
     cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${list.length}人">
       <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
       ${list.length ? `<span class="cnt ${lcLv(list.length)}">${list.length}<span style="font-size:10px;font-weight:700;">人</span></span>` : ""}
-      ${sitesToday.length ? `<span class="sdot"></span>` : ""}
+      ${sitesToday.length ? `<span class="snm">${Array.from(new Set(sitesToday.map(r => r.site))).slice(0, 2).map(n => `<span>${escapeHtml(n)}</span>`).join("")}</span>` : ""}
       <span class="names">${shown.map(it => it.closure
         ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}</span>`
         : `<span class="nm ${it.co ? "co" : (it.rs.some(r => r.status !== "approved") ? "pend" : "")}"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}${it.rs.length > 1 ? `<b class="x">×${it.rs.length}</b>` : ""}</span>`).join("")}

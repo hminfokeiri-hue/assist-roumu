@@ -580,7 +580,8 @@
   .lc-person { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed var(--border); }
   .lc-person:last-child { border-bottom: 0; }
   /* 会社が把握しているお休み（2026-11-12 追加） */
-  .lc-cell .nm .co { margin-left: 3px; font-size: 10px; background: #ede7f6; color: #5E35B1; border-radius: 4px; padding: 0 4px; font-weight: 800; }
+  .lc-cell .nm.co { color: #5E35B1; font-weight: 700; }
+  .lc-cell .scnt { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 800; color: #5E35B1; background: #ede7f6; border-radius: 8px; padding: 0 6px; text-align: center; line-height: 1.5; }
   .cpl-add { border: 1.5px solid #5E35B1; background: #fff; color: #5E35B1; border-radius: 12px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; width: auto; margin: 0; }
   .cpl-mini { font: inherit; font-size: 12.5px; font-weight: 700; padding: 6px 10px; border: 1.5px solid var(--border); background: #fff; border-radius: 10px; cursor: pointer; width: auto; margin: 0; color: var(--text); }
   .cpl-picklist { max-height: 260px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 8px; }
@@ -597,6 +598,8 @@
     .lc-cell { min-height: 54px; padding: 3px; border-radius: 8px; text-align: center; }
     .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: 30px; padding: 2px 0; font-size: 13px; text-align: center; }
     .lc-cell .names, .lc-cell .hn { display: none; }
+    .lc-cell .scnt { font-size: 9px; padding: 0 1px; margin-top: 4px; white-space: nowrap; letter-spacing: -0.3px; }
+    .lc-cell .scnt .x2 { display: none; }
     .lc-month { font-size: 17px; min-width: 7em; }
   }
 </style>
@@ -698,7 +701,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-12";
+const APP_VERSION = "更新: 2026-11-12(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3744,7 +3747,7 @@ function lcViewSeg() {
 }
 function lcFilters() {
   const s = lcState();
-  const sites = [...new Set(lcRawAll().filter(r => s.area === "all" || (r.area || "") === s.area).map(lcSiteOf))].sort((a, b) => a.localeCompare(b, "ja"));
+  const sites = [...new Set(lcRawAll().filter(r => s.area === "all" || (r.area || "") === s.area).map(lcSiteOf).concat(cplSiteRecords().filter(r => s.area === "all" || (r.area || "") === s.area).map(r => r.site)))].sort((a, b) => a.localeCompare(b, "ja"));
   if (s.site !== "all" && !sites.includes(s.site)) s.site = "all";
   return `
     <div class="lc-filters">
@@ -3759,11 +3762,13 @@ function renderLeaveCalendar() {
   const [y, m] = s.month.split("-").map(Number);
   const first = new Date(y, m - 1, 1), last = new Date(y, m, 0).getDate();
   const map = lcByDate(lcLeaves());
+  const siteMap = lcByDate(lcSiteLeaves());
   const counts = Object.keys(map).filter(d => d.startsWith(s.month)).map(d => [d, map[d].length]);
   const total = counts.reduce((a, b) => a + b[1], 0);
   const peak = counts.reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
   const pendingN = lcLeaves().filter(r => r.date.startsWith(s.month) && r.status === "pending").length;
   const cplN = lcLeaves().filter(r => r.date.startsWith(s.month) && r.status === "company").length;
+  const cplSiteN = lcSiteLeaves().filter(r => r.date.startsWith(s.month)).length;
   let cells = "";
   for (let i = 0; i < first.getDay(); i++) cells += `<div class="lc-cell lc-out"></div>`;
   for (let d = 1; d <= last; d++) {
@@ -3771,14 +3776,23 @@ function renderLeaveCalendar() {
     const list = map[ds] || [], hn = jpHolidayName(y, m, d), off = w === 0 || w === 6 || !!hn;
     const cls = ["lc-cell", w === 0 ? "sun" : "", w === 6 ? "sat" : "", off ? "off" : "", hn ? "hol" : "",
       ds < todayStr ? "past" : "", ds === todayStr ? "today" : "", ds === s.sel ? "sel" : "", (peak[1] >= 4 && ds === peak[0]) ? "busiest" : ""].join(" ");
-    const groups = lcGroupBySite(list), shown = groups.slice(0, 5);
+    const sitesToday = siteMap[ds] || [];
+    // 現場のお休み → 申請など → 会社が把握している方（紫の文字）の順に並べる
+    const items = sitesToday.map(r => ({ closure: true, site: r.site }))
+      .concat(lcGroupBySite(list.filter(r => r.status !== "company")).map(([site, rs]) => ({ site, rs, co: false })))
+      .concat(lcGroupBySite(list.filter(r => r.status === "company")).map(([site, rs]) => ({ site, rs, co: true })));
+    const shown = items.slice(0, 5);
     cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${list.length}人">
       <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
       ${list.length ? `<span class="cnt ${lcLv(list.length)}">${list.length}<span style="font-size:10px;font-weight:700;">人</span></span>` : ""}
-      <span class="names">${shown.map(([site, rs]) => `<span class="nm ${rs.some(r => r.status !== "approved" && r.status !== "company") ? "pend" : ""}"><i style="background:${lcSiteColor(site)}"></i>${escapeHtml(site)}${rs.length > 1 ? `<b class="x">×${rs.length}</b>` : ""}${rs.some(r => r.status === "company") ? `<b class="co">会</b>` : ""}</span>`).join("")}
-      ${groups.length > 5 ? `<span class="more">ほか${groups.length - 5}現場</span>` : ""}</span></button>`;
+      ${sitesToday.length ? `<span class="scnt">現場休み${sitesToday.length > 1 ? `<span class="x2">×${sitesToday.length}</span>` : ""}</span>` : ""}
+      <span class="names">${shown.map(it => it.closure
+        ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}（現場休み）</span>`
+        : `<span class="nm ${it.co ? "co" : (it.rs.some(r => r.status !== "approved") ? "pend" : "")}"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}${it.rs.length > 1 ? `<b class="x">×${it.rs.length}</b>` : ""}</span>`).join("")}
+      ${items.length > 5 ? `<span class="more">ほか${items.length - 5}現場</span>` : ""}</span></button>`;
   }
   const selList = map[s.sel] || [];
+  const selSites = siteMap[s.sel] || [];
   return `
     <div class="card" id="lcCalCard">
       <div class="row-between" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
@@ -3799,17 +3813,21 @@ function renderLeaveCalendar() {
         ${peak[1] ? `<div class="lc-sum">いちばん多い日 <b>${Number(peak[0].slice(8))}日（${lcWd(peak[0])}）${peak[1]}人</b></div>` : ""}
         ${pendingN ? `<div class="lc-sum" style="background:#fdf0d5;">決裁待ち <b>${pendingN}</b> 件</div>` : ""}
         ${cplN ? `<div class="lc-sum" style="background:#ede7f6;">うち会社が把握 <b>${cplN}</b> 件</div>` : ""}
+        ${cplSiteN ? `<div class="lc-sum" style="background:#ede7f6;">現場のお休み <b>${cplSiteN}</b> 件</div>` : ""}
       </div>
       <div class="lc-head"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
       <div class="lc-grid">${cells}</div>
       <div class="lc-legend">
-        <span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>「会」＝会社が把握しているお休みを含む</span>
+        <span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>紫の文字＝会社が把握しているお休み</span>
       </div>
       <p class="muted" style="font-size:11px; margin:8px 0 0;">否決・取り消しのものは出しません。日付を押すと、下にその日の方が現場ごとに出ます。決裁は下の「決裁待ちの休暇申請」からできます。会社が把握しているお休み（長期休暇など）も一緒に出ます（入力は下の紫の枠から）。</p>
     </div>
     <div class="card">
       <p class="lc-detail-title">${lcJpDate(s.sel)}${s.sel === todayStr ? `<span style="color:var(--danger); font-size:13px; margin-left:8px;">今日</span>` : ""}</p>
-      <p class="muted" style="margin:0 0 6px;">${selList.length ? `${selList.length}人がお休みです` : "お休みの予定はありません"}</p>
+      <p class="muted" style="margin:0 0 6px;">${selList.length ? `${selList.length}人がお休みです` : (selSites.length ? "お休みの方の予定はありません" : "お休みの予定はありません")}</p>
+      ${selSites.length ? `
+        <div class="lc-site-head" style="background:#ede7f6;"><i style="background:#5E35B1"></i>現場のお休み<span class="n" style="color:#5E35B1;">${selSites.length}か所</span></div>
+        ${selSites.map(lcSiteRow).join("")}` : ""}
       ${lcGroupBySite(selList).map(([site, rs]) => `
         <div class="lc-site-head"><i style="background:${lcSiteColor(site)}"></i>${escapeHtml(site)}<span class="n">${rs.length}人</span></div>
         ${rs.map(r => lcPersonRow(r, false)).join("")}`).join("")}
@@ -4088,15 +4106,25 @@ function exportPastLeaveToExcel() {
    保存先は従業員の名簿（employees）の companyLeaves（社内用・従業員の画面には出しません）。
    1件＝ { id, batch, dates:["2026-12-01", …], kind, memo, createdAt }
    ＊ 同じ入力でまとめて登録した方どうしは、同じ batch でつながっています。
+   ＊ 従業員ではなく「現場のお休み」（休館・閉庁など）だけを入れることもできます（2026-11-12(2) 追加）。
+     保存先は settings/envelope の companySiteLeaves（Firebaseのルールを変えなくて済むよう、
+     すでに使っている設定の書類にいっしょに入れています）。
+     1件＝ { id, batch, site, dates:[…], kind, memo, createdAt }
    ========================================================= */
 const CPL_KINDS = ["長期休暇", "会社の指定休（年末年始・お盆など）", "休職・療養", "産休・育休・介護休業", "その他"];
+const CPL_SITE_KINDS = ["現場の休み（休館・閉庁・年末年始など）", "清掃・作業なし", "その他"];
+const CPL_DOW = ["日", "月", "火", "水", "木", "金", "土"];
 const CPL_MAX_DAYS = 400; // 1回の入力で扱える期間の上限（日）
 
 function cplOf(emp) { return Array.isArray((emp || {}).companyLeaves) ? emp.companyLeaves : []; }
+function cplSitesOf() { return Array.isArray(state.cplSites) ? state.cplSites : []; }
 
 function cplState() {
   if (!state.cpl) {
-    state.cpl = { open: false, sel: {}, q: "", area: "all", site: "all", start: "", end: "", mode: "shift", kind: CPL_KINDS[0], memo: "" };
+    state.cpl = {
+      open: false, target: "emp", sel: {}, q: "", area: "all", site: "all", start: "", end: "", mode: "shift", kind: CPL_KINDS[0], memo: "",
+      siteSel: {}, siteCustom: [], siteNew: "", smode: "weekday", dows: {}, skind: CPL_SITE_KINDS[0]
+    };
   }
   return state.cpl;
 }
@@ -4112,6 +4140,37 @@ function cplRecords() {
     })));
   });
   return out;
+}
+
+// 現場の所属エリア（その現場で働く在籍の方のエリアのうち、いちばん多いもの。分からなければ空）
+function cplSiteArea(site) {
+  const cnt = {};
+  (state.employees || []).forEach(e => {
+    if (e.status === "resigned" || !e.area) return;
+    if ((e.workplace || "").trim() === site) cnt[e.area] = (cnt[e.area] || 0) + 1;
+  });
+  let best = "", n = 0;
+  Object.keys(cnt).forEach(a => { if (cnt[a] > n) { best = a; n = cnt[a]; } });
+  return best;
+}
+// カレンダー用：現場のお休みを、1日ぶんを1件として取り出す
+function cplSiteRecords() {
+  const out = [];
+  cplSitesOf().forEach(L => {
+    const area = cplSiteArea(L.site);
+    (L.dates || []).forEach(ds => out.push({
+      id: "cps_" + L.id + "_" + ds, site: L.site || "", area, date: ds,
+      type: L.kind || "現場の休み", reason: L.memo || "", status: "companySite", cplEntryId: L.id
+    }));
+  });
+  return out;
+}
+// 現場のお休み（エリア・現場の絞り込みつき）
+function lcSiteLeaves() {
+  const s = lcState();
+  return cplSiteRecords().filter(r =>
+    (s.area === "all" || (r.area || "") === s.area) &&
+    (s.site === "all" || r.site === s.site));
 }
 
 function cplNorm(s) { return String(s || "").replace(/[\s　]/g, "").toLowerCase(); }
@@ -4139,7 +4198,7 @@ function cplSelectedEmps() {
   return cplActiveEmps().filter(e => s.sel[e.id]);
 }
 
-// はじめの日〜終わりの日のうち、入れる日を求める。
+// はじめの日〜終わりの日のうち、入れる日を求める（従業員）。
 // mode: shift＝その方のシフトの曜日だけ／weekday＝土日・祝日をのぞく毎日／all＝毎日
 function cplExpand(emp, start, end, mode) {
   const out = [];
@@ -4163,6 +4222,23 @@ function cplExpand(emp, start, end, mode) {
   }
   return { dates: out, noShift };
 }
+// 入れる日を求める（現場）。mode: weekday＝土日・祝日をのぞく毎日／all＝毎日／dow＝えらんだ曜日だけ
+function cplExpandSite(start, end, mode, dows) {
+  const out = [];
+  if (!start || !end || end < start) return out;
+  let d = start, guard = 0;
+  while (d && d <= end && guard < CPL_MAX_DAYS + 5) {
+    const dow = weekdayOfYmd(d);
+    let ok;
+    if (mode === "all") ok = true;
+    else if (mode === "dow") ok = !!(dows || {})[dow];
+    else { const [y, m, dd] = d.split("-").map(Number); ok = dow !== 0 && dow !== 6 && !jpHolidayName(y, m, dd); }
+    if (ok) out.push(d);
+    d = addDays(d, 1);
+    guard++;
+  }
+  return out;
+}
 
 // えらんだ方ごとの「入る日」。すでに会社把握として入っている日は、重ねないようにのぞく
 function cplPlan() {
@@ -4173,6 +4249,28 @@ function cplPlan() {
     cplOf(e).forEach(L => (L.dates || []).forEach(d => have.add(d)));
     const dates = all.dates.filter(d => !have.has(d));
     return { emp: e, dates, dup: all.dates.length - dates.length, noShift: all.noShift };
+  });
+}
+// えらんだ現場ごとの「入る日」
+function cplSiteChoices() {
+  const s = cplState();
+  const set = new Set();
+  (state.employees || []).forEach(e => { if (e.status !== "resigned") { const w = (e.workplace || "").trim(); if (w) set.add(w); } });
+  cplSitesOf().forEach(L => { if (L.site) set.add(L.site); });
+  s.siteCustom.forEach(x => set.add(x));
+  return [...set].sort((a, b) => a.localeCompare(b, "ja"));
+}
+function cplSiteStaffCount(site) {
+  return (state.employees || []).filter(e => e.status !== "resigned" && (e.workplace || "").trim() === site).length;
+}
+function cplSitePlan() {
+  const s = cplState();
+  const all = cplExpandSite(s.start, s.end, s.smode, s.dows);
+  return cplSiteChoices().filter(w => s.siteSel[w]).map(w => {
+    const have = new Set();
+    cplSitesOf().forEach(L => { if (L.site === w) (L.dates || []).forEach(d => have.add(d)); });
+    const dates = all.filter(d => !have.has(d));
+    return { site: w, dates, dup: all.length - dates.length };
   });
 }
 
@@ -4187,9 +4285,28 @@ function cplPickListHtml() {
       <span class="muted" style="font-size:11.5px;">${escapeHtml(e.area || "")}${e.workplace ? "・" + escapeHtml(e.workplace) : ""}</span>
     </label>`).join("");
 }
+function cplSitePickHtml() {
+  const s = cplState();
+  const list = cplSiteChoices();
+  if (!list.length) return `<p class="muted" style="margin:8px;">現場が登録されていません。下の欄に現場名を入れて「追加」を押してください。</p>`;
+  return list.map(w => {
+    const n = cplSiteStaffCount(w);
+    return `
+    <label class="cpl-pick ${s.siteSel[w] ? "on" : ""}">
+      <input type="checkbox" ${s.siteSel[w] ? "checked" : ""} data-site="${escapeHtml(w)}" onchange="cplToggleSite(this)" />
+      <span>${escapeHtml(w)}</span>
+      <span class="muted" style="font-size:11.5px;">${n ? n + "名" : "名簿に方なし"}</span>
+    </label>`;
+  }).join("");
+}
 
 function cplSelSummaryHtml() {
   const s = cplState();
+  if (s.target === "site") {
+    const sel = cplSiteChoices().filter(w => s.siteSel[w]);
+    if (!sel.length) return `<span class="muted">まだ現場を選んでいません</span>`;
+    return `選んだ現場：<b>${sel.length}か所</b>　<span class="muted">${sel.slice(0, 8).map(escapeHtml).join("、")}${sel.length > 8 ? ` ほか${sel.length - 8}か所` : ""}</span>`;
+  }
   const sel = cplSelectedEmps();
   if (!sel.length) return `<span class="muted">まだだれも選んでいません</span>`;
   const shownIds = new Set(cplShownEmps().map(e => e.id));
@@ -4200,49 +4317,84 @@ function cplSelSummaryHtml() {
 
 function cplPreviewHtml() {
   const s = cplState();
-  const rows = cplPlan();
-  if (!rows.length) return `<p class="muted" style="margin:0;">「① 対象の方」をえらぶと、ここに入る日数が出ます。</p>`;
-  if (!s.start || !s.end) return `<p class="muted" style="margin:0;">選んだ方：${rows.length}名。「② 期間」を入れると、入る日数が出ます。</p>`;
+  const isSite = s.target === "site";
+  const rows = isSite ? cplSitePlan() : cplPlan();
+  const unit = isSite ? "か所" : "名";
+  if (!rows.length) return `<p class="muted" style="margin:0;">「① 対象の${isSite ? "現場" : "方"}」をえらぶと、ここに入る日数が出ます。</p>`;
+  if (!s.start || !s.end) return `<p class="muted" style="margin:0;">選んだ${isSite ? "現場" : "方"}：${rows.length}${unit}。「② 期間」を入れると、入る日数が出ます。</p>`;
   if (s.end < s.start) return `<p style="margin:0; color:var(--danger); font-weight:700;">終わりの日が、はじめの日より前になっています。</p>`;
   if (llDays(s.start, s.end) > CPL_MAX_DAYS) return `<p style="margin:0; color:var(--danger); font-weight:700;">期間が長すぎます（${CPL_MAX_DAYS}日以内）。分けて登録してください。</p>`;
+  if (isSite && s.smode === "dow" && !CPL_DOW.some((_, i) => s.dows[i])) return `<p style="margin:0; color:var(--danger); font-weight:700;">曜日を1つ以上えらんでください。</p>`;
   const total = rows.reduce((a, r) => a + r.dates.length, 0);
   const noDay = rows.filter(r => !r.dates.length).length;
   const note = r => {
     const t = [];
-    if (r.noShift) t.push("シフト未登録のため土日・祝日をのぞく毎日");
-    else if (s.mode === "shift") t.push(`シフト：${escapeHtml(shiftSummary(r.emp) || "")}`);
+    if (!isSite) {
+      if (r.noShift) t.push("シフト未登録のため土日・祝日をのぞく毎日");
+      else if (s.mode === "shift") t.push(`シフト：${escapeHtml(shiftSummary(r.emp) || "")}`);
+    }
     if (r.dup) t.push(`すでに入っている${r.dup}日はのぞきました`);
     if (!r.dates.length) t.push("入る日がありません");
     return t.join("／");
   };
   return `
-    <p style="margin:0 0 6px;"><b>${rows.length}名</b>、のべ <b>${total}日分</b> が入ります${noDay ? `<span class="muted">（うち ${noDay}名は入る日がありません）</span>` : ""}</p>
+    <p style="margin:0 0 6px;"><b>${rows.length}${unit}</b>、のべ <b>${total}日分</b> が入ります${noDay ? `<span class="muted">（うち ${noDay}${unit}は入る日がありません）</span>` : ""}</p>
     <table style="font-size:13px;">
-      <thead><tr><th>氏名</th><th style="text-align:right;">日数</th><th>メモ</th></tr></thead>
+      <thead><tr><th>${isSite ? "現場" : "氏名"}</th><th style="text-align:right;">日数</th><th>メモ</th></tr></thead>
       <tbody>
-        ${rows.slice(0, 12).map(r => `<tr><td>${escapeHtml(r.emp.name || "")}</td><td style="text-align:right; font-weight:700;">${r.dates.length}日</td><td class="muted" style="font-size:12px;">${note(r)}</td></tr>`).join("")}
-        ${rows.length > 12 ? `<tr><td colspan="3" class="muted">ほか ${rows.length - 12}名</td></tr>` : ""}
+        ${rows.slice(0, 12).map(r => `<tr><td>${escapeHtml(isSite ? r.site : (r.emp.name || ""))}</td><td style="text-align:right; font-weight:700;">${r.dates.length}日</td><td class="muted" style="font-size:12px;">${note(r)}</td></tr>`).join("")}
+        ${rows.length > 12 ? `<tr><td colspan="3" class="muted">ほか ${rows.length - 12}${unit}</td></tr>` : ""}
       </tbody>
     </table>`;
 }
 
-function cplFormHtml() {
+/* ----- 入力画面（従業員をえらぶ／現場をえらぶ） ----- */
+function cplRadio(name, v, cur, title, sub) {
+  return `
+    <label class="cpl-radio"><input type="radio" name="${name}" value="${v}" ${cur === v ? "checked" : ""} onchange="cplSetField('${name === "cplSMode" ? "smode" : "mode"}', this.value)" />
+      <span><b>${title}</b><br><span class="muted" style="font-size:12px;">${sub}</span></span></label>`;
+}
+function cplPeriodHtml() {
+  const s = cplState();
+  return `
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
+        <div><label style="font-size:12px; margin-top:0;">はじめの日</label><input id="cplStart" type="date" value="${escapeHtml(s.start)}" onchange="cplSetField('start', this.value)" style="font-size:14px; padding:10px;" /></div>
+        <div><label style="font-size:12px; margin-top:0;">終わりの日</label><input id="cplEnd" type="date" value="${escapeHtml(s.end)}" onchange="cplSetField('end', this.value)" style="font-size:14px; padding:10px;" /></div>
+      </div>`;
+}
+function cplKindMemoHtml(kinds, cur, key) {
+  const s = cplState();
+  const list = kinds.includes(cur) ? kinds : kinds.concat([cur]);
+  return `
+      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
+        <div><label style="font-size:12px; margin-top:0;">区分</label><select id="cpl_${key}" onchange="cplSetField('${key}', this.value)" style="font-size:14px; padding:10px;">${list.map(k => `<option value="${escapeHtml(k)}" ${k === cur ? "selected" : ""}>${escapeHtml(k)}</option>`).join("")}</select></div>
+        <div><label style="font-size:12px; margin-top:0;">メモ（社内用・にんい）</label><input id="cplMemo" type="text" value="${escapeHtml(s.memo)}" placeholder="例：年末年始のお休み" oninput="cplSetField('memo', this.value)" style="font-size:14px; padding:10px;" /></div>
+      </div>`;
+}
+function cplTailHtml() {
+  return `
+      <p style="font-weight:700; margin:16px 0 6px;">④ 入る内容のかくにん</p>
+      <div id="cplPreview" style="background:#fff; border:1.5px solid var(--border); border-radius:10px; padding:10px 12px;">${cplPreviewHtml()}</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+        <button class="primary" style="width:auto; margin:0; padding:12px 22px; background:#5E35B1;" onclick="cplRegister()">この内容で登録する</button>
+        <button class="secondary" style="width:auto; margin:0; padding:12px 18px; color:var(--text); border-color:var(--border);" onclick="cplToggleForm()">とじる</button>
+      </div>
+      <p class="muted" style="font-size:11.5px; margin:8px 0 0;">登録するとカレンダーに出ます。有給の残り日数や、勤怠の記録には入りません。まちがえたときは、下の一覧から消せます。</p>`;
+}
+
+function cplEmpFormInner() {
   const s = cplState();
   const act = cplActiveEmps();
   const areas = [...new Set(act.map(e => e.area || "").filter(Boolean))];
   const sites = [...new Set(act.filter(e => s.area === "all" || (e.area || "") === s.area).map(e => (e.workplace || "").trim() || LC_NOSITE))].sort((a, b) => a.localeCompare(b, "ja"));
   if (s.site !== "all" && !sites.includes(s.site)) s.site = "all";
-  const kinds = CPL_KINDS.includes(s.kind) ? CPL_KINDS : CPL_KINDS.concat([s.kind]);
-  const radio = (v, title, sub) => `
-    <label class="cpl-radio"><input type="radio" name="cplMode" value="${v}" ${s.mode === v ? "checked" : ""} onchange="cplSetField('mode', this.value)" />
-      <span><b>${title}</b><br><span class="muted" style="font-size:12px;">${sub}</span></span></label>`;
   return `
-    <div style="padding:14px; border-radius:10px; background:#F7F4FC; border:1.5px solid #D1C4E9; margin-bottom:12px;">
       <p style="font-weight:700; margin:0 0 6px;">① 対象の方をえらぶ（何人でもまとめて選べます）</p>
       <div class="lc-filters">
         <div class="lc-chips">${[["all", "全員"]].concat(areas.map(a => [a, a])).map(([v, l]) => `<button class="lc-chip ${s.area === v ? "on" : ""}" onclick="cplSetFilter('area','${escapeHtml(v)}')">${escapeHtml(l)}</button>`).join("")}</div>
         <label class="lc-sitesel">現場 <select onchange="cplSetFilter('site', this.value)"><option value="all">すべての現場</option>${sites.map(x => `<option value="${escapeHtml(x)}" ${s.site === x ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>
       </div>
+      <p class="muted" style="font-size:12px; margin:6px 0 0;">現場をえらんで「表示中の方を全員えらぶ」を押すと、その現場の方をまとめて選べます。（方は選ばず、現場だけを入れたいときは、上の「現場をえらぶ」を使います）</p>
       <input id="cplQ" type="text" placeholder="名前・フリガナ・現場で さがす" value="${escapeHtml(s.q)}" oninput="cplSearch(this.value)" style="margin-top:8px; font-size:14px; padding:10px;" />
       <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
         <button class="cpl-mini" onclick="cplSelectShown(true)">表示中の方を全員えらぶ</button>
@@ -4253,29 +4405,56 @@ function cplFormHtml() {
       <div id="cplSelSummary" style="font-size:13px; margin-top:8px;">${cplSelSummaryHtml()}</div>
 
       <p style="font-weight:700; margin:16px 0 6px;">② 期間と、入れる日</p>
-      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
-        <div><label style="font-size:12px; margin-top:0;">はじめの日</label><input id="cplStart" type="date" value="${escapeHtml(s.start)}" onchange="cplSetField('start', this.value)" style="font-size:14px; padding:10px;" /></div>
-        <div><label style="font-size:12px; margin-top:0;">終わりの日</label><input id="cplEnd" type="date" value="${escapeHtml(s.end)}" onchange="cplSetField('end', this.value)" style="font-size:14px; padding:10px;" /></div>
-      </div>
+      ${cplPeriodHtml()}
       <div style="margin-top:6px;">
-        ${radio("shift", "その方のシフトの曜日だけ（おすすめ）", "たとえば月・水・金のシフトの方は、その曜日だけが休みとして入ります。")}
-        ${radio("weekday", "土日・祝日をのぞく毎日", "シフトに関係なく、平日をすべて入れます。")}
-        ${radio("all", "土日・祝日もふくめて毎日", "期間のすべての日を入れます。")}
+        ${cplRadio("cplMode", "shift", s.mode, "その方のシフトの曜日だけ（おすすめ）", "たとえば月・水・金のシフトの方は、その曜日だけが休みとして入ります。")}
+        ${cplRadio("cplMode", "weekday", s.mode, "土日・祝日をのぞく毎日", "シフトに関係なく、平日をすべて入れます。")}
+        ${cplRadio("cplMode", "all", s.mode, "土日・祝日もふくめて毎日", "期間のすべての日を入れます。")}
       </div>
 
       <p style="font-weight:700; margin:14px 0 6px;">③ 区分とメモ</p>
-      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px 12px;">
-        <div><label style="font-size:12px; margin-top:0;">区分</label><select id="cplKind" onchange="cplSetField('kind', this.value)" style="font-size:14px; padding:10px;">${kinds.map(k => `<option value="${escapeHtml(k)}" ${k === s.kind ? "selected" : ""}>${escapeHtml(k)}</option>`).join("")}</select></div>
-        <div><label style="font-size:12px; margin-top:0;">メモ（社内用・にんい）</label><input id="cplMemo" type="text" value="${escapeHtml(s.memo)}" placeholder="例：年末年始の会社のお休み" oninput="cplSetField('memo', this.value)" style="font-size:14px; padding:10px;" /></div>
-      </div>
+      ${cplKindMemoHtml(CPL_KINDS, s.kind, "kind")}
+      ${cplTailHtml()}`;
+}
 
-      <p style="font-weight:700; margin:16px 0 6px;">④ 入る内容のかくにん</p>
-      <div id="cplPreview" style="background:#fff; border:1.5px solid var(--border); border-radius:10px; padding:10px 12px;">${cplPreviewHtml()}</div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
-        <button class="primary" style="width:auto; margin:0; padding:12px 22px; background:#5E35B1;" onclick="cplRegister()">この内容で登録する</button>
-        <button class="secondary" style="width:auto; margin:0; padding:12px 18px; color:var(--text); border-color:var(--border);" onclick="cplToggleForm()">とじる</button>
+function cplSiteFormInner() {
+  const s = cplState();
+  return `
+      <p style="font-weight:700; margin:0 0 6px;">① 現場をえらぶ（従業員は選びません・何か所でもまとめて選べます）</p>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin:0 0 8px;">
+        <button class="cpl-mini" onclick="cplSiteSelectAll(true)">全部の現場をえらぶ</button>
+        <button class="cpl-mini" onclick="cplSiteSelectAll(false)">えらびを ぜんぶ消す</button>
       </div>
-      <p class="muted" style="font-size:11.5px; margin:8px 0 0;">登録するとカレンダーに出ます。有給の残り日数や、勤怠の記録には入りません。まちがえたときは、下の一覧から消せます。</p>
+      <div id="cplPickList" class="cpl-picklist">${cplSitePickHtml()}</div>
+      <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+        <input id="cplSiteNew" type="text" value="${escapeHtml(s.siteNew)}" placeholder="リストにない現場は、名前を入れて「追加」" oninput="cplSetField('siteNew', this.value)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); cplAddSite();}" style="font-size:14px; padding:10px;" />
+        <button class="cpl-mini" style="padding:10px 14px; flex:none;" onclick="cplAddSite()">追加</button>
+      </div>
+      <div id="cplSelSummary" style="font-size:13px; margin-top:8px;">${cplSelSummaryHtml()}</div>
+
+      <p style="font-weight:700; margin:16px 0 6px;">② 期間と、入れる日</p>
+      ${cplPeriodHtml()}
+      <div style="margin-top:6px;">
+        ${cplRadio("cplSMode", "weekday", s.smode, "土日・祝日をのぞく毎日", "平日をすべて入れます。")}
+        ${cplRadio("cplSMode", "all", s.smode, "土日・祝日もふくめて毎日", "期間のすべての日を入れます。")}
+        ${cplRadio("cplSMode", "dow", s.smode, "曜日をえらぶ", "たとえば「毎週水曜日」だけ休みのとき。")}
+      </div>
+      ${s.smode === "dow" ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 0 26px;">${CPL_DOW.map((w, i) => `<label class="cpl-pick ${s.dows[i] ? "on" : ""}" style="border:1.5px solid var(--border); background:#fff;"><input type="checkbox" ${s.dows[i] ? "checked" : ""} onchange="cplToggleDow(${i}, this)" />${w}</label>`).join("")}</div>` : ""}
+
+      <p style="font-weight:700; margin:14px 0 6px;">③ 区分とメモ</p>
+      ${cplKindMemoHtml(CPL_SITE_KINDS, s.skind, "skind")}
+      ${cplTailHtml()}`;
+}
+
+function cplFormHtml() {
+  const s = cplState();
+  return `
+    <div style="padding:14px; border-radius:10px; background:#F7F4FC; border:1.5px solid #D1C4E9; margin-bottom:12px;">
+      <div class="lc-seg" style="margin-bottom:12px;">
+        <button class="${s.target === "emp" ? "on" : ""}" onclick="cplSetTarget('emp')">従業員をえらぶ</button>
+        <button class="${s.target === "site" ? "on" : ""}" onclick="cplSetTarget('site')">現場をえらぶ（現場のお休み）</button>
+      </div>
+      ${s.target === "site" ? cplSiteFormInner() : cplEmpFormInner()}
     </div>`;
 }
 
@@ -4284,12 +4463,14 @@ function cplScrollTo(id) { const el = document.getElementById(id); if (el && el.
 function cplToggleForm() { const s = cplState(); s.open = !s.open; render(); if (s.open) cplScrollTo("cplCard"); }
 function cplOpenFromCalendar() { cplState().open = true; render(); cplScrollTo("cplCard"); }
 function cplRefreshForm() { const box = document.getElementById("cplFormBox"); if (box) box.innerHTML = cplFormHtml(); }
+function cplSetTarget(t) { cplState().target = t; cplRefreshForm(); }
 function cplRefreshSummary() {
   const a = document.getElementById("cplSelSummary"); if (a) a.innerHTML = cplSelSummaryHtml();
   const b = document.getElementById("cplPreview"); if (b) b.innerHTML = cplPreviewHtml();
 }
 function cplRefreshPick() {
-  const a = document.getElementById("cplPickList"); if (a) a.innerHTML = cplPickListHtml();
+  const s = cplState();
+  const a = document.getElementById("cplPickList"); if (a) a.innerHTML = s.target === "site" ? cplSitePickHtml() : cplPickListHtml();
   cplRefreshSummary();
 }
 function cplSetFilter(k, v) { const s = cplState(); s[k] = v; if (k === "area") s.site = "all"; cplRefreshForm(); }
@@ -4300,12 +4481,40 @@ function cplToggle(id, el) {
   if (el.parentNode && el.parentNode.classList) el.parentNode.classList.toggle("on", el.checked);
   cplRefreshSummary();
 }
+function cplToggleSite(el) {
+  const s = cplState();
+  const w = el.dataset.site;
+  if (el.checked) s.siteSel[w] = true; else delete s.siteSel[w];
+  if (el.parentNode && el.parentNode.classList) el.parentNode.classList.toggle("on", el.checked);
+  cplRefreshSummary();
+}
+function cplToggleDow(i, el) {
+  const s = cplState();
+  if (el.checked) s.dows[i] = true; else delete s.dows[i];
+  if (el.parentNode && el.parentNode.classList) el.parentNode.classList.toggle("on", el.checked);
+  cplRefreshSummary();
+}
+function cplAddSite() {
+  const s = cplState();
+  const inp = document.getElementById("cplSiteNew");
+  const v = ((inp && inp.value) || s.siteNew || "").trim();
+  if (!v) return alert("現場の名前を入れてください");
+  if (!s.siteCustom.includes(v)) s.siteCustom.push(v);
+  s.siteSel[v] = true;
+  s.siteNew = "";
+  cplRefreshForm();
+}
 function cplSelectShown(on) {
   const s = cplState();
   cplShownEmps().forEach(e => { if (on) s.sel[e.id] = true; else delete s.sel[e.id]; });
   cplRefreshPick();
 }
 function cplClearSel() { cplState().sel = {}; cplRefreshPick(); }
+function cplSiteSelectAll(on) {
+  const s = cplState();
+  cplSiteChoices().forEach(w => { if (on) s.siteSel[w] = true; else delete s.siteSel[w]; });
+  cplRefreshPick();
+}
 function cplSetField(k, v) {
   const s = cplState();
   s[k] = v;
@@ -4313,10 +4522,11 @@ function cplSetField(k, v) {
     s.end = v;
     const el = document.getElementById("cplEnd"); if (el) el.value = v;
   }
+  if (k === "smode") { cplRefreshForm(); return; }      // 「曜日をえらぶ」の出し入れのため、入力画面を作りなおす
   if (k === "start" || k === "end" || k === "mode") cplRefreshSummary();
 }
 
-/* ----- 保存・削除 ----- */
+/* ----- 保存・削除（従業員） ----- */
 // pairs＝[{ emp, list }]：その方の companyLeaves を list に書きかえる
 async function cplSaveLists(pairs) {
   if (!pairs.length) return true;
@@ -4336,36 +4546,73 @@ async function cplSaveLists(pairs) {
   }
 }
 
+/* ----- 保存・削除（現場） ----- */
+// fn＝今の一覧（配列）を受け取って、新しい一覧を返す関数。
+// 3人で同じアカウントを使っていても重ならないよう、サーバー上の最新の一覧を読んでから書きかえる。
+async function cplSiteMutate(fn) {
+  if (!firebaseReady) { state.cplSites = fn(cplSitesOf().slice()); render(); return true; }
+  try {
+    const ref = db.collection("settings").doc("envelope");
+    let next = [];
+    await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const d = snap.exists ? (snap.data() || {}) : {};
+      const cur = Array.isArray(d.companySiteLeaves) ? d.companySiteLeaves : [];
+      next = fn(cur.slice());
+      tx.set(ref, { companySiteLeaves: next }, { merge: true });
+    });
+    state.cplSites = next;
+    render();
+    return true;
+  } catch (e) {
+    alert("保存できませんでした: " + e.message);
+    return false;
+  }
+}
+
 async function cplRegister() {
   const s = cplState();
-  const rows = cplPlan();
-  if (!rows.length) return alert("対象の方をえらんでください");
+  const isSite = s.target === "site";
+  const rows = isSite ? cplSitePlan() : cplPlan();
+  const unit = isSite ? "か所" : "名";
+  if (!rows.length) return alert(isSite ? "現場をえらんでください" : "対象の方をえらんでください");
   if (!s.start || !s.end) return alert("はじめの日と終わりの日を入れてください");
   if (s.end < s.start) return alert("終わりの日が、はじめの日より前になっています");
   if (llDays(s.start, s.end) > CPL_MAX_DAYS) return alert(`期間が長すぎます。${CPL_MAX_DAYS}日以内で入れてください（長く続くお休みは、分けて登録してください）`);
+  if (isSite && s.smode === "dow" && !CPL_DOW.some((_, i) => s.dows[i])) return alert("曜日を1つ以上えらんでください");
   const targets = rows.filter(r => r.dates.length);
-  if (!targets.length) return alert("入る日がありませんでした。\n（シフトの曜日が期間にふくまれていない、または、すでに入っている日だけです）");
+  if (!targets.length) return alert("入る日がありませんでした。\n（えらんだ曜日・シフトが期間にふくまれていない、または、すでに入っている日だけです）");
   const total = targets.reduce((a, r) => a + r.dates.length, 0);
   const skipped = rows.length - targets.length;
+  const kind = isSite ? s.skind : s.kind;
+  const names = isSite ? targets.map(r => r.site) : [];
   if (!confirm(
-    `会社が把握しているお休みを登録します。\n\n区分：${s.kind}\n期間：${s.start} 〜 ${s.end}\n対象：${targets.length}名（のべ ${total}日分）` +
-    `${skipped ? `\n（入る日がない ${skipped}名は、とばします）` : ""}\n\nカレンダーに出ます。有給の残り日数や勤怠の記録には入りません。\nよろしいですか？`)) return;
+    `${isSite ? "現場のお休み" : "会社が把握しているお休み"}を登録します。\n\n区分：${kind}\n期間：${s.start} 〜 ${s.end}\n対象：${targets.length}${unit}（のべ ${total}日分）` +
+    `${isSite ? `\n現場：${names.slice(0, 6).join("、")}${names.length > 6 ? " ほか" : ""}` : ""}` +
+    `${skipped ? `\n（入る日がない ${skipped}${unit}は、とばします）` : ""}\n\nカレンダーに出ます。有給の残り日数や勤怠の記録には入りません。\nよろしいですか？`)) return;
 
   const stamp = Date.now();
   const nowIso = new Date().toISOString();
   const memo = (s.memo || "").trim();
-  const pairs = targets.map((r, i) => ({
-    emp: r.emp,
-    list: cplOf(r.emp).concat([{ id: "cl" + stamp + "_" + i, batch: "cb" + stamp, dates: r.dates, kind: s.kind, memo, createdAt: nowIso }])
-  }));
-  const ok = await cplSaveLists(pairs);
+  let ok;
+  if (isSite) {
+    const add = targets.map((r, i) => ({ id: "cs" + stamp + "_" + i, batch: "sb" + stamp, site: r.site, dates: r.dates, kind, memo, createdAt: nowIso }));
+    ok = await cplSiteMutate(cur => cur.concat(add));
+  } else {
+    const pairs = targets.map((r, i) => ({
+      emp: r.emp,
+      list: cplOf(r.emp).concat([{ id: "cl" + stamp + "_" + i, batch: "cb" + stamp, dates: r.dates, kind, memo, createdAt: nowIso }])
+    }));
+    ok = await cplSaveLists(pairs);
+  }
   if (!ok) return;
   const first = s.start;
-  s.sel = {}; s.start = ""; s.end = ""; s.memo = ""; s.open = false;
+  if (isSite) { s.siteSel = {}; } else { s.sel = {}; }
+  s.start = ""; s.end = ""; s.memo = ""; s.open = false;
   const lc = lcState(); lc.month = first.slice(0, 7); lc.sel = first;   // カレンダーを、はじめの日の月に切りかえる
   render();
   cplScrollTo("lcCalCard");
-  alert(`${targets.length}名ぶんのお休み（のべ ${total}日）を登録しました。\nカレンダーを ${first.slice(0, 4)}年${Number(first.slice(5, 7))}月 に切りかえました。`);
+  alert(`${targets.length}${unit}ぶんのお休み（のべ ${total}日）を登録しました。\nカレンダーを ${first.slice(0, 4)}年${Number(first.slice(5, 7))}月 に切りかえました。`);
 }
 
 function cplFindBatch(key) {
@@ -4395,6 +4642,24 @@ async function cplRemoveDay(empId, entryId, ds) {
   const list = cplOf(emp).map(x => x.id === entryId ? { ...x, dates: (x.dates || []).filter(d => d !== ds) } : x).filter(x => (x.dates || []).length);
   await cplSaveLists([{ emp, list }]);
 }
+async function cplDeleteSiteBatch(key) {
+  const items = cplSitesOf().filter(L => (L.batch || L.id) === key);
+  if (!items.length) return;
+  if (!confirm(`この登録（${items[0].kind || ""}・${items.length}現場）を、まとめて消します。\n\nカレンダーからも消えます。よろしいですか？`)) return;
+  await cplSiteMutate(cur => cur.filter(L => (L.batch || L.id) !== key));
+}
+async function cplDeleteSiteEntry(entryId) {
+  const L = cplSitesOf().find(x => x.id === entryId);
+  if (!L) return;
+  if (!confirm(`「${L.site}」の「${L.kind || ""}」（${(L.dates || []).length}日分）を消します。\n\nこの現場だけです。ほかの現場の登録は残ります。よろしいですか？`)) return;
+  await cplSiteMutate(cur => cur.filter(x => x.id !== entryId));
+}
+async function cplSiteRemoveDay(entryId, ds) {
+  const L = cplSitesOf().find(x => x.id === entryId);
+  if (!L) return;
+  if (!confirm(`「${L.site}」の ${lcJpDate(ds)} を、現場のお休みからはずします。\n\nこの日だけです（ほかの日は残ります）。よろしいですか？`)) return;
+  await cplSiteMutate(cur => cur.map(x => x.id === entryId ? { ...x, dates: (x.dates || []).filter(d => d !== ds) } : x).filter(x => (x.dates || []).length));
+}
 
 /* ----- 休暇管理タブの「会社が把握しているお休み」カード ----- */
 function cplGroups() {
@@ -4405,7 +4670,7 @@ function cplGroups() {
       const dates = (L.dates || []).slice().sort();
       if (!dates.length) return;
       const key = L.batch || L.id;
-      if (!m.has(key)) m.set(key, { key, kind: L.kind || "", memo: L.memo || "", people: [], min: dates[0], max: dates[dates.length - 1] });
+      if (!m.has(key)) m.set(key, { key, site: false, kind: L.kind || "", memo: L.memo || "", people: [], min: dates[0], max: dates[dates.length - 1] });
       const g = m.get(key);
       g.people.push({ emp: e, L, n: dates.length });
       if (dates[0] < g.min) g.min = dates[0];
@@ -4414,16 +4679,32 @@ function cplGroups() {
   });
   return [...m.values()];
 }
+function cplSiteGroups() {
+  const m = new Map();
+  cplSitesOf().forEach(L => {
+    const dates = (L.dates || []).slice().sort();
+    if (!dates.length) return;
+    const key = L.batch || L.id;
+    if (!m.has(key)) m.set(key, { key, site: true, kind: L.kind || "", memo: L.memo || "", items: [], min: dates[0], max: dates[dates.length - 1] });
+    const g = m.get(key);
+    g.items.push({ L, n: dates.length });
+    if (dates[0] < g.min) g.min = dates[0];
+    if (dates[dates.length - 1] > g.max) g.max = dates[dates.length - 1];
+  });
+  return [...m.values()];
+}
 
+function cplStatePill(g, today) {
+  return g.min > today ? `<span class="status-pill status-pending">これから</span>` : g.max >= today ? `<span class="status-pill" style="background:#ede7f6; color:#5E35B1;">期間中</span>` : `<span class="status-pill status-approved">終わった</span>`;
+}
 function cplGroupHtml(g, today) {
-  const st = g.min > today ? `<span class="status-pill status-pending">これから</span>` : g.max >= today ? `<span class="status-pill" style="background:#ede7f6; color:#5E35B1;">期間中</span>` : `<span class="status-pill status-approved">終わった</span>`;
   const people = g.people.slice().sort((a, b) => String(a.emp.furigana || a.emp.name || "").localeCompare(String(b.emp.furigana || b.emp.name || ""), "ja"));
   const chips = people.map(p => `<span class="cpl-chip">${escapeHtml(p.emp.name || "")}<span class="muted" style="font-size:11.5px;">${p.n}日</span><button title="この方だけ消す" onclick="cplDeletePerson('${p.emp.id}','${p.L.id}')">×</button></span>`).join("");
   return `
     <div class="cpl-group">
       <div class="row-between" style="gap:8px; flex-wrap:wrap; align-items:flex-start;">
         <div>
-          ${st}
+          ${cplStatePill(g, today)}
           <b style="margin-left:6px;">${escapeHtml(g.kind)}</b>
           <span style="margin-left:8px;">${escapeHtml(cplFmt(g.min))} 〜 ${escapeHtml(cplFmt(g.max))}</span>
           <span class="muted" style="margin-left:8px;">${g.people.length}名</span>
@@ -4436,23 +4717,57 @@ function cplGroupHtml(g, today) {
       </div>
     </div>`;
 }
+function cplSiteGroupHtml(g, today) {
+  const items = g.items.slice().sort((a, b) => String(a.L.site || "").localeCompare(String(b.L.site || ""), "ja"));
+  const chips = items.map(p => `<span class="cpl-chip">${escapeHtml(p.L.site || "")}<span class="muted" style="font-size:11.5px;">${p.n}日</span><button title="この現場だけ消す" onclick="cplDeleteSiteEntry('${p.L.id}')">×</button></span>`).join("");
+  return `
+    <div class="cpl-group">
+      <div class="row-between" style="gap:8px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          ${cplStatePill(g, today)}
+          <span class="status-pill" style="background:#5E35B1; color:#fff; margin-left:4px;">現場</span>
+          <b style="margin-left:6px;">${escapeHtml(g.kind)}</b>
+          <span style="margin-left:8px;">${escapeHtml(cplFmt(g.min))} 〜 ${escapeHtml(cplFmt(g.max))}</span>
+          <span class="muted" style="margin-left:8px;">${g.items.length}か所</span>
+        </div>
+        <button class="cpl-mini" style="color:var(--danger); border-color:var(--danger);" onclick="cplDeleteSiteBatch('${escapeHtml(g.key)}')">まとめて消す</button>
+      </div>
+      ${g.memo ? `<div class="muted" style="font-size:12.5px; margin-top:4px;">メモ：${escapeHtml(g.memo)}</div>` : ""}
+      <div style="margin-top:6px;">
+        ${items.length > 8 ? `<details><summary style="cursor:pointer; font-size:13px; color:var(--blue-dark); font-weight:700;">対象の現場を見る（${items.length}か所）</summary><div style="margin-top:4px;">${chips}</div></details>` : chips}
+      </div>
+    </div>`;
+}
 
 function renderCompanyLeaveCard() {
   const s = cplState();
   const today = formatYmd(new Date());
-  const groups = cplGroups();
+  const groups = cplGroups().concat(cplSiteGroups());
   const upcoming = groups.filter(g => g.max >= today).sort((a, b) => (a.min < b.min ? -1 : a.min > b.min ? 1 : 0));
   const past = groups.filter(g => g.max < today).sort((a, b) => (a.max < b.max ? 1 : a.max > b.max ? -1 : 0));
+  const one = g => g.site ? cplSiteGroupHtml(g, today) : cplGroupHtml(g, today);
   return `
     <div class="card" id="cplCard" style="border:1.5px solid #D1C4E9;">
       <div class="row-between" style="gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-        <p class="staff-title" style="font-size:16px; margin:0;">会社が把握しているお休み<span class="muted" style="font-size:12px; margin-left:8px;">長期休暇・会社の指定休など</span></p>
+        <p class="staff-title" style="font-size:16px; margin:0;">会社が把握しているお休み<span class="muted" style="font-size:12px; margin-left:8px;">長期休暇・会社の指定休・現場の休みなど</span></p>
         <button class="cpl-add" onclick="cplToggleForm()">${s.open ? "入力をとじる" : "＋ まとめて入力する"}</button>
       </div>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">従業員さんからの休み申請とは別に、会社で把握しているお休みを、カレンダーに出すための入力です。<b>有給の残り日数や勤怠の記録には入りません。</b></p>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">従業員さんからの休み申請とは別に、会社で把握しているお休みを、カレンダーに出すための入力です。従業員をえらんで入れるほか、<b>現場だけ</b>を入れることもできます。<b>有給の残り日数や勤怠の記録には入りません。</b></p>
       <div id="cplFormBox">${s.open ? cplFormHtml() : ""}</div>
-      ${upcoming.length ? upcoming.map(g => cplGroupHtml(g, today)).join("") : `<p class="muted" style="font-size:12.5px; margin:0 0 6px;">いま、これから先の登録はありません。「＋ まとめて入力する」から入れられます。</p>`}
-      ${past.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--muted);">終わった登録を見る（${past.length}件）</summary><div style="margin-top:8px;">${past.map(g => cplGroupHtml(g, today)).join("")}</div></details>` : ""}
+      ${upcoming.length ? upcoming.map(one).join("") : `<p class="muted" style="font-size:12.5px; margin:0 0 6px;">いま、これから先の登録はありません。「＋ まとめて入力する」から入れられます。</p>`}
+      ${past.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-size:13px; font-weight:700; color:var(--muted);">終わった登録を見る（${past.length}件）</summary><div style="margin-top:8px;">${past.map(one).join("")}</div></details>` : ""}
+    </div>`;
+}
+
+// カレンダーの日付を押したときの、現場のお休みの1行
+function lcSiteRow(r) {
+  return `
+    <div class="lc-person">
+      <div style="min-width:0;">
+        <div><b>${escapeHtml(r.site)}</b><span class="muted" style="margin-left:8px;">現場のお休み</span></div>
+        <div class="muted" style="margin-top:2px;"><span style="color:#5E35B1; font-weight:700;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
+      </div>
+      <div style="flex-shrink:0; text-align:right;"><span class="status-pill" style="background:#ede7f6; color:#5E35B1;">会社把握</span><div><button class="cpl-mini" style="margin-top:6px;" onclick="cplSiteRemoveDay('${r.cplEntryId}','${r.date}')">この日だけはずす</button></div></div>
     </div>`;
 }
 
@@ -4489,10 +4804,8 @@ function renderAdminLeaveTab(pending) {
         <p class="muted" style="font-size:11px; margin-top:10px;">「取り消しを承認」でその申請は取り消し済みになります。「確認中に戻す」でお願いを取り下げ、元の決裁待ちに戻します。</p>
       </div>
       ` : ""}
-      ${renderLongLeaveCard()}
       ${renderUpcomingLeaveCard()}
       ${renderCompanyLeaveCard()}
-      ${renderPastLeaveCard()}
       <div class="card">
         <p class="staff-title" style="font-size:16px;">決裁待ちの休暇申請</p>
         <table>
@@ -4515,6 +4828,8 @@ function renderAdminLeaveTab(pending) {
           </tbody>
         </table>
       </div>
+      ${renderLongLeaveCard()}
+      ${renderPastLeaveCard()}
   `;
 }
 
@@ -8030,6 +8345,12 @@ function applyEnvelopeSettings(d) {
   if (d.envelopeOffsetH) state.envelopeOffsetH = d.envelopeOffsetH;
   if (d.envelopeShowBoxes != null) state.envelopeShowBoxes = d.envelopeShowBoxes;
   if (d.envelopeMode) state.envelopeMode = d.envelopeMode;
+  // 現場のお休み（休暇管理の「会社が把握しているお休み」）。ルールを増やさなくて済むよう、同じ書類にいっしょに入れている
+  if (Array.isArray(d.companySiteLeaves)) {
+    const changed = JSON.stringify(d.companySiteLeaves) !== JSON.stringify(state.cplSites || []);
+    state.cplSites = d.companySiteLeaves;
+    if (changed && state.adminTab === "leave" && state.currentUser && state.currentUser.role === "admin") render();
+  }
   // 封筒印刷タブを表示中は、画面全体(＝「位置の微調整」パネルを含む)を作り直さない。
   // プレビューの絵だけを更新することで、パネルが開いたまま数値調整を続けられるようにする。
   if (state.adminTab === "envelope") refreshEnvelopeSheet();

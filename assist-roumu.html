@@ -581,7 +581,7 @@
   .lc-person:last-child { border-bottom: 0; }
   /* 会社が把握しているお休み（2026-11-12 追加） */
   .lc-cell .nm.co { color: #5E35B1; font-weight: 700; }
-  .lc-cell .scnt { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 800; color: #5E35B1; background: #ede7f6; border-radius: 8px; padding: 0 6px; text-align: center; line-height: 1.5; }
+  .lc-cell .sdot { display: none; }
   .cpl-add { border: 1.5px solid #5E35B1; background: #fff; color: #5E35B1; border-radius: 12px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; width: auto; margin: 0; }
   .cpl-mini { font: inherit; font-size: 12.5px; font-weight: 700; padding: 6px 10px; border: 1.5px solid var(--border); background: #fff; border-radius: 10px; cursor: pointer; width: auto; margin: 0; color: var(--text); }
   .cpl-picklist { max-height: 260px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 8px; }
@@ -598,8 +598,7 @@
     .lc-cell { min-height: 54px; padding: 3px; border-radius: 8px; text-align: center; }
     .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: 30px; padding: 2px 0; font-size: 13px; text-align: center; }
     .lc-cell .names, .lc-cell .hn { display: none; }
-    .lc-cell .scnt { font-size: 9px; padding: 0 1px; margin-top: 4px; white-space: nowrap; letter-spacing: -0.3px; }
-    .lc-cell .scnt .x2 { display: none; }
+    .lc-cell .sdot { display: block; width: 8px; height: 8px; border-radius: 50%; background: #5E35B1; margin: 5px auto 0; }
     .lc-month { font-size: 17px; min-width: 7em; }
   }
 </style>
@@ -701,7 +700,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-12(2)";
+const APP_VERSION = "更新: 2026-11-12(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3777,17 +3776,19 @@ function renderLeaveCalendar() {
     const cls = ["lc-cell", w === 0 ? "sun" : "", w === 6 ? "sat" : "", off ? "off" : "", hn ? "hol" : "",
       ds < todayStr ? "past" : "", ds === todayStr ? "today" : "", ds === s.sel ? "sel" : "", (peak[1] >= 4 && ds === peak[0]) ? "busiest" : ""].join(" ");
     const sitesToday = siteMap[ds] || [];
-    // 現場のお休み → 申請など → 会社が把握している方（紫の文字）の順に並べる
-    const items = sitesToday.map(r => ({ closure: true, site: r.site }))
+    // 現場だけの入力（紫の文字）→ 申請など → 会社が把握している方（紫の文字）の順に並べる
+    const coGroups = lcGroupBySite(list.filter(r => r.status === "company"));
+    const coSet = new Set(coGroups.map(([site]) => site));
+    const items = Array.from(new Set(sitesToday.map(r => r.site))).filter(site => !coSet.has(site)).map(site => ({ closure: true, site }))
       .concat(lcGroupBySite(list.filter(r => r.status !== "company")).map(([site, rs]) => ({ site, rs, co: false })))
-      .concat(lcGroupBySite(list.filter(r => r.status === "company")).map(([site, rs]) => ({ site, rs, co: true })));
+      .concat(coGroups.map(([site, rs]) => ({ site, rs, co: true })));
     const shown = items.slice(0, 5);
     cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${list.length}人">
       <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
       ${list.length ? `<span class="cnt ${lcLv(list.length)}">${list.length}<span style="font-size:10px;font-weight:700;">人</span></span>` : ""}
-      ${sitesToday.length ? `<span class="scnt">現場休み${sitesToday.length > 1 ? `<span class="x2">×${sitesToday.length}</span>` : ""}</span>` : ""}
+      ${sitesToday.length ? `<span class="sdot"></span>` : ""}
       <span class="names">${shown.map(it => it.closure
-        ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}（現場休み）</span>`
+        ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}</span>`
         : `<span class="nm ${it.co ? "co" : (it.rs.some(r => r.status !== "approved") ? "pend" : "")}"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}${it.rs.length > 1 ? `<b class="x">×${it.rs.length}</b>` : ""}</span>`).join("")}
       ${items.length > 5 ? `<span class="more">ほか${items.length - 5}現場</span>` : ""}</span></button>`;
   }
@@ -3813,7 +3814,7 @@ function renderLeaveCalendar() {
         ${peak[1] ? `<div class="lc-sum">いちばん多い日 <b>${Number(peak[0].slice(8))}日（${lcWd(peak[0])}）${peak[1]}人</b></div>` : ""}
         ${pendingN ? `<div class="lc-sum" style="background:#fdf0d5;">決裁待ち <b>${pendingN}</b> 件</div>` : ""}
         ${cplN ? `<div class="lc-sum" style="background:#ede7f6;">うち会社が把握 <b>${cplN}</b> 件</div>` : ""}
-        ${cplSiteN ? `<div class="lc-sum" style="background:#ede7f6;">現場のお休み <b>${cplSiteN}</b> 件</div>` : ""}
+        ${cplSiteN ? `<div class="lc-sum" style="background:#ede7f6;">現場のみの入力 <b>${cplSiteN}</b> 件</div>` : ""}
       </div>
       <div class="lc-head"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
       <div class="lc-grid">${cells}</div>
@@ -3826,7 +3827,7 @@ function renderLeaveCalendar() {
       <p class="lc-detail-title">${lcJpDate(s.sel)}${s.sel === todayStr ? `<span style="color:var(--danger); font-size:13px; margin-left:8px;">今日</span>` : ""}</p>
       <p class="muted" style="margin:0 0 6px;">${selList.length ? `${selList.length}人がお休みです` : (selSites.length ? "お休みの方の予定はありません" : "お休みの予定はありません")}</p>
       ${selSites.length ? `
-        <div class="lc-site-head" style="background:#ede7f6;"><i style="background:#5E35B1"></i>現場のお休み<span class="n" style="color:#5E35B1;">${selSites.length}か所</span></div>
+        <div class="lc-site-head" style="background:#ede7f6;"><i style="background:#5E35B1"></i>現場のみ（人の指定なし）<span class="n" style="color:#5E35B1;">${selSites.length}か所</span></div>
         ${selSites.map(lcSiteRow).join("")}` : ""}
       ${lcGroupBySite(selList).map(([site, rs]) => `
         <div class="lc-site-head"><i style="background:${lcSiteColor(site)}"></i>${escapeHtml(site)}<span class="n">${rs.length}人</span></div>
@@ -4106,13 +4107,13 @@ function exportPastLeaveToExcel() {
    保存先は従業員の名簿（employees）の companyLeaves（社内用・従業員の画面には出しません）。
    1件＝ { id, batch, dates:["2026-12-01", …], kind, memo, createdAt }
    ＊ 同じ入力でまとめて登録した方どうしは、同じ batch でつながっています。
-   ＊ 従業員ではなく「現場のお休み」（休館・閉庁など）だけを入れることもできます（2026-11-12(2) 追加）。
+   ＊ 従業員ではなく「現場だけ」を入れることもできます（2026-11-12(2) 追加、(3) で文言を整理）。
      保存先は settings/envelope の companySiteLeaves（Firebaseのルールを変えなくて済むよう、
      すでに使っている設定の書類にいっしょに入れています）。
      1件＝ { id, batch, site, dates:[…], kind, memo, createdAt }
    ========================================================= */
 const CPL_KINDS = ["長期休暇", "会社の指定休（年末年始・お盆など）", "休職・療養", "産休・育休・介護休業", "その他"];
-const CPL_SITE_KINDS = ["現場の休み（休館・閉庁・年末年始など）", "清掃・作業なし", "その他"];
+const CPL_SITE_KINDS = CPL_KINDS.slice();   // 従業員を選ぶ場合と同じ区分
 const CPL_DOW = ["日", "月", "火", "水", "木", "金", "土"];
 const CPL_MAX_DAYS = 400; // 1回の入力で扱える期間の上限（日）
 
@@ -4160,7 +4161,7 @@ function cplSiteRecords() {
     const area = cplSiteArea(L.site);
     (L.dates || []).forEach(ds => out.push({
       id: "cps_" + L.id + "_" + ds, site: L.site || "", area, date: ds,
-      type: L.kind || "現場の休み", reason: L.memo || "", status: "companySite", cplEntryId: L.id
+      type: L.kind || "会社把握", reason: L.memo || "", status: "companySite", cplEntryId: L.id
     }));
   });
   return out;
@@ -4394,7 +4395,7 @@ function cplEmpFormInner() {
         <div class="lc-chips">${[["all", "全員"]].concat(areas.map(a => [a, a])).map(([v, l]) => `<button class="lc-chip ${s.area === v ? "on" : ""}" onclick="cplSetFilter('area','${escapeHtml(v)}')">${escapeHtml(l)}</button>`).join("")}</div>
         <label class="lc-sitesel">現場 <select onchange="cplSetFilter('site', this.value)"><option value="all">すべての現場</option>${sites.map(x => `<option value="${escapeHtml(x)}" ${s.site === x ? "selected" : ""}>${escapeHtml(x)}</option>`).join("")}</select></label>
       </div>
-      <p class="muted" style="font-size:12px; margin:6px 0 0;">現場をえらんで「表示中の方を全員えらぶ」を押すと、その現場の方をまとめて選べます。（方は選ばず、現場だけを入れたいときは、上の「現場をえらぶ」を使います）</p>
+      <p class="muted" style="font-size:12px; margin:6px 0 0;">現場をえらんで「表示中の方を全員えらぶ」を押すと、その現場の方をまとめて選べます。（方は選ばず、現場だけを入れたいときは、上の「現場だけをえらぶ」を使います）</p>
       <input id="cplQ" type="text" placeholder="名前・フリガナ・現場で さがす" value="${escapeHtml(s.q)}" oninput="cplSearch(this.value)" style="margin-top:8px; font-size:14px; padding:10px;" />
       <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
         <button class="cpl-mini" onclick="cplSelectShown(true)">表示中の方を全員えらぶ</button>
@@ -4452,7 +4453,7 @@ function cplFormHtml() {
     <div style="padding:14px; border-radius:10px; background:#F7F4FC; border:1.5px solid #D1C4E9; margin-bottom:12px;">
       <div class="lc-seg" style="margin-bottom:12px;">
         <button class="${s.target === "emp" ? "on" : ""}" onclick="cplSetTarget('emp')">従業員をえらぶ</button>
-        <button class="${s.target === "site" ? "on" : ""}" onclick="cplSetTarget('site')">現場をえらぶ（現場のお休み）</button>
+        <button class="${s.target === "site" ? "on" : ""}" onclick="cplSetTarget('site')">現場だけをえらぶ（人は選びません）</button>
       </div>
       ${s.target === "site" ? cplSiteFormInner() : cplEmpFormInner()}
     </div>`;
@@ -4587,7 +4588,7 @@ async function cplRegister() {
   const kind = isSite ? s.skind : s.kind;
   const names = isSite ? targets.map(r => r.site) : [];
   if (!confirm(
-    `${isSite ? "現場のお休み" : "会社が把握しているお休み"}を登録します。\n\n区分：${kind}\n期間：${s.start} 〜 ${s.end}\n対象：${targets.length}${unit}（のべ ${total}日分）` +
+    `${isSite ? "会社が把握しているお休み（現場のみ・人の指定なし）" : "会社が把握しているお休み"}を登録します。\n\n区分：${kind}\n期間：${s.start} 〜 ${s.end}\n対象：${targets.length}${unit}（のべ ${total}日分）` +
     `${isSite ? `\n現場：${names.slice(0, 6).join("、")}${names.length > 6 ? " ほか" : ""}` : ""}` +
     `${skipped ? `\n（入る日がない ${skipped}${unit}は、とばします）` : ""}\n\nカレンダーに出ます。有給の残り日数や勤怠の記録には入りません。\nよろしいですか？`)) return;
 
@@ -4657,7 +4658,7 @@ async function cplDeleteSiteEntry(entryId) {
 async function cplSiteRemoveDay(entryId, ds) {
   const L = cplSitesOf().find(x => x.id === entryId);
   if (!L) return;
-  if (!confirm(`「${L.site}」の ${lcJpDate(ds)} を、現場のお休みからはずします。\n\nこの日だけです（ほかの日は残ります）。よろしいですか？`)) return;
+  if (!confirm(`「${L.site}」の ${lcJpDate(ds)} を、会社が把握しているお休み（現場のみ）からはずします。\n\nこの日だけです（ほかの日は残ります）。よろしいですか？`)) return;
   await cplSiteMutate(cur => cur.map(x => x.id === entryId ? { ...x, dates: (x.dates || []).filter(d => d !== ds) } : x).filter(x => (x.dates || []).length));
 }
 
@@ -4749,7 +4750,7 @@ function renderCompanyLeaveCard() {
   return `
     <div class="card" id="cplCard" style="border:1.5px solid #D1C4E9;">
       <div class="row-between" style="gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-        <p class="staff-title" style="font-size:16px; margin:0;">会社が把握しているお休み<span class="muted" style="font-size:12px; margin-left:8px;">長期休暇・会社の指定休・現場の休みなど</span></p>
+        <p class="staff-title" style="font-size:16px; margin:0;">会社が把握しているお休み<span class="muted" style="font-size:12px; margin-left:8px;">長期休暇・会社の指定休など</span></p>
         <button class="cpl-add" onclick="cplToggleForm()">${s.open ? "入力をとじる" : "＋ まとめて入力する"}</button>
       </div>
       <p class="muted" style="font-size:12px; margin:0 0 10px;">従業員さんからの休み申請とは別に、会社で把握しているお休みを、カレンダーに出すための入力です。従業員をえらんで入れるほか、<b>現場だけ</b>を入れることもできます。<b>有給の残り日数や勤怠の記録には入りません。</b></p>
@@ -4764,7 +4765,7 @@ function lcSiteRow(r) {
   return `
     <div class="lc-person">
       <div style="min-width:0;">
-        <div><b>${escapeHtml(r.site)}</b><span class="muted" style="margin-left:8px;">現場のお休み</span></div>
+        <div><b>${escapeHtml(r.site)}</b></div>
         <div class="muted" style="margin-top:2px;"><span style="color:#5E35B1; font-weight:700;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
       </div>
       <div style="flex-shrink:0; text-align:right;"><span class="status-pill" style="background:#ede7f6; color:#5E35B1;">会社把握</span><div><button class="cpl-mini" style="margin-top:6px;" onclick="cplSiteRemoveDay('${r.cplEntryId}','${r.date}')">この日だけはずす</button></div></div>

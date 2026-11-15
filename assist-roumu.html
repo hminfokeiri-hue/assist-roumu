@@ -560,6 +560,8 @@
   .lc-cell.sat .d { color: #4a78a8; }
   .lc-cell .hn { font-size: 10px; color: var(--danger); margin-left: 3px; font-weight: 600; }
   .lc-cell .cnt { position: absolute; top: 4px; right: 5px; font-size: 12px; font-weight: 800; border-radius: 10px; padding: 1px 8px; }
+  .lc-cell .cnt .u { font-size: 10px; font-weight: 700; }
+  .lc-cell .cnt.lc-ok { background: #e3f1e8; color: #2f855a; font-size: 10px; font-weight: 700; padding: 1px 6px; }
   .lc-lv1 { background: #F7DDBF; color: #8a4a12; }
   .lc-lv2 { background: #F0B375; color: #6b3507; }
   .lc-lv3 { background: #E8873A; color: #fff; }
@@ -596,7 +598,9 @@
   @media (max-width: 640px) {
     .lc-head, .lc-grid { gap: 3px; }
     .lc-cell { min-height: 54px; padding: 3px; border-radius: 8px; text-align: center; }
-    .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: 30px; padding: 2px 0; font-size: 13px; text-align: center; }
+    .lc-cell .cnt { position: static; display: block; margin: 6px auto 0; width: auto; min-width: 30px; box-sizing: border-box; padding: 2px 4px; font-size: 13px; text-align: center; white-space: nowrap; }
+    .lc-cell .cnt .u { font-size: 9px; }
+    .lc-cell .cnt.lc-ok { font-size: 9px; padding: 2px 3px; }
     .lc-cell .names, .lc-cell .hn { display: none; }
     .lc-cell.hs { display: flex; flex-direction: column; justify-content: flex-start; }
     .lc-cell .snm { display: block; margin-top: 4px; }
@@ -702,7 +706,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-12(4)";
+const APP_VERSION = "更新: 2026-11-14";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3757,6 +3761,15 @@ function lcFilters() {
     </div>`;
 }
 
+// 応援が必要な現場（その日）＝「現場のみの入力」の現場 ＋ 「代わりの方」が決まっていない休みの現場。
+// 同じ現場は1か所と数える。代わりの方が入っている休みは、応援ずみなので数えない。
+function lcNeedSites(ds, map, siteMap) {
+  const set = new Set();
+  (siteMap[ds] || []).forEach(r => set.add(r.site));
+  (map[ds] || []).forEach(r => { if (!String(r.substitute || "").trim()) set.add(lcSiteOf(r)); });
+  return set;
+}
+
 function renderLeaveCalendar() {
   const s = lcState();
   const todayStr = formatYmd(new Date());
@@ -3764,9 +3777,11 @@ function renderLeaveCalendar() {
   const first = new Date(y, m - 1, 1), last = new Date(y, m, 0).getDate();
   const map = lcByDate(lcLeaves());
   const siteMap = lcByDate(lcSiteLeaves());
-  const counts = Object.keys(map).filter(d => d.startsWith(s.month)).map(d => [d, map[d].length]);
-  const total = counts.reduce((a, b) => a + b[1], 0);
-  const peak = counts.reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
+  // 日ごとの「応援が必要な現場の数」（日付のマスの表示・色・「いちばん多い日」に使う）
+  const needN = {};
+  for (let dd = 1; dd <= last; dd++) { const k = `${y}-${pad2(m)}-${pad2(dd)}`; needN[k] = lcNeedSites(k, map, siteMap).size; }
+  const total = Object.keys(map).filter(d => d.startsWith(s.month)).reduce((a, d) => a + map[d].length, 0);
+  const peak = Object.keys(needN).reduce((a, d) => (needN[d] > a[1] ? [d, needN[d]] : a), ["", 0]);
   const pendingN = lcLeaves().filter(r => r.date.startsWith(s.month) && r.status === "pending").length;
   const cplN = lcLeaves().filter(r => r.date.startsWith(s.month) && r.status === "company").length;
   const cplSiteN = lcSiteLeaves().filter(r => r.date.startsWith(s.month)).length;
@@ -3785,9 +3800,9 @@ function renderLeaveCalendar() {
       .concat(lcGroupBySite(list.filter(r => r.status !== "company")).map(([site, rs]) => ({ site, rs, co: false })))
       .concat(coGroups.map(([site, rs]) => ({ site, rs, co: true })));
     const shown = items.slice(0, 5);
-    cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${list.length}人">
+    cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${needN[ds] ? "応援が必要 " + needN[ds] + "箇所" : (list.length ? "応援ずみ" : "")}">
       <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
-      ${list.length ? `<span class="cnt ${lcLv(list.length)}">${list.length}<span style="font-size:10px;font-weight:700;">人</span></span>` : ""}
+      ${needN[ds] ? `<span class="cnt ${lcLv(needN[ds])}">${needN[ds]}<span class="u">箇所</span></span>` : (list.length ? `<span class="cnt lc-ok">応援済</span>` : "")}
       ${sitesToday.length ? `<span class="snm">${Array.from(new Set(sitesToday.map(r => r.site))).slice(0, 2).map(n => `<span>${escapeHtml(n)}</span>`).join("")}</span>` : ""}
       <span class="names">${shown.map(it => it.closure
         ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}</span>`
@@ -3796,6 +3811,7 @@ function renderLeaveCalendar() {
   }
   const selList = map[s.sel] || [];
   const selSites = siteMap[s.sel] || [];
+  const needSel = [...lcNeedSites(s.sel, map, siteMap)];
   return `
     <div class="card" id="lcCalCard">
       <div class="row-between" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
@@ -3813,7 +3829,7 @@ function renderLeaveCalendar() {
       ${lcFilters()}
       <div class="lc-summary">
         <div class="lc-sum">この月の休み <b>${total}</b> 件</div>
-        ${peak[1] ? `<div class="lc-sum">いちばん多い日 <b>${Number(peak[0].slice(8))}日（${lcWd(peak[0])}）${peak[1]}人</b></div>` : ""}
+        ${peak[1] ? `<div class="lc-sum">応援がいちばん多い日 <b>${Number(peak[0].slice(8))}日（${lcWd(peak[0])}）${peak[1]}箇所</b></div>` : ""}
         ${pendingN ? `<div class="lc-sum" style="background:#fdf0d5;">決裁待ち <b>${pendingN}</b> 件</div>` : ""}
         ${cplN ? `<div class="lc-sum" style="background:#ede7f6;">うち会社が把握 <b>${cplN}</b> 件</div>` : ""}
         ${cplSiteN ? `<div class="lc-sum" style="background:#ede7f6;">現場のみの入力 <b>${cplSiteN}</b> 件</div>` : ""}
@@ -3821,13 +3837,14 @@ function renderLeaveCalendar() {
       <div class="lc-head"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
       <div class="lc-grid">${cells}</div>
       <div class="lc-legend">
-        <span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>紫の文字＝会社が把握しているお休み</span>
+        <span>右上の「○箇所」＝応援が必要な現場の数（現場のみの入力＋代わりの方が決まっていない休み）</span><span>「応援済」＝代わりの方が決まっています</span><span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>紫の文字＝会社が把握しているお休み</span>
       </div>
       <p class="muted" style="font-size:11px; margin:8px 0 0;">否決・取り消しのものは出しません。日付を押すと、下にその日の方が現場ごとに出ます。決裁は下の「決裁待ちの休暇申請」からできます。会社が把握しているお休み（長期休暇など）も一緒に出ます（入力は下の紫の枠から）。</p>
     </div>
     <div class="card">
       <p class="lc-detail-title">${lcJpDate(s.sel)}${s.sel === todayStr ? `<span style="color:var(--danger); font-size:13px; margin-left:8px;">今日</span>` : ""}</p>
       <p class="muted" style="margin:0 0 6px;">${selList.length ? `${selList.length}人がお休みです` : (selSites.length ? "お休みの方の予定はありません" : "お休みの予定はありません")}</p>
+      ${needSel.length ? `<p style="margin:0 0 6px; font-size:14px;">応援が必要な現場：<b style="color:var(--danger);">${needSel.length}箇所</b><span class="muted" style="margin-left:6px;">（${needSel.map(escapeHtml).join("、")}）</span></p>` : ""}
       ${selSites.length ? `
         <div class="lc-site-head" style="background:#ede7f6;"><i style="background:#5E35B1"></i>現場のみ（人の指定なし）<span class="n" style="color:#5E35B1;">${selSites.length}か所</span></div>
         ${selSites.map(lcSiteRow).join("")}` : ""}

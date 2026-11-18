@@ -262,7 +262,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-11-17";
+const APP_VERSION = "リーダー用 2026-11-18";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -1439,7 +1439,7 @@ function computeList() {
   const v = (state.search || "").toLowerCase();
   const vDigits = (state.search || "").replace(/[^\d]/g, "");
   const list = state.employees.filter(e => {
-    if (state.area && e.area !== state.area) return false;
+    if (state.area && !areaHas(e.area, state.area)) return false;
     if (!v) return true;
     const phoneDigits = (e.phone || "").replace(/[^\d]/g, "");
     if (vDigits && phoneDigits.includes(vDigits)) return true;
@@ -1466,7 +1466,7 @@ function computeList() {
 }
 
 function renderList() {
-  const areas = [...new Set(state.employees.map(e => e.area).filter(Boolean))];
+  const areas = areaTagList(state.employees);
   const chip = (k, l) => `<button class="chip ${state.sort === k ? "on" : ""}" onclick="state.sort='${k}'; render();">${l}</button>`;
   return `
 <div class="card">
@@ -1672,6 +1672,19 @@ function jpHolidayName(y, m, d) {
 }
 
 // 休み申請の「現場」：従業員名簿の就業場所（workplace）から引く（申請にはエリアしか入っていないため）
+/* =========================================================
+   エリアの名札（2026-11-18 追加）
+   エリアは「、」でつないで複数入れられます。たとえば「大阪、大阪府警」の方は、
+   「大阪」の絞り込みにも「大阪府警」の絞り込みにも入ります。
+   ========================================================= */
+function areaTags(area) { return String(area || "").split(/[、,，]/).map(s => s.trim()).filter(Boolean); }
+function areaHas(area, key) {
+  if (!key || key === "all") return true;
+  const a = String(area || "").trim();
+  return a === key || areaTags(a).includes(key);
+}
+function areaTagList(emps) { return [...new Set((emps || []).flatMap(e => areaTags(e.area)))]; }
+
 const LC_NOSITE = "（現場の登録なし）";
 function lcSiteOf(r) {
   const emps = state.employees || [];
@@ -1748,7 +1761,7 @@ function cplSiteRecords() {
 function lcSiteLeaves() {
   const s = lcState();
   return cplSiteRecords().filter(r =>
-    (s.area === "all" || (r.area || "") === s.area) &&
+    (s.area === "all" || areaHas(r.area, s.area)) &&
     (s.site === "all" || r.site === s.site));
 }
 // 否決・取り消しを除いた休み（会社が把握しているお休みをふくむ）
@@ -1769,7 +1782,7 @@ function lcRawAll() {
 function lcLeaves() {
   const s = lcState();
   return lcRawAll().filter(r =>
-    (s.area === "all" || (r.area || "") === s.area) &&
+    (s.area === "all" || areaHas(r.area, s.area)) &&
     (s.site === "all" || lcSiteOf(r) === s.site));
 }
 function lcByDate(list) { const m = {}; list.forEach(r => (m[r.date] = m[r.date] || []).push(r)); return m; }
@@ -1816,7 +1829,7 @@ function lcViewSeg() {
 }
 function lcFilters() {
   const s = lcState();
-  const sites = [...new Set(lcRawAll().filter(r => s.area === "all" || (r.area || "") === s.area).map(lcSiteOf).concat(cplSiteRecords().filter(r => s.area === "all" || (r.area || "") === s.area).map(r => r.site)))].sort((a, b) => a.localeCompare(b, "ja"));
+  const sites = [...new Set(lcRawAll().filter(r => s.area === "all" || areaHas(r.area, s.area)).map(lcSiteOf).concat(cplSiteRecords().filter(r => s.area === "all" || areaHas(r.area, s.area)).map(r => r.site)))].sort((a, b) => a.localeCompare(b, "ja"));
   if (s.site !== "all" && !sites.includes(s.site)) s.site = "all";
   return `
     <div class="lc-filters">

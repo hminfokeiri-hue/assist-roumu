@@ -140,6 +140,12 @@
   .chat-big-hint { font-size: 12px; font-weight: 700; color: var(--blue-dark); margin-top: 6px; }
   .chat-bubble-row.mine .chat-big-hint { color: #fff; }
 
+  /* --- 会社側（管理画面）の「ページの上にもどる」ボタン（右下・下へ進むと出る） --- */
+  #toTopBtn { position: fixed; right: 22px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 900; width: 48px; height: 48px; padding: 0; margin: 0; border-radius: 50%; border: none; background: var(--text); color: #fff; font-size: 12px; font-weight: 700; line-height: 1.1; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #toTopBtn.show { opacity: .88; pointer-events: auto; }
+  #toTopBtn:hover { opacity: 1; }
+  @media print { #toTopBtn { display: none !important; } }
+
   /* --- チャットの全画面表示（吹き出しをタップ） --- */
   #bigView { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #FBF6ED; display: flex; flex-direction: column; }
   #bigView .bv-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; background: #fff; border-bottom: 2px solid var(--border); }
@@ -706,7 +712,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-18(2)";
+const APP_VERSION = "更新: 2026-11-18(3)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -748,6 +754,26 @@ const state = {
 };
 
 const appEl = document.getElementById("app");
+/* =========================================================
+   「ページの上にもどる」ボタン（会社側＝管理画面だけ・右下）
+   少し下へスクロールすると出て、押すと一番上へなめらかに上がります。
+   ========================================================= */
+(function () {
+  const b = document.createElement("button");
+  b.id = "toTopBtn"; b.type = "button"; b.title = "ページの一番上に戻る"; b.setAttribute("aria-label", "ページの一番上に戻る");
+  b.innerHTML = "▲<br>トップ";
+  document.body.appendChild(b);
+  const check = () => {
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    b.classList.toggle("show", y > 400 && appEl.classList.contains("admin"));
+  };
+  window.addEventListener("scroll", check, { passive: true });
+  window.addEventListener("resize", check);
+  try { new MutationObserver(check).observe(appEl, { attributes: true, attributeFilter: ["class"], childList: true }); } catch (e) { /* 古いブラウザでは、スクロールのときだけ見直す */ }
+  b.addEventListener("click", () => {
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) { window.scrollTo(0, 0); }
+  });
+})();
 /* =========================================================
    通知まわり（アイコンの数字・お知らせ枠・スマホへのプッシュ通知）
    ---------------------------------------------------------

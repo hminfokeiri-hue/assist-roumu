@@ -706,7 +706,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-18";
+const APP_VERSION = "更新: 2026-11-18(2)";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -4866,136 +4866,6 @@ function areaHas(area, key) {
 }
 function areaTagList(emps) { return [...new Set((emps || []).flatMap(e => areaTags(e.area)))]; }
 
-/* =========================================================
-   エリアをまとめて書きかえる（2026-11-18 追加）
-   ・いまのエリア（たとえば「大阪」）の方のうち、書きかえたい現場の方だけを選んで、
-     新しいエリア（たとえば「大阪、大阪府警」）に一度に書きかえます。
-   ・在籍の方だけが対象です（退職者には触れません）。
-   ========================================================= */
-const AREA_BULK_KW = /警察|府警|機動隊|寮/;   // はじめにチェックを付ける現場の目安（あとで付けはずしできます）
-function areaBulkState() {
-  if (!state.areaBulk) state.areaBulk = { open: false, from: "", to: "大阪、大阪府警", sel: {}, init: false };
-  return state.areaBulk;
-}
-function areaBulkGroups() {
-  const s = areaBulkState();
-  const m = new Map();
-  (state.employees || []).filter(e => e.status !== "resigned" && (e.area || "") === s.from).forEach(e => {
-    const k = (e.workplace || "").trim() || LC_NOSITE;
-    if (!m.has(k)) m.set(k, []);
-    m.get(k).push(e);
-  });
-  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ja"));
-}
-function areaBulkAuto() {
-  const s = areaBulkState();
-  s.sel = {};
-  areaBulkGroups().forEach(([site]) => { s.sel[site] = AREA_BULK_KW.test(site); });
-  s.init = true;
-}
-function areaBulkTargets() {
-  const s = areaBulkState();
-  const out = [];
-  areaBulkGroups().forEach(([site, emps]) => { if (s.sel[site]) out.push(...emps); });
-  return out;
-}
-function areaBulkPreviewHtml() {
-  const s = areaBulkState();
-  const t = areaBulkTargets();
-  const to = String(s.to || "").trim();
-  if (!t.length) return `<p class="muted" style="margin:10px 0 0; font-size:13px;">チェックを入れた現場に、書きかえる方がいません。</p>`;
-  const sites = areaBulkGroups().filter(([site]) => s.sel[site]).length;
-  return `
-    <p style="margin:12px 0 6px; font-size:13.5px;"><b>${t.length}名</b>（${sites}現場）のエリアを、「${escapeHtml(s.from)}」から「<b>${escapeHtml(to || "（未入力）")}</b>」に書きかえます。</p>
-    <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.7;">対象の方：${t.map(e => escapeHtml(e.name || "（氏名なし）")).join("、")}</p>
-    <button style="font-size:13px; padding:9px 16px; color:#fff; background:var(--blue); border-color:var(--blue);" ${to ? "" : "disabled"} onclick="areaBulkApply()">${t.length}名のエリアを書きかえる</button>`;
-}
-function areaBulkRefresh() { const el = document.getElementById("areaBulkPreview"); if (el) el.innerHTML = areaBulkPreviewHtml(); }
-function areaBulkOpenToggle() { const s = areaBulkState(); s.open = !s.open; s.init = false; render(); }
-function areaBulkSetFrom(v) { const s = areaBulkState(); s.from = v; s.init = false; render(); }
-function areaBulkSetTo(v) { areaBulkState().to = v; areaBulkRefresh(); }
-function areaBulkToggleSite(site, on) { areaBulkState().sel[site] = !!on; areaBulkRefresh(); }
-function areaBulkAll(on) { const s = areaBulkState(); areaBulkGroups().forEach(([site]) => { s.sel[site] = !!on; }); render(); }
-function areaBulkRedoAuto() { areaBulkAuto(); render(); }
-
-function renderAreaBulkCard() {
-  const s = areaBulkState();
-  const act = (state.employees || []).filter(e => e.status !== "resigned");
-  const froms = [...new Set(act.map(e => e.area || "").filter(Boolean))];
-  if (!s.from || !froms.includes(s.from)) { s.from = froms.includes("大阪") ? "大阪" : (froms[0] || ""); s.init = false; }
-  if (!s.init) areaBulkAuto();
-  const groups = areaBulkGroups();
-  return `
-    <div id="areaBulkCard" style="border:1.5px solid var(--blue); border-radius:10px; padding:14px; margin-bottom:16px; background:#FFF6EA;">
-      <p style="margin:0 0 6px; font-weight:700; font-size:14px;">エリアをまとめて書きかえる</p>
-      <p class="muted" style="margin:0 0 10px; font-size:12.5px; line-height:1.7;">
-        「いまのエリア」の在籍の方のうち、チェックを入れた現場の方だけを、「新しいエリア」に書きかえます（退職された方、ほかのエリアの方には触れません）。<br>
-        エリアは「、」でつなぐと、「大阪、大阪府警」の方は「大阪」の絞り込みにも「大阪府警」の絞り込みにも入ります。
-      </p>
-      <div class="responsive-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
-        <div>
-          <label>いまのエリア（この方たちが対象です）</label>
-          <select onchange="areaBulkSetFrom(this.value)">${froms.map(a => `<option value="${escapeHtml(a)}" ${a === s.from ? "selected" : ""}>${escapeHtml(a)}</option>`).join("")}</select>
-        </div>
-        <div>
-          <label>新しいエリア</label>
-          <input id="areaBulkTo" type="text" value="${escapeHtml(s.to)}" oninput="areaBulkSetTo(this.value)" />
-        </div>
-      </div>
-      <p class="muted" style="margin:0 0 6px; font-size:12.5px;">書きかえる現場にチェックを入れてください。名前に「警察・府警・機動隊・寮」が入る現場には、はじめからチェックが入っています（あとで付けはずしできます）。</p>
-      <div style="display:flex; gap:8px; margin:0 0 8px; flex-wrap:wrap;">
-        <button style="font-size:12.5px; padding:6px 12px;" onclick="areaBulkRedoAuto()">警察関係の名前の現場にチェックし直す</button>
-        <button style="font-size:12.5px; padding:6px 12px;" onclick="areaBulkAll(true)">すべてチェック</button>
-        <button style="font-size:12.5px; padding:6px 12px;" onclick="areaBulkAll(false)">すべてはずす</button>
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:6px;">
-        ${groups.map(([site, emps]) => `
-          <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; font-size:13.5px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:#fff; margin:0;">
-            <input type="checkbox" style="width:auto; margin-top:3px;" ${s.sel[site] ? "checked" : ""} onchange="areaBulkToggleSite(decodeURIComponent('${encodeURIComponent(site)}'), this.checked)" />
-            <span>${escapeHtml(site)}<span class="muted">（${emps.length}名）</span></span>
-          </label>`).join("") || `<p class="muted" style="margin:0;">「${escapeHtml(s.from)}」の在籍の方はいません。</p>`}
-      </div>
-      <div id="areaBulkPreview">${areaBulkPreviewHtml()}</div>
-    </div>`;
-}
-
-async function areaBulkApply() {
-  const s = areaBulkState();
-  const to = String(s.to || "").trim();
-  const targets = areaBulkTargets();
-  if (!to) return alert("新しいエリアを入れてください。");
-  if (!targets.length) return alert("書きかえる方がいませんでした。");
-  if (to === s.from) return alert("いまのエリアと同じです。新しいエリアを入れなおしてください。");
-  const names = targets.slice(0, 5).map(e => e.name || "（氏名なし）").join("、");
-  if (!confirm(
-    `在籍の ${targets.length}名のエリアを\n「${s.from}」から「${to}」に書きかえます。\n\n` +
-    `対象の例：${names}${targets.length > 5 ? " ほか" : ""}\n\nよろしいですか？`
-  )) return;
-  if (!confirm(`もう一度おたずねします。\n\n${targets.length}名を「${to}」にします。\n\nよろしければ「OK」をおしてください。`)) return;
-
-  if (!firebaseReady) {
-    targets.forEach(e => { e.area = to; });
-    alert(`（お試し表示のため実際の保存はされません）${targets.length}名が対象です`);
-    s.open = false; s.init = false;
-    return render();
-  }
-  try {
-    let done = 0;
-    for (let i = 0; i < targets.length; i += 400) {   // Firestoreの一括処理は500件までなので余裕をみて400件ずつ
-      const chunk = targets.slice(i, i + 400);
-      const batch = db.batch();
-      chunk.forEach(e => batch.update(db.collection("employees").doc(e.id), { area: to }));
-      await batch.commit();
-      done += chunk.length;
-    }
-    s.open = false; s.init = false;
-    alert(`${done}名のエリアを「${to}」に書きかえました。`);
-    render();
-  } catch (e) {
-    alert("書きかえできませんでした: " + e.message);
-  }
-}
-
 /* ---------- 従業員管理（本社共有・全項目編集可） ---------- */
 /* 「契約更新の有無」に入れる、会社で決めた文言。
    これから登録する方の初期値にも、まとめて書きかえるときにも、この文言を使う。 */
@@ -6516,13 +6386,10 @@ function renderAdminEmployeeTab() {
         <div style="display:flex; flex-wrap:wrap; gap:8px;">
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px;" onclick="addNewEmployee()">＋ 新しい従業員を追加</button>` : ""}
           ${!showResigned ? `<button style="font-size:13px; padding:8px 14px;" onclick="state.showBulkImport = !state.showBulkImport; render();">${showImport ? "閉じる" : "一括インポート"}</button>` : ""}
-          ${!showResigned ? `<button style="font-size:13px; padding:8px 14px;" onclick="areaBulkOpenToggle()">${areaBulkState().open ? "エリア変更を閉じる" : "エリアをまとめて変更"}</button>` : ""}
           <button style="font-size:13px; padding:8px 14px;" onclick="exportEmployeesToExcel()">エクセルに書き出す</button>
           <button style="font-size:13px; padding:8px 14px;" onclick="state.showResignedList = !state.showResignedList; state.editingEmpId=null; render();">${showResigned ? "在籍者一覧に戻る" : `退職者一覧を見る（${resignedAll.length}）`}</button>
         </div>
       </div>
-
-      ${!showResigned && areaBulkState().open ? renderAreaBulkCard() : ""}
 
       ${showImport ? `
         <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; background:#f9fafb;">

@@ -4,9 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>出勤の記録｜アシスト労務</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<!-- 2026-11-19 読み込みを速く：Firebaseの部品を読むあいだに、サーバーへの道を先に開いておく -->
+<link rel="preconnect" href="https://www.gstatic.com">
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
 <style>
 :root{
 --blue:#E8873A; --blue-dark:#C96A1E; --sun-soft:#F7DDBF;
@@ -53,14 +55,29 @@ text-align:center;margin-bottom:16px;color:var(--blue-dark);font-weight:700;}
 .center{text-align:center;}
 .waiting{background:#fff8e1;border:1px solid #f0d98c;border-radius:10px;padding:12px;
 font-size:14px;color:#6b5b0e;margin-top:14px;text-align:center;}
+.ver{text-align:center;font-size:11px;color:#b3a692;padding:4px 0 18px;}
 </style>
 </head>
 <body>
 <div id="app">
 <header class="topbar"><h1>出勤の記録</h1></header>
 <main id="main"><div class="card center muted">読み込んでいます…</div></main>
+<div class="ver">打刻ページ 2026-11-19</div>
 </div>
 
+<script>
+/* つながりにくいときの案内。Firebaseの部品を読む前から時計を動かしておく */
+var booted = false;
+setTimeout(function(){
+if (booted) return;
+document.getElementById("main").innerHTML =
+'<div class="card center"><p class="muted">つながりにくいようです。<br>' +
+'電波のよい場所で、画面を下に引っぱって<br>読み込み直してください。</p></div>';
+}, 12000);
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 const firebaseConfig = {
 apiKey: "AIzaSyD1bprw7Xb6ZisnOkRKMlul_iW-rLvzf28",
@@ -79,6 +96,19 @@ db.enablePersistence({ synchronizeTabs: true }).catch(function(){});
 
 const LS_LOGIN = "assistRoumuLoginId";
 const LS_CODE3 = "assistDakokuCode3";
+/* この端末で一度サーバーに「この端末＝この従業員」を覚えさせたら、その印をここに残す。
+   次からは覚えさせる書きこみを省き、鍵と名簿を同時に読む（待ち時間が短くなる） */
+const LS_SESS = "assistDakokuSess";
+function getSess(){ try{ return JSON.parse(localStorage.getItem(LS_SESS) || "null"); }catch(e){ return null; } }
+function setSess(o){ try{ localStorage.setItem(LS_SESS, JSON.stringify(o)); }catch(e){} }
+/* 電波・通信のエラーかどうか（「登録されていない」と取りちがえないため） */
+function isNetErr(e){
+var c = e && e.code ? String(e.code) : "";
+if (c === "unavailable" || c === "deadline-exceeded") return true;
+return /offline|network/i.test(String(e && e.message || ""));
+}
+/* 成功・失敗のどちらでも止まらずに結果を受け取る（同時に読むため） */
+function settle(p){ return p.then(function(v){ return { ok:true, v:v }; }, function(e){ return { ok:false, e:e }; }); }
 
 var state = { site:null, siteId:null, emp:null, today:null, rec:null, busy:false, err:"" };
 
@@ -98,34 +128,68 @@ function last3(code){ return String(code||"").replace(/[^0-9]/g,"").slice(-3); }
 /* 従業員コードが変わっても、本社が「本人カードの番号」を入れておけば前のカードで打刻できる */
 function codeOk(emp, c3){ c3=String(c3||""); if (!c3) return false; if (last3(emp.employeeCode) === c3) return true; return !!emp.cardCode3 && last3(emp.cardCode3) === c3; }
 
-var booted = false;
 function render(html){ booted = true; el("main").innerHTML = html; }
-setTimeout(function(){
-if (booted) return;
-el("main").innerHTML =
-'<div class="card center"><p class="muted">つながりにくいようです。<br>' +
-'電波のよい場所で、画面を下に引っぱって<br>読み込み直してください。</p></div>';
-}, 12000);
 
 /* ログインの鍵で本人を確かめ、「この端末＝この従業員」をサーバーに覚えさせる。
-   鍵がまだ無いとき（切りかえ前）は、今までのやり方（ログインIDでさがす）で確かめる */
+   鍵がまだ無いとき（切りかえ前）は、今までのやり方（ログインIDでさがす）で確かめる。
+   見つからなければ null。電波がなくて確かめられなかったときはエラーを投げる */
 async function findEmp(loginId, code3){
 var key = String(loginId) + "_" + String(code3);
+var u = dakokuApp.auth().currentUser;
+var netErr = !u;
+/* 早道：この端末で前に確かめた人なら、サーバーはもう覚えているので、鍵と名簿を同時に読む */
+var c = getSess();
+if (u && c && c.uid === u.uid && c.key === key && c.empId){
+try{
+var both = await Promise.all([
+db.collection("loginKeys").doc(key).get(),
+db.collection("employees").doc(c.empId).get()
+]);
+if (both[0].exists && both[0].data().employeeId === c.empId && both[1].exists){
+return Object.assign({ id: both[1].id }, both[1].data());
+}
+}catch(e){ if (isNetErr(e)) throw e; }
+}
+/* ふつうの道（はじめての端末・カードが変わったとき）：今までどおり順番に確かめる */
 try{
 var k = await db.collection("loginKeys").doc(key).get();
 if (k.exists){
 var empId = k.data().employeeId;
-var u = dakokuApp.auth().currentUser;
-if (u) await db.collection("sessions").doc(u.uid).set({ employeeId: empId, key: key, at: firebase.firestore.FieldValue.serverTimestamp() });
+if (u){
+await db.collection("sessions").doc(u.uid).set({ employeeId: empId, key: key, at: firebase.firestore.FieldValue.serverTimestamp() });
+setSess({ uid: u.uid, key: key, empId: empId });
+}
 var d = await db.collection("employees").doc(empId).get();
 if (d.exists) return Object.assign({ id: d.id }, d.data());
 }
-}catch(e){}
+}catch(e){ if (isNetErr(e)) netErr = true; }
+var snap = null;
+try{ snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get(); }
+catch(e){ if (isNetErr(e)) netErr = true; }
+if (snap && !snap.empty) return Object.assign({ id: snap.docs[0].id }, snap.docs[0].data());
+if (netErr) throw new Error("offline");
+return null;
+}
+
+/* 現場をさがす（?site=ID または ?g=現場名）。見つからなければ null、電波のエラーは投げる */
+async function findSite(siteId, gname){
 try{
-var snap = await db.collection("employees").where("loginId","==",loginId).limit(1).get();
-if (snap.empty) return null;
-return Object.assign({ id: snap.docs[0].id }, snap.docs[0].data());
-}catch(e){ return null; }
+if (siteId){
+var d = await db.collection("sites").doc(siteId).get();
+return d.exists ? { id: siteId, data: d.data() } : null;
+}
+if (gname){
+var q = await db.collection("sites").where("name","==",gname).limit(1).get();
+if (!q.empty) return { id: q.docs[0].id, data: q.docs[0].data() };
+var all = await db.collection("sites").get();
+var t = nospace(gname), hit = null;
+all.forEach(function(d){
+if (!hit && nospace((d.data()||{}).name) === t) hit = { id: d.id, data: d.data() };
+});
+return hit;
+}
+}catch(e){ if (isNetErr(e)) throw e; }
+return null;
 }
 
 function renderLogin(){
@@ -169,8 +233,14 @@ renderLogin();
 
 function recId(){ return state.today + "_" + state.emp.id + "_" + state.siteId; }
 
-async function loadRecord(){
+async function loadRecord(recP){
 state.today = todayStr();
+if (recP){
+var pre = await recP;
+if (pre && pre.empId === state.emp.id && pre.siteId === state.siteId && pre.today === state.today){
+state.rec = pre.rec; return;
+}
+}
 try{
 var d = await db.collection("attendance").doc(recId()).get();
 state.rec = d.exists ? d.data() : null;
@@ -262,49 +332,69 @@ setTimeout(function(){ state.busy = false; }, 1500);
 function switchUser(){
 localStorage.removeItem(LS_LOGIN);
 localStorage.removeItem(LS_CODE3);
+localStorage.removeItem(LS_SESS);
 state.emp = null; state.rec = null; state.err = "";
 renderLogin();
 }
 
-/* ---------- 本人カード（?me=ログインID-下3けた）で端末に覚えさせる ---------- */
-async function useMeCard(me){
-var p = String(me).split("-");
-var mid = (p[0]||"").replace(/[^0-9]/g,"");
-var mc  = last3(p[1]||"");
-if (!mid || !mc) return false;
-try{
-var emp = await findEmp(mid, mc);
-if (!emp){
-render('<div class="card center"><p class="muted">このカードは登録されていません。<br>本社にお知らせください。</p></div>');
-return "stop";
-}
-if (!codeOk(emp, mc)){
-render('<div class="card center"><p class="muted">このカードは読み取れませんでした。<br>本社にお知らせください。</p></div>');
-return "stop";
-}
-localStorage.setItem(LS_LOGIN, mid);
-localStorage.setItem(LS_CODE3, mc);
-state.emp = emp;
-return true;
-}catch(e){
-render('<div class="card center"><p class="muted">つながりませんでした。<br>電波のよい場所でもう一度お試しください。</p></div>');
-return "stop";
-}
-}
+var NET_MSG = '<div class="card center"><p class="muted">つながりませんでした。<br>電波のよい場所でもう一度お試しください。</p></div>';
 
+/* ---------- 起動 ----------
+   2026-11-19：これまでは「本人カードの確認 → 現場 → もう一度本人の確認 → きょうの記録」を
+   1つずつ順番に待っていたため、電波の弱い所で時間がかかっていた。
+   いまは、現場・本人・きょうの記録を同時に読みはじめ、本人の確認も1回だけにした。
+   本人カード（?me=ログインID-下3けた）を読んだときは、そのカードの人をこの端末に覚えさせる */
 async function boot(){
 var params = new URLSearchParams(location.search);
 state.siteId = params.get("site");
 state.today = todayStr();
+var gname = params.get("g");
+var me = params.get("me");
 
 try{ await dakokuApp.auth().signInAnonymously(); }catch(e){}
 
-var gname = params.get("g");
-var me = params.get("me");
+/* だれが使うか：本人カードがあればそのカードの人、なければこのスマホが覚えている人 */
+var fromCard = false, loginId = null, code3 = null;
 if (me){
-var r = await useMeCard(me);
-if (r === "stop") return;
-if (r === true && !state.siteId && !gname){
+var p = String(me).split("-");
+var mid = (p[0]||"").replace(/[^0-9]/g,"");
+var mc  = last3(p[1]||"");
+if (mid && mc){ loginId = mid; code3 = mc; fromCard = true; }
+}
+if (!fromCard){
+loginId = localStorage.getItem(LS_LOGIN);
+code3 = localStorage.getItem(LS_CODE3);
+}
+var hasWho = !!(loginId && code3);
+var hasSite = !!(state.siteId || gname);
+
+/* ここで同時に読みはじめる（待つのは、いちばん遅いもの1つぶんだけ） */
+var siteP = hasSite ? settle(findSite(state.siteId, gname)) : Promise.resolve({ ok:true, v:null });
+var empP = (hasWho && (hasSite || fromCard)) ? settle(findEmp(loginId, code3)) : Promise.resolve({ ok:true, v:null });
+var recP = null;
+var c = getSess();
+if (hasWho && state.siteId && c && c.key === String(loginId) + "_" + String(code3) && c.empId){
+var pre = { empId: c.empId, siteId: state.siteId, today: state.today, rec: null };
+recP = db.collection("attendance").doc(state.today + "_" + c.empId + "_" + state.siteId).get()
+.then(function(d){ pre.rec = d.exists ? d.data() : null; return pre; })
+.catch(function(){ return null; });
+}
+
+if (fromCard){
+var cr = await empP;
+if (!cr.ok){ render(NET_MSG); return; }
+if (!cr.v){
+render('<div class="card center"><p class="muted">このカードは登録されていません。<br>本社にお知らせください。</p></div>');
+return;
+}
+if (!codeOk(cr.v, code3)){
+render('<div class="card center"><p class="muted">このカードは読み取れませんでした。<br>本社にお知らせください。</p></div>');
+return;
+}
+localStorage.setItem(LS_LOGIN, loginId);
+localStorage.setItem(LS_CODE3, code3);
+state.emp = cr.v;
+if (!hasSite){
 render(
 '<div class="card"><div class="done">' +
 '<div class="mark">✓</div>' +
@@ -317,49 +407,30 @@ return;
 }
 }
 
-// 現場名で指定されたとき（?g=松原警察署）
-if (!state.siteId && gname){
-try{
-var q = await db.collection("sites").where("name","==",gname).limit(1).get();
-if (!q.empty){ state.siteId = q.docs[0].id; state.site = q.docs[0].data(); }
-else{
-var all = await db.collection("sites").get();
-var t = nospace(gname);
-all.forEach(function(d){
-if (!state.siteId && nospace((d.data()||{}).name) === t){ state.siteId = d.id; state.site = d.data(); }
-});
-}
-}catch(e){}
-}
-
+var sr = await siteP;
+if (!sr.ok){ render(NET_MSG); return; }
+if (sr.v){ state.siteId = sr.v.id; state.site = sr.v.data; }
 if (!state.siteId){
 render('<div class="card center"><p class="muted">現場のQRコードを読み取って開いてください。</p></div>');
 return;
-}
-if (!state.site){
-try{
-var d = await db.collection("sites").doc(state.siteId).get();
-if (d.exists) state.site = d.data();
-}catch(e){}
 }
 if (!state.site){
 render('<div class="card center"><p class="muted">この現場は登録されていません。<br>本社にお知らせください。</p></div>');
 return;
 }
 
-var loginId = localStorage.getItem(LS_LOGIN);
-var code3 = localStorage.getItem(LS_CODE3);
-if (!loginId || !code3) return renderLogin();
-
+if (!state.emp){
+if (!hasWho) return renderLogin();
+var er = await empP;
+if (!er.ok){ render(NET_MSG); return; }
+if (!er.v || !codeOk(er.v, code3)) return renderLogin();
+state.emp = er.v;
+}
 try{
-var emp = await findEmp(loginId, code3);
-if (!emp) return renderLogin();
-if (!codeOk(emp, code3)) return renderLogin();
-state.emp = emp;
-await loadRecord();
+await loadRecord(recP);
 renderMain();
 }catch(e){
-render('<div class="card center"><p class="muted">つながりませんでした。<br>電波のよい場所でもう一度お試しください。</p></div>');
+render(NET_MSG);
 }
 }
 boot();

@@ -587,6 +587,14 @@
   .lc-site-head .n { margin-left: auto; color: var(--blue-dark); font-size: 13px; }
   .lc-person { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed var(--border); }
   .lc-person:last-child { border-bottom: 0; }
+  /* 日付の内わけから「代わりの方」を入れる（2026-11-24 追加） */
+  .lc-person.lc-editing { flex-wrap: wrap; }
+  .lc-subedit { flex: 1 1 100%; background: #f1f8f4; border: 1.5px solid #bfe3cf; border-radius: 10px; padding: 10px 12px; margin-top: 2px; }
+  .lc-subedit .lbl { display: block; font-size: 13px; font-weight: 700; color: #2f855a; margin: 0 0 6px; }
+  .lc-subrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lc-subrow input { flex: 1 1 150px; min-width: 0; width: auto; margin: 0; padding: 10px 12px; font-size: 16px; }
+  .cpl-mini.sub { border-color: #2f855a; color: #2f855a; }
+  .cpl-mini.subsave { background: #2f855a; border-color: #2f855a; color: #fff; padding: 9px 16px; }
   /* 会社が把握しているお休み（2026-11-12 追加） */
   .lc-cell .nm.co { color: #5E35B1; font-weight: 700; }
   .lc-cell .snm { display: none; }
@@ -712,7 +720,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-18(3)";
+const APP_VERSION = "更新: 2026-11-24";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3716,13 +3724,13 @@ function lcRerender() { const y = window.scrollY; render(); window.scrollTo(0, y
 function lcSetView(v) { lcState().view = v; try { localStorage.setItem("assistRoumuLeaveView", v); } catch (e) { /* ignore */ } lcRerender(); }
 function lcSetArea(a) { const s = lcState(); s.area = a; s.site = "all"; lcRerender(); }
 function lcSetSite(v) { lcState().site = v; lcRerender(); }
-function lcPick(ds) { lcState().sel = ds; lcRerender(); }
+function lcPick(ds) { const s = lcState(); s.sel = ds; s.subEdit = ""; lcRerender(); }
 function lcMove(n) {
   const s = lcState(); let [y, m] = s.month.split("-").map(Number); m += n;
   if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
-  s.month = `${y}-${pad2(m)}`; lcRerender();
+  s.month = `${y}-${pad2(m)}`; s.subEdit = ""; lcRerender();
 }
-function lcToday() { const s = lcState(); const t = formatYmd(new Date()); s.month = t.slice(0, 7); s.sel = t; lcRerender(); }
+function lcToday() { const s = lcState(); const t = formatYmd(new Date()); s.month = t.slice(0, 7); s.sel = t; s.subEdit = ""; lcRerender(); }
 
 // 否決・取り消しを除いた休み（エリア・現場の絞り込みつき）
 function lcRawAll() {
@@ -3762,15 +3770,138 @@ function lcPill(r) {
 function lcPersonRow(r, showSite) {
   const typeColor = { "有給休暇": "#2f855a", "欠勤（無給）": "#b7791f", "遅刻・早退": "#b7791f", "忌引き": "#4a5568" };
   const isCo = r.status === "company";
+  const editing = lcSubEditing(r);
   return `
-    <div class="lc-person">
+    <div class="lc-person${editing ? " lc-editing" : ""}">
       <div style="min-width:0;">
         <div><b>${escapeHtml(r.employeeName || "")}</b>${showSite ? `<span class="muted" style="margin-left:8px;">${escapeHtml(lcSiteOf(r))}</span>` : ""}</div>
         <div class="muted" style="margin-top:2px;"><span style="color:${isCo ? "#5E35B1" : (typeColor[r.type] || "var(--text)")}; font-weight:700;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
         ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${escapeHtml(r.substitute)}</div>` : ""}
       </div>
-      <div style="flex-shrink:0; text-align:right;">${lcPill(r)}${isCo ? `<div><button class="cpl-mini" style="margin-top:6px;" onclick="cplRemoveDay('${r.employeeId}','${r.cplEntryId}','${r.date}')">この日だけはずす</button></div>` : ""}</div>
+      <div style="flex-shrink:0; text-align:right;">${lcPill(r)}${editing ? "" : lcSubBtn(r)}${isCo ? `<div><button class="cpl-mini" style="margin-top:6px;" onclick="cplRemoveDay('${r.employeeId}','${r.cplEntryId}','${r.date}')">この日だけはずす</button></div>` : ""}</div>
+      ${editing ? lcSubEditor(r) : ""}
     </div>`;
+}
+
+/* ----- 日付の内わけから「代わりの方」を入れる（2026-11-24 追加） -----
+   ・休み申請（決裁済み・確認中など）… leaveRequests の substitute に保存（これまでと同じ項目）
+   ・会社が把握しているお休み（人あり）… employees の companyLeaves の1件に subs={"2026-11-25":"中川さん"} を足して保存
+   ・会社が把握しているお休み（現場のみ）… settings/envelope の companySiteLeaves の1件に subs を足して保存
+   新しいFirebaseの置き場やルールの変更は要りません。 */
+function lcSubEditing(r) { return lcState().subEdit === r.id; }
+function lcSubBtn(r) {
+  return `<div><button class="cpl-mini sub" style="margin-top:6px;" onclick="lcSubOpen('${escapeHtml(r.id)}')">${r.substitute ? "代わりを変える" : "代わりを入れる"}</button></div>`;
+}
+// 休みの1行（カレンダー用の1日ぶん）から、もとの登録（会社把握のとき）を探す
+function lcEntryOf(r) {
+  if (r.status === "companySite") return cplSitesOf().find(x => x.id === r.cplEntryId) || null;
+  if (r.status === "company") {
+    const e = (state.employees || []).find(x => x.id === r.employeeId);
+    return e ? (cplOf(e).find(x => x.id === r.cplEntryId) || null) : null;
+  }
+  return null;
+}
+function lcFindRec(id) {
+  return lcRawAll().find(x => x.id === id) || cplSiteRecords().find(x => x.id === id) || null;
+}
+function lcSubEditor(r) {
+  const s = lcState();
+  const L = lcEntryOf(r);
+  const nDays = L ? (L.dates || []).length : 0;
+  const id = escapeHtml(r.id);
+  return `
+    <div class="lc-subedit">
+      <span class="lbl">${escapeHtml(lcJpDate(r.date))}の代わりの方</span>
+      <div class="lc-subrow">
+        <input id="lcSubIn" type="text" maxlength="60" placeholder="例：中川さん" autocomplete="off" value="${escapeHtml(s.subDraft || "")}"
+          oninput="lcState().subDraft = this.value" onkeydown="lcSubKey(event, '${id}')">
+        <button class="cpl-mini subsave" onclick="lcSubSave('${id}')">保存</button>
+        <button class="cpl-mini" onclick="lcSubClose()">やめる</button>
+      </div>
+      ${nDays > 1 ? `
+        <label class="cpl-radio"><input type="radio" name="lcSubScope" ${s.subScope === "all" ? "" : "checked"} onchange="lcState().subScope = 'day'"> この日だけ</label>
+        <label class="cpl-radio"><input type="radio" name="lcSubScope" ${s.subScope === "all" ? "checked" : ""} onchange="lcState().subScope = 'all'"> この休みの全部の日（${nDays}日）に、同じ方を入れる</label>` : ""}
+      <p class="muted" style="font-size:12px; margin:6px 0 0;">空っぽにして「保存」すると、代わりの方を消します。</p>
+    </div>`;
+}
+function lcSubOpen(id) {
+  const s = lcState(), r = lcFindRec(id);
+  if (!r) return;
+  s.subEdit = id; s.subDraft = r.substitute || ""; s.subScope = "day";
+  lcRerender();
+  const i = document.getElementById("lcSubIn");
+  if (i) { i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) { /* ignore */ } }
+}
+function lcSubClose() { const s = lcState(); s.subEdit = ""; s.subDraft = ""; s.subScope = "day"; lcRerender(); }
+function lcSubKey(ev, id) {
+  if (ev.key === "Enter" && !ev.isComposing && ev.keyCode !== 229) { ev.preventDefault(); lcSubSave(id); }
+  else if (ev.key === "Escape") { lcSubClose(); }
+}
+// 登録1件の subs（日付→代わりの方）に、days の日ぶんを書く（空なら消す）。登録にない日は無視する。
+function cplSetSub(L, days, v) {
+  const subs = { ...(L.subs || {}) };
+  (days || []).forEach(d => {
+    if (!(L.dates || []).includes(d)) return;
+    if (v) subs[d] = v; else delete subs[d];
+  });
+  const out = { ...L, subs };
+  if (!Object.keys(subs).length) delete out.subs;
+  return out;
+}
+// 日付をはずしたとき、その日の代わりの方の記録もいっしょに整理する
+function cplKeepSubs(L) {
+  if (!L.subs) return L;
+  const subs = {};
+  Object.keys(L.subs).forEach(d => { if ((L.dates || []).includes(d) && L.subs[d]) subs[d] = L.subs[d]; });
+  const out = { ...L, subs };
+  if (!Object.keys(subs).length) delete out.subs;
+  return out;
+}
+async function lcSaveReqSub(r, v) {
+  const rec = (state.leaveRequests || []).find(x => x.id === r.id);
+  if (!rec) { alert("この休みの記録が見つかりませんでした"); return false; }
+  if (!firebaseReady) { rec.substitute = v; return true; }
+  try {
+    await db.collection("leaveRequests").doc(r.id).update({ substitute: v });
+    rec.substitute = v;
+    return true;
+  } catch (e) {
+    alert("保存できませんでした: " + e.message);
+    return false;
+  }
+}
+async function lcSubSave(id) {
+  const s = lcState();
+  if (s.subSaving) return;
+  const r = lcFindRec(id);
+  if (!r) { s.subEdit = ""; return lcRerender(); }
+  const v = String(s.subDraft || "").trim();
+  const y = window.scrollY;
+  s.subSaving = true;
+  let ok = false;
+  try {
+    if (r.status === "company" || r.status === "companySite") {
+      const L = lcEntryOf(r);
+      if (!L) { alert("もとの登録が見つかりませんでした（すでに消されたかもしれません）"); s.subEdit = ""; lcRerender(); return; }
+      const all = s.subScope === "all";
+      const days = all ? (L.dates || []) : [r.date];
+      if (all) {
+        const other = days.filter(d => d !== r.date && (L.subs || {})[d] && (L.subs || {})[d] !== v);
+        if (other.length && !confirm(`ほかの日（${other.length}日）に、ちがう代わりの方が入っています。\nぜんぶ「${v || "（なし）"}」に書きかえます。よろしいですか？`)) return;
+      }
+      if (r.status === "companySite") {
+        ok = await cplSiteMutate(cur => cur.map(x => x.id === L.id ? cplSetSub(x, days, v) : x));
+      } else {
+        const emp = (state.employees || []).find(e => e.id === r.employeeId);
+        ok = !!emp && await cplSaveLists([{ emp, list: cplOf(emp).map(x => x.id === L.id ? cplSetSub(x, days, v) : x) }]);
+      }
+    } else {
+      ok = await lcSaveReqSub(r, v);
+    }
+  } finally {
+    s.subSaving = false;
+  }
+  if (ok) { s.subEdit = ""; s.subDraft = ""; s.subScope = "day"; lcRerender(); window.scrollTo(0, y); }
 }
 function lcViewSeg() {
   const v = lcState().view;
@@ -3787,11 +3918,11 @@ function lcFilters() {
     </div>`;
 }
 
-// 応援が必要な現場（その日）＝「現場のみの入力」の現場 ＋ 「代わりの方」が決まっていない休みの現場。
+// 応援が必要な現場（その日）＝「代わりの方」が決まっていない「現場のみの入力」の現場 ＋ 決まっていない休みの現場。
 // 同じ現場は1か所と数える。代わりの方が入っている休みは、応援ずみなので数えない。
 function lcNeedSites(ds, map, siteMap) {
   const set = new Set();
-  (siteMap[ds] || []).forEach(r => set.add(r.site));
+  (siteMap[ds] || []).forEach(r => { if (!String(r.substitute || "").trim()) set.add(r.site); });
   (map[ds] || []).forEach(r => { if (!String(r.substitute || "").trim()) set.add(lcSiteOf(r)); });
   return set;
 }
@@ -3826,9 +3957,9 @@ function renderLeaveCalendar() {
       .concat(lcGroupBySite(list.filter(r => r.status !== "company")).map(([site, rs]) => ({ site, rs, co: false })))
       .concat(coGroups.map(([site, rs]) => ({ site, rs, co: true })));
     const shown = items.slice(0, 5);
-    cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${needN[ds] ? "応援が必要 " + needN[ds] + "箇所" : (list.length ? "応援ずみ" : "")}">
+    cells += `<button class="${cls}" onclick="lcPick('${ds}')" aria-label="${lcJpDate(ds)} ${needN[ds] ? "応援が必要 " + needN[ds] + "箇所" : ((list.length || sitesToday.length) ? "応援ずみ" : "")}">
       <span class="d">${d}</span>${hn ? `<span class="hn">${escapeHtml(hn)}</span>` : ""}
-      ${needN[ds] ? `<span class="cnt ${lcLv(needN[ds])}">${needN[ds]}<span class="u">箇所</span></span>` : (list.length ? `<span class="cnt lc-ok">応援済</span>` : "")}
+      ${needN[ds] ? `<span class="cnt ${lcLv(needN[ds])}">${needN[ds]}<span class="u">箇所</span></span>` : ((list.length || sitesToday.length) ? `<span class="cnt lc-ok">応援済</span>` : "")}
       ${sitesToday.length ? `<span class="snm">${Array.from(new Set(sitesToday.map(r => r.site))).slice(0, 2).map(n => `<span>${escapeHtml(n)}</span>`).join("")}</span>` : ""}
       <span class="names">${shown.map(it => it.closure
         ? `<span class="nm co"><i style="background:${lcSiteColor(it.site)}"></i>${escapeHtml(it.site)}</span>`
@@ -3863,9 +3994,9 @@ function renderLeaveCalendar() {
       <div class="lc-head"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
       <div class="lc-grid">${cells}</div>
       <div class="lc-legend">
-        <span>右上の「○箇所」＝応援が必要な現場の数（現場のみの入力＋代わりの方が決まっていない休み）</span><span>「応援済」＝代わりの方が決まっています</span><span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>紫の文字＝会社が把握しているお休み</span>
+        <span>右上の「○箇所」＝応援が必要な現場の数（代わりの方が決まっていない休み。現場のみの入力もふくむ）</span><span>「応援済」＝代わりの方が決まっています</span><span>色つきの点＝現場ごとの色</span><span>「×2」＝その現場で2人お休み</span><span>現場名のうしろの「？」＝決裁待ちの方を含む</span><span>紫の文字＝会社が把握しているお休み</span>
       </div>
-      <p class="muted" style="font-size:11px; margin:8px 0 0;">否決・取り消しのものは出しません。日付を押すと、下にその日の方が現場ごとに出ます。決裁は下の「決裁待ちの休暇申請」からできます。会社が把握しているお休み（長期休暇など）も一緒に出ます（入力は下の紫の枠から）。</p>
+      <p class="muted" style="font-size:11px; margin:8px 0 0;">否決・取り消しのものは出しません。日付を押すと、下にその日の方が現場ごとに出ます（各行の「代わりを入れる」から、代わりの方をその場で入力できます）。決裁は下の「決裁待ちの休暇申請」からできます。会社が把握しているお休み（長期休暇など）も一緒に出ます（入力は下の紫の枠から）。</p>
     </div>
     <div class="card">
       <p class="lc-detail-title">${lcJpDate(s.sel)}${s.sel === todayStr ? `<span style="color:var(--danger); font-size:13px; margin-left:8px;">今日</span>` : ""}</p>
@@ -4156,6 +4287,8 @@ function exportPastLeaveToExcel() {
      保存先は settings/envelope の companySiteLeaves（Firebaseのルールを変えなくて済むよう、
      すでに使っている設定の書類にいっしょに入れています）。
      1件＝ { id, batch, site, dates:[…], kind, memo, createdAt }
+   ＊ どちらの登録も、日ごとの「代わりの方」を subs={"2026-11-25":"中川さん"} として持てます
+     （2026-11-24 追加。日付の内わけの「代わりを入れる」から入力）。
    ========================================================= */
 const CPL_KINDS = ["長期休暇", "会社の指定休（年末年始・お盆など）", "休職・療養", "産休・育休・介護休業", "その他"];
 const CPL_SITE_KINDS = CPL_KINDS.slice();   // 従業員を選ぶ場合と同じ区分
@@ -4182,7 +4315,8 @@ function cplRecords() {
     if (e.status === "resigned") return;
     cplOf(e).forEach(L => (L.dates || []).forEach(ds => out.push({
       id: "cpl_" + L.id + "_" + ds, employeeId: e.id, employeeName: e.name || "", area: e.area || "",
-      date: ds, type: L.kind || "会社が把握しているお休み", reason: L.memo || "", status: "company", cplEntryId: L.id
+      date: ds, type: L.kind || "会社が把握しているお休み", reason: L.memo || "", status: "company", cplEntryId: L.id,
+      substitute: (L.subs && L.subs[ds]) || ""
     })));
   });
   return out;
@@ -4206,7 +4340,8 @@ function cplSiteRecords() {
     const area = cplSiteArea(L.site);
     (L.dates || []).forEach(ds => out.push({
       id: "cps_" + L.id + "_" + ds, site: L.site || "", area, date: ds,
-      type: L.kind || "会社把握", reason: L.memo || "", status: "companySite", cplEntryId: L.id
+      type: L.kind || "会社把握", reason: L.memo || "", status: "companySite", cplEntryId: L.id,
+      substitute: (L.subs && L.subs[ds]) || ""
     }));
   });
   return out;
@@ -4685,7 +4820,7 @@ async function cplRemoveDay(empId, entryId, ds) {
   const L = emp && cplOf(emp).find(x => x.id === entryId);
   if (!emp || !L) return;
   if (!confirm(`${emp.name || "この方"}さんの ${lcJpDate(ds)} を、会社が把握しているお休みからはずします。\n\nこの日だけです（ほかの日は残ります）。よろしいですか？`)) return;
-  const list = cplOf(emp).map(x => x.id === entryId ? { ...x, dates: (x.dates || []).filter(d => d !== ds) } : x).filter(x => (x.dates || []).length);
+  const list = cplOf(emp).map(x => x.id === entryId ? cplKeepSubs({ ...x, dates: (x.dates || []).filter(d => d !== ds) }) : x).filter(x => (x.dates || []).length);
   await cplSaveLists([{ emp, list }]);
 }
 async function cplDeleteSiteBatch(key) {
@@ -4704,7 +4839,7 @@ async function cplSiteRemoveDay(entryId, ds) {
   const L = cplSitesOf().find(x => x.id === entryId);
   if (!L) return;
   if (!confirm(`「${L.site}」の ${lcJpDate(ds)} を、会社が把握しているお休み（現場のみ）からはずします。\n\nこの日だけです（ほかの日は残ります）。よろしいですか？`)) return;
-  await cplSiteMutate(cur => cur.map(x => x.id === entryId ? { ...x, dates: (x.dates || []).filter(d => d !== ds) } : x).filter(x => (x.dates || []).length));
+  await cplSiteMutate(cur => cur.map(x => x.id === entryId ? cplKeepSubs({ ...x, dates: (x.dates || []).filter(d => d !== ds) }) : x).filter(x => (x.dates || []).length));
 }
 
 /* ----- 休暇管理タブの「会社が把握しているお休み」カード ----- */
@@ -4807,13 +4942,16 @@ function renderCompanyLeaveCard() {
 
 // カレンダーの日付を押したときの、現場のお休みの1行
 function lcSiteRow(r) {
+  const editing = lcSubEditing(r);
   return `
-    <div class="lc-person">
+    <div class="lc-person${editing ? " lc-editing" : ""}">
       <div style="min-width:0;">
         <div><b>${escapeHtml(r.site)}</b></div>
         <div class="muted" style="margin-top:2px;"><span style="color:#5E35B1; font-weight:700;">${escapeHtml(r.type || "")}</span>${r.reason ? "・" + escapeHtml(r.reason) : ""}</div>
+        ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${escapeHtml(r.substitute)}</div>` : ""}
       </div>
-      <div style="flex-shrink:0; text-align:right;"><span class="status-pill" style="background:#ede7f6; color:#5E35B1;">会社把握</span><div><button class="cpl-mini" style="margin-top:6px;" onclick="cplSiteRemoveDay('${r.cplEntryId}','${r.date}')">この日だけはずす</button></div></div>
+      <div style="flex-shrink:0; text-align:right;"><span class="status-pill" style="background:#ede7f6; color:#5E35B1;">会社把握</span>${editing ? "" : lcSubBtn(r)}<div><button class="cpl-mini" style="margin-top:6px;" onclick="cplSiteRemoveDay('${r.cplEntryId}','${r.date}')">この日だけはずす</button></div></div>
+      ${editing ? lcSubEditor(r) : ""}
     </div>`;
 }
 

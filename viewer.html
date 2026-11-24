@@ -262,7 +262,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-11-18";
+const APP_VERSION = "リーダー用 2026-11-24";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -1732,7 +1732,8 @@ function cplRecords() {
     if (e.status === "resigned") return;
     cplOf(e).forEach(L => (L.dates || []).forEach(ds => out.push({
       id: "cpl_" + L.id + "_" + ds, employeeId: e.id, employeeName: e.name || "", area: e.area || "",
-      date: ds, type: L.kind || "会社が把握しているお休み", reason: "", status: "company"
+      date: ds, type: L.kind || "会社が把握しているお休み", reason: "", status: "company",
+      substitute: (L.subs && L.subs[ds]) || ""
     })));
   });
   return out;
@@ -1753,7 +1754,8 @@ function cplSiteRecords() {
     const area = cplSiteArea(L.site);
     (L.dates || []).forEach(ds => out.push({
       id: "cps_" + L.id + "_" + ds, site: L.site || "", area, date: ds,
-      type: L.kind || "会社把握", reason: "", status: "companySite"
+      type: L.kind || "会社把握", reason: "", status: "companySite",
+      substitute: (L.subs && L.subs[ds]) || ""
     }));
   });
   return out;
@@ -1819,6 +1821,7 @@ function lcSiteRow(r) {
       <div style="min-width:0;">
         <div><b>${esc(r.site)}</b></div>
         <div class="muted" style="margin-top:2px;"><span style="color:#5E35B1; font-weight:700;">${esc(r.type || "")}</span></div>
+        ${r.substitute ? `<div style="font-size:13px; margin-top:2px; color:#2f855a;">代わり：${esc(r.substitute)}</div>` : ""}
       </div>
       <div style="flex-shrink:0;"><span class="status-pill" style="background:#ede7f6; color:#5E35B1;">会社把握</span></div>
     </div>`;

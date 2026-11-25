@@ -296,6 +296,15 @@
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 700; font-size: 12px; }
+  /* 発注リストの表：列の幅をそろえる（2026-11-25 追加）。品目が長くても、申請者・場所・状態がつぶれない */
+  .order-wrap { overflow-x: auto; }
+  table.order-tbl { table-layout: fixed; min-width: 600px; }
+  table.order-tbl.done { min-width: 720px; }
+  table.order-tbl th, table.order-tbl td { padding: 10px 6px; overflow-wrap: anywhere; }
+  table.order-tbl th { white-space: nowrap; }
+  table.order-tbl select { width: 100%; min-width: 0; }
+  table.order-tbl td.ord-h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+  table.order-tbl th:last-child, table.order-tbl td:last-child { padding-left: 2px; padding-right: 2px; text-align: center; }
 
   .btn-approve, .btn-reject {
     font-size: 12px;
@@ -720,7 +729,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-24";
+const APP_VERSION = "更新: 2026-11-25";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -3223,10 +3232,7 @@ function renderAdminOrderTab() {
       ${shownActive.length
         ? (isNarrow
             ? shownActive.map(o => renderAdminOrderCard(o, statusOptions)).join("")
-            : `<table>
-                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
-                <tbody>${shownActive.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
-              </table>`)
+            : `${orderTableHtml(shownActive.map(o => renderAdminOrderRow(o, statusOptions)).join(""), false)}`)
         : `<p class="muted">${activeOrders.length ? "この状態の発注はありません" : (doneOrders.length ? "対応中の発注はありません" : "発注はまだありません")}</p>`}
       <p class="muted" style="font-size:11px; margin-top:10px;">状態を変えると、処理した本社担当として記録されます（本社内のみ表示）。パートさんには「未確認→手配中→発送済み」まで見えます。</p>
       <p class="muted" style="font-size:11px; margin-top:4px;">聞き間違いなどは「なおす」から直せます。削除も同じ画面からできます。「受け取り完了」にすると、下の完了ぶんへ移ります。</p>
@@ -3272,10 +3278,7 @@ function renderAdminOrderTab() {
           <p class="muted" style="font-size:12px; margin:10px 0 0;">パートさんが「まちがえた」として取り消した発注です。もし戻す必要があれば、状態を「未確認」に変えれば元に戻せます。</p>
           ${isNarrow
             ? `<div style="margin-top:12px;">${cancelledOrders.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
-            : `<table style="margin-top:12px;">
-                <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
-                <tbody>${cancelledOrders.map(o => renderAdminOrderRow(o, statusOptions)).join("")}</tbody>
-              </table>`}
+            : `${orderTableHtml(cancelledOrders.map(o => renderAdminOrderRow(o, statusOptions)).join(""), false, "margin-top:12px;")}`}
         ` : `<p class="muted" style="font-size:12px; margin:8px 0 0;">「ひらく」を押すと、取り消された発注を確認できます。</p>`}
       </div>
     ` : ""}
@@ -3321,10 +3324,7 @@ function renderDoneOrderList(isNarrow, statusOptions, scope) {
   }
   return `<p class="muted" style="font-size:12px; margin:12px 0 4px;">${list.length}件</p>` + (isNarrow
     ? `<div>${list.map(o => renderAdminOrderCard(o, statusOptions)).join("")}</div>`
-    : `<table>
-        <thead><tr><th>申請者</th><th>場所</th><th>品目</th><th>数量</th><th>注文日</th><th>完了日</th><th>状態</th><th>処理者</th><th></th></tr></thead>
-        <tbody>${list.map(o => renderAdminOrderRow(o, statusOptions, true)).join("")}</tbody>
-      </table>`);
+    : `${orderTableHtml(list.map(o => renderAdminOrderRow(o, statusOptions, true)).join(""), true)}`);
 }
 
 // 検索入力：入力欄を作り直さず、一覧部分だけ差し替える（日本語変換中は反応しない）
@@ -3463,6 +3463,19 @@ function renderAdminOrderCard(o, statusOptions) {
   `;
 }
 
+/* --- 発注リストの表（列の幅を決めて作る） ---------- */
+function orderTableHtml(bodyHtml, withDone, wrapStyle) {
+  const cols = withDone ? [12, 12, 16, 6, 10, 10, 16, 8, 10] : [15, 14, 21, 6, 12, 13, 10, 9];
+  const heads = withDone
+    ? ["申請者", "場所", "品目", "数量", "注文日", "完了日", "状態", "処理者", ""]
+    : ["申請者", "場所", "品目", "数量", "注文日", "状態", "処理者", ""];
+  return `<div class="order-wrap"${wrapStyle ? ` style="${wrapStyle}"` : ""}><table class="order-tbl${withDone ? " done" : ""}">
+    <colgroup>${cols.map(w => `<col style="width:${w}%">`).join("")}</colgroup>
+    <thead><tr>${heads.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+  </table></div>`;
+}
+
 /* --- 発注リストの1行を描く（編集は別画面のダイアログで行う） ---------- */
 function renderAdminOrderRow(o, statusOptions, withDone) {
   return `
@@ -3478,9 +3491,9 @@ function renderAdminOrderRow(o, statusOptions, withDone) {
           ${statusOptions.map(([v, l]) => `<option value="${v}" ${o.status === v ? "selected" : ""}>${l}</option>`).join("")}
         </select>
       </td>
-      <td class="muted" style="font-size:12px;" title="${escapeHtml(o.handledBy || "")}">${escapeHtml(shortHandler(o.handledBy))}</td>
+      <td class="muted ord-h" style="font-size:12px;" title="${escapeHtml(o.handledBy || "")}">${escapeHtml(shortHandler(o.handledBy))}</td>
       <td style="white-space:nowrap;">
-        <button style="font-size:12px; padding:6px 12px;" onclick="startEditOrder('${o.id}')">なおす</button>
+        <button style="font-size:12px; padding:6px 8px;" onclick="startEditOrder('${o.id}')">なおす</button>
       </td>
     </tr>
   `;

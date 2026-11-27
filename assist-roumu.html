@@ -659,6 +659,7 @@ if (typeof pdfjsLib !== "undefined") {
 let db = null;
 let firebaseReady = false;
 let authReady = false;
+let anonSignInPromise = null;
 try {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
@@ -675,7 +676,13 @@ try {
       authReady = !!user;
       if (!user) {
         // 誰もログインしていない状態になったら、匿名認証に戻す
-        firebase.auth().signInAnonymously().catch(e => console.error("匿名認証エラー", e));
+        // （本社ログインがこの処理と行き違いにならないよう、終わるまで待てるように覚えておく）
+        anonSignInPromise = firebase.auth().signInAnonymously()
+          .catch(e => console.error("匿名認証エラー", e))
+          .then(() => { anonSignInPromise = null; });
+      } else if (user.isAnonymous) {
+        // 本社でログイン中なのに、裏で匿名ユーザーに入れ替わってしまったとき → 読み取りが断られるので、画面でお知らせする
+        try { if (state.currentUser && state.currentUser.role === "admin") adminAuthLost(); } catch (e) {}
       }
     });
   }
@@ -686,16 +693,24 @@ try {
 /* 現在ログイン中のFirebaseユーザーが管理者かどうかを確認する。
    Firestoreの admins コレクションに、そのユーザーのUIDのドキュメントが
    存在する場合だけ管理者として扱う（コード内にパスワードを持たない）。 */
+/* 戻り値： true＝管理者 ／ false＝管理者ではない ／ null＝通信などで確かめられなかった
+   （通信エラーのときに「権限がありません」と出して、ログインを取り消してしまわないように区別する） */
 async function verifyAdminClaim() {
   const user = firebase.auth().currentUser;
   if (!user || user.isAnonymous) return false;
-  try {
-    const doc = await db.collection("admins").doc(user.uid).get();
-    return doc.exists;
-  } catch (e) {
-    console.error("管理者確認エラー", e);
-    return false;
+  let lastErr = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const doc = await db.collection("admins").doc(user.uid).get();
+      return doc.exists;
+    } catch (e) {
+      lastErr = e;
+      console.error("管理者確認エラー", e);
+      if (e && e.code === "permission-denied") return false;   // ルールが「管理者ではない」と答えた
+      if (i < 2) await new Promise(r => setTimeout(r, 800 * (i + 1)));    // 通信の不調かもしれないので、少し待ってやり直す
+    }
   }
+  return null;
 }
 
 /* =========================================================
@@ -729,7 +744,7 @@ function calcAnnualGrant(hireDateStr, weeklyDays) {
 /* =========================================================
    3) アプリの状態管理（ごくシンプルな自作ルーター）
    ========================================================= */
-const APP_VERSION = "更新: 2026-11-25";
+const APP_VERSION = "更新: 2026-11-27";
 
 const state = {
   currentUser: null,   // { id, name, phone, role, hireDate, weeklyDays, area }
@@ -1364,8 +1379,14 @@ async function handleAdminLogin() {
   }
 
   try {
+    // 裏で匿名ログインが進んでいる最中だと、本社ログインが入れ替えられてしまうので、終わるのを待つ
+    if (anonSignInPromise) { try { await anonSignInPromise; } catch (e) {} }
     const cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
     const isAdmin = await verifyAdminClaim();
+    if (isAdmin === null) {
+      try { await firebase.auth().signOut(); } catch (e) {}
+      return alert("通信が不安定で、本社の確認ができませんでした。\n電波やインターネットの状態をご確認のうえ、もう一度ログインしてください。");
+    }
     if (!isAdmin) {
       await firebase.auth().signOut();
       return alert("このアカウントには管理者権限がありません。本社にお問い合わせください。");
@@ -1385,8 +1406,9 @@ async function handleAdminLogin() {
     return alert(msg);
   }
   state.screen = "adminHome";
+  if (firebaseReady && !adminSubscribed) adminConnStart();   // 「読み込み中」の状態にしてから画面を出す（数字は「…」と表示）
   render();
-  if (firebaseReady && !adminSubscribed) { subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); subscribeEnvelopeSettings(); }
+  if (firebaseReady && !adminSubscribed) startAdminSubscriptions();
   else if (!firebaseReady) subscribeEnvelopeSettings();
   refreshOfficePushQuietly();
 }
@@ -1421,6 +1443,7 @@ function unbindSession() {
 let loginKeyCache = null, viewerLoginCache = null, loginKeySyncTimer = null, loginKeySyncing = false;
 function scheduleLoginKeySync() {
   if (!firebaseReady || !state.currentUser || state.currentUser.role !== "admin") return;
+  if (!adminConn.gotServer) return;   // 端末に残っていた古い／途中のデータでは、鍵をいじらない
   clearTimeout(loginKeySyncTimer);
   loginKeySyncTimer = setTimeout(syncLoginKeys, 3000);
 }
@@ -1439,8 +1462,15 @@ function wantedLoginKeys() {
   });
   return { keys, viewers };
 }
+let keyGuardPending = 0, keyGuardForce = false;
+function adminKeyForceDelete() {
+  if (!confirm(`ログインの鍵を ${keyGuardPending} 件まとめて消します。\n従業員名簿が正しく読み込めていることを確かめたうえで、よろしければ「OK」を押してください。`)) return;
+  keyGuardForce = true;
+  syncLoginKeys();
+}
 async function syncLoginKeys() {
   if (loginKeySyncing || !firebaseReady || !state.currentUser || state.currentUser.role !== "admin") return;
+  if (!adminConn.gotServer) return;                    // サーバーから届いた名簿ができるまでは何もしない
   if (!(state.employees || []).length) return;
   loginKeySyncing = true;
   try {
@@ -1456,7 +1486,7 @@ async function syncLoginKeys() {
       (await db.collection("viewerLogins").get()).docs.forEach(d => { viewerLoginCache[d.id] = (d.data() || {}).v; });
     }
     const { keys, viewers } = wantedLoginKeys();
-    const ops = [];
+    let ops = [];
     Object.keys(keys).forEach(k => {
       const w = keys[k], h = loginKeyCache[k];
       if (!h || h.employeeId !== w.employeeId || (h.until || null) !== (w.until || null)) ops.push(["setKey", k, w]);
@@ -1464,6 +1494,18 @@ async function syncLoginKeys() {
     Object.keys(loginKeyCache).forEach(k => { if (!keys[k]) ops.push(["delKey", k]); });
     Object.keys(viewers).forEach(id => { if (viewerLoginCache[id] !== viewers[id]) ops.push(["setViewer", id, viewers[id]]); });
     Object.keys(viewerLoginCache).forEach(id => { if (!(id in viewers)) ops.push(["delViewer", id]); });
+    // 【安全装置】名簿が途中までしか読めていないときに、鍵を一度に大量に消してしまわないように。
+    // 消す件数が多すぎる（10件以上かつ全体の3割より多い）ときは、消す作業だけ止めて本社にお知らせする
+    const dels = ops.filter(o => o[0] === "delKey" || o[0] === "delViewer").length;
+    const baseN = Object.keys(loginKeyCache).length + Object.keys(viewerLoginCache).length;
+    if (dels >= 10 && dels > baseN * 0.3 && !keyGuardForce) {
+      console.warn(`ログインの鍵を一度に${dels}件消そうとしたため、安全のため消す作業は見送りました`);
+      ops = ops.filter(o => o[0] !== "delKey" && o[0] !== "delViewer");
+      if (keyGuardPending !== dels) { keyGuardPending = dels; render(); }
+    } else if (keyGuardPending) {
+      keyGuardPending = 0; render();
+    }
+    keyGuardForce = false;
     for (let i = 0; i < ops.length; i += 400) {
       const batch = db.batch();
       ops.slice(i, i + 400).forEach(([t, id, w]) => {
@@ -1763,7 +1805,7 @@ function renderOrderHistory(onHome) {
     const doneDate = (o.status === "received" && fmtYmd(o.receivedAt)) ? `<br><span class="muted" style="font-size:12px;">完了日：${fmtYmd(o.receivedAt)}</span>` : "";
     return `
     <div class="row-between" style="margin-bottom:8px;">
-      <div>${who}${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
+      <div>${who}${escapeHtml(o.item || "")}　${escapeHtml(o.qty)}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
       <div style="text-align:right;">
         <span class="status-pill ${statusClass[o.status] || "status-pending"}">${statusLabel[o.status] || o.status}</span>${doneDate}
         ${canReceive ? `<br><button style="margin-top:6px; font-size:14px; padding:6px 12px; color:var(--success); border:1.5px solid var(--success); background:#fff; border-radius:8px;" onclick="markReceived('${o.id}')">受け取りました</button>` : ""}
@@ -1791,7 +1833,7 @@ function renderOrderHistory(onHome) {
         <p class="muted" style="margin:0 0 8px;">取り消したもの</p>
         ${myCancelled.map(o => `
           <div class="row-between" style="margin-bottom:8px; opacity:0.7;">
-            <div>${escapeHtml(o.item || "")}　${o.qty}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
+            <div>${escapeHtml(o.item || "")}　${escapeHtml(o.qty)}こ<br><span class="muted" style="font-size:13px;">${escapeHtml(o.place || "")}</span></div>
             <span class="status-pill" style="background:#eee; color:#888;">取消済み${fmtYmd(o.cancelledAt) ? "・" + fmtYmd(o.cancelledAt) : ""}</span>
           </div>
         `).join("")}
@@ -2026,17 +2068,18 @@ function renderChatBubble(m, mine) {
     ? new Date(m.createdAt.seconds * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
   // タップで全画面に広げられるよう、メッセージを覚えておく（写真の長い文字列を属性に埋めないため）
-  const canBig = !!(m.id && (m.text || m.photoURL));
+  const photo = safeImgSrc(m.photoURL);
+  const canBig = !!(m.id && (m.text || photo));
   if (canBig) bigViewStore[m.id] = m;
   return `
     <div class="chat-bubble-row ${mine ? "mine" : ""}">
       <div>
         <div class="chat-bubble"${canBig ? ` data-mid="${escapeHtml(String(m.id))}" onclick="openBigView(this.dataset.mid)"` : ""}>
           ${m.text ? `<div>${linkifyText(escapeHtml(m.text))}</div>` : ""}
-          ${m.photoURL ? `<img src="${m.photoURL}" />` : ""}
+          ${photo ? `<img src="${escapeHtml(photo)}" />` : ""}
           ${canBig ? `<div class="chat-big-hint">🔍 タップで大きく見られます</div>` : ""}
         </div>
-        <div class="chat-meta">${mine ? "" : (m.senderName || "本社") + "　"}${time}</div>
+        <div class="chat-meta">${mine ? "" : escapeHtml(m.senderName || "本社") + "　"}${time}</div>
       </div>
     </div>
   `;
@@ -2072,14 +2115,14 @@ function openBigView(id) {
     <div class="bv-bar">
       <div class="bv-sizes">
         ${m.text ? `<span>文字</span><button type="button" onclick="bigViewResize(-2)" aria-label="文字を小さく">小</button><button type="button" onclick="bigViewResize(2)" aria-label="文字を大きく">大</button>` : ""}
-        ${m.photoURL ? `<span>写真</span><button type="button" onclick="bigViewPhotoZoom(-0.5)" aria-label="写真を小さく">－</button><button type="button" onclick="bigViewPhotoZoom(0.5)" aria-label="写真を大きく">＋</button>` : ""}
+        ${safeImgSrc(m.photoURL) ? `<span>写真</span><button type="button" onclick="bigViewPhotoZoom(-0.5)" aria-label="写真を小さく">－</button><button type="button" onclick="bigViewPhotoZoom(0.5)" aria-label="写真を大きく">＋</button>` : ""}
       </div>
       <button type="button" class="bv-close" onclick="closeBigView()">✕ とじる</button>
     </div>
     <div class="bv-body">
       <div class="bv-meta">${escapeHtml(m.senderName || "")}${m.senderName ? "　" : ""}${time}</div>
       ${m.text ? `<div class="bv-text" id="bvText" style="font-size:${bigViewSize}px;">${linkifyText(escapeHtml(m.text))}</div>` : ""}
-      ${m.photoURL ? `<div class="bv-photo"><img id="bvPhoto" src="${m.photoURL}" style="width:100%;" /></div>` : ""}
+      ${safeImgSrc(m.photoURL) ? `<div class="bv-photo"><img id="bvPhoto" src="${escapeHtml(safeImgSrc(m.photoURL))}" style="width:100%;" /></div>` : ""}
     </div>
   `;
   document.body.appendChild(ov);
@@ -2107,7 +2150,15 @@ function bigViewPhotoZoom(d) {
 document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeBigView(); });
 
 function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // 文字以外（数字・変なデータ）が来ても止まらないように、いったん文字にしてから置きかえる
+  return (s == null || s === false ? "" : String(s)).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+/* 写真のURLとして安全なものだけを通す（data:画像 か https:// のみ）。それ以外は「写真なし」として扱う */
+function safeImgSrc(u) {
+  if (typeof u !== "string") return "";
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) return u;
+  if (/^https:\/\/[^\s"'<>\\`]+$/.test(u)) return u;
+  return "";
 }
 
 /* 送信が終わった入力欄を空にする（覚えていた打ちかけの文字も消す） */
@@ -2672,8 +2723,8 @@ function renderLeaveHistory() {
         <div class="req-item"${r.status === "cancelled" ? ' style="opacity:0.6;"' : ""}>
           <div class="row-between" style="margin:0;">
             <div>
-              <div>${r.date}（${r.type}）</div>
-              <div class="muted">${r.reason || ""}</div>
+              <div>${escapeHtml(r.date)}（${escapeHtml(r.type)}）</div>
+              <div class="muted">${escapeHtml(r.reason || "")}</div>
               ${r.substitute ? `<div class="muted" style="font-size:13px;">代わりの方：${escapeHtml(r.substitute)}</div>` : ""}
             </div>
             ${r.status === "cancelled"
@@ -3091,6 +3142,9 @@ function renderAdmin() {
   updateAdminBadge();
   const pending = state.leaveRequests.filter(r => r.status === "pending");
   const cancelReqs = state.leaveRequests.filter(r => r.status === "cancelRequested");
+  // まだ名簿が1件も届いていないとき、0 と表示すると「本当に0人」に見えてしまうので「…」にする
+  const dataWaiting = firebaseReady && adminConn.started && !adminConn.gotServer && !(state.employees || []).length;
+  const nz = v => dataWaiting ? "…" : v;
 
   appEl.innerHTML = `
     <header class="topbar">
@@ -3098,12 +3152,13 @@ function renderAdmin() {
       <button onclick="logout()">ログアウト</button>
     </header>
     <main>
+      ${renderAdminConnBanner()}
       ${renderOfficePushCard()}
       <div class="stat-grid">
-        <div class="stat-card"><div class="num">${(state.orders || []).filter(o => o.status === "pending").length}</div><div class="label">未確認の発注</div></div>
-        <div class="stat-card"><div class="num">${pending.length}</div><div class="label">休暇 決裁待ち</div></div>
-        <div class="stat-card"><div class="num">${adminUnreadCount()}</div><div class="label">未読メッセージ</div></div>
-        <div class="stat-card"><div class="num">${state.employees.filter(e => e.status !== "resigned").length || "-"}</div><div class="label">従業員在籍数</div></div>
+        <div class="stat-card"><div class="num">${nz((state.orders || []).filter(o => o.status === "pending").length)}</div><div class="label">未確認の発注</div></div>
+        <div class="stat-card"><div class="num">${nz(pending.length)}</div><div class="label">休暇 決裁待ち</div></div>
+        <div class="stat-card"><div class="num">${nz(adminUnreadCount())}</div><div class="label">未読メッセージ</div></div>
+        <div class="stat-card"><div class="num">${nz(state.employees.filter(e => e.status !== "resigned").length || "-")}</div><div class="label">従業員在籍数</div></div>
       </div>
 
       <div class="tabbar">
@@ -3448,7 +3503,7 @@ function renderAdminOrderCard(o, statusOptions) {
       </div>
 
       <div style="margin-top:8px; font-size:15px;">
-        ${escapeHtml(o.item || "")}<span style="font-weight:700; margin-left:6px;">×${o.qty}</span>
+        ${escapeHtml(o.item || "")}<span style="font-weight:700; margin-left:6px;">×${escapeHtml(o.qty)}</span>
       </div>
       <div class="muted" style="font-size:12px; margin-top:6px;">注文日：${fmtYmd(o.createdAt) || "―"}</div>
       ${(o.status === "received" && fmtYmd(o.receivedAt)) ? `<div class="muted" style="font-size:12px; margin-top:6px;">完了日：${fmtYmd(o.receivedAt)}</div>` : ""}
@@ -3483,7 +3538,7 @@ function renderAdminOrderRow(o, statusOptions, withDone) {
       <td>${escapeHtml(o.employeeName || "")}${o.byPhone ? '<br><span class="muted" style="font-size:11px;">（電話）</span>' : ""}<br><span class="muted" style="font-size:12px;">${escapeHtml(o.area || "")}</span></td>
       <td>${escapeHtml(o.place || "")}</td>
       <td>${escapeHtml(o.item || "")}</td>
-      <td>${o.qty}</td>
+      <td>${escapeHtml(o.qty)}</td>
       <td class="muted" style="font-size:12px; white-space:nowrap;">${fmtYmd(o.createdAt) || "―"}</td>
       ${withDone ? `<td class="muted" style="font-size:12px; white-space:nowrap;">${fmtYmd(o.receivedAt) || "―"}</td>` : ""}
       <td>
@@ -4984,11 +5039,11 @@ function renderAdminLeaveTab(pending) {
           <tbody>
             ${cancelReqs.map(r => `
               <tr>
-                <td>${r.employeeName || ""}</td>
-                <td>${r.area || ""}</td>
-                <td>${r.date}</td>
-                <td>${r.type}</td>
-                <td>${r.reason || ""}</td>
+                <td>${escapeHtml(r.employeeName || "")}</td>
+                <td>${escapeHtml(r.area || "")}</td>
+                <td>${escapeHtml(r.date)}</td>
+                <td>${escapeHtml(r.type)}</td>
+                <td>${escapeHtml(r.reason || "")}</td>
                 <td>${escapeHtml(r.substitute || "")}</td>
                 <td>
                   <button class="btn-approve" onclick="approveCancelLeave('${r.id}')">取り消しを承認</button>
@@ -5010,11 +5065,11 @@ function renderAdminLeaveTab(pending) {
           <tbody>
             ${pending.map(r => `
               <tr>
-                <td>${r.employeeName || ""}</td>
-                <td>${r.area || ""}</td>
-                <td>${r.date}</td>
-                <td>${r.type}</td>
-                <td>${r.reason || ""}</td>
+                <td>${escapeHtml(r.employeeName || "")}</td>
+                <td>${escapeHtml(r.area || "")}</td>
+                <td>${escapeHtml(r.date)}</td>
+                <td>${escapeHtml(r.type)}</td>
+                <td>${escapeHtml(r.reason || "")}</td>
                 <td>${escapeHtml(r.substitute || "")}</td>
                 <td>
                   <button class="btn-approve" onclick="updateLeaveStatus('${r.id}','approved')">決裁</button>
@@ -6380,7 +6435,7 @@ function renderAdminEmployeeTab() {
       <div class="card">
         <button class="link" style="margin-bottom:6px;" onclick="state.editingEmpId=null; render();">← 従業員一覧にもどる</button>
         <div class="row-between" style="margin-bottom:4px;">
-          <p class="staff-title" style="font-size:15px; margin:0;">${editing.name || ""} さんの情報</p>
+          <p class="staff-title" style="font-size:15px; margin:0;">${escapeHtml(editing.name || "")} さんの情報</p>
           <div>
             ${isResigned ? `<span class="status-pill status-rejected" style="margin-right:8px;">退職済み（${editing.resignedDate ? fmtMonthDay(editing.resignedDate) : "退職日 未入力"}）</span>` : ""}
             ${isInProbation(editing) ? `<span class="status-pill" style="margin-right:8px; background:#fff3e0; color:#C96A1E; font-weight:700;">試用期間中（〜${probationEndFor(editing)}）</span>` : ""}
@@ -6526,7 +6581,7 @@ function renderAdminEmployeeTab() {
               ` : `<p class="muted" style="font-size:12px; margin:0;">退職前のログインIDの記録がないため、ログインはできません。</p>`}
             </div>
             <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--border); background:#fff;" onclick="reinstateEmployee('${editing.id}')">復職させる（ログインIDを再発行）</button>
-            <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff4f3; color:var(--danger);" onclick="deleteEmployee('${editing.id}', '${(editing.name || "").replace(/'/g, "\\'")}')">この方のデータを完全に削除する</button>
+            <button style="margin-top:10px; width:100%; padding:12px; border-radius:10px; border:1.5px solid var(--danger); background:#fff4f3; color:var(--danger);" data-eid="${escapeHtml(editing.id)}" data-ename="${escapeHtml(editing.name || "")}" onclick="deleteEmployee(this.dataset.eid, this.dataset.ename)">この方のデータを完全に削除する</button>
           `
           : `
             <div style="margin-top:14px; padding:14px; border-radius:10px; border:1.5px solid var(--danger); background:#fff4f3;">
@@ -8992,11 +9047,173 @@ async function updateLeaveStatus(id, status) {
 let adminUnsubs = [];
 let adminSubscribed = false;
 let adminPayslipsSubscribed = false;
+
+/* =========================================================
+   【つながらない対策】本社側のデータ読み込みの見守り
+   ・読み込みでエラーが出ても「箱だけ」のまま黙らないよう、画面の上にお知らせを出す
+   ・つながらなかったときは、自動で何度かつなぎなおす（エラーで止まった購読は自分では復活しないため）
+   ・「この端末に残っていたデータ」と「サーバーから届いたデータ」を見分ける
+   ・サーバーから届くまでは、数字を 0 ではなく「…」で表示する
+   ========================================================= */
+const adminConn = { state: "idle", detail: "", started: false, gotServer: false, offline: false, slow: false, authLost: false, errs: {}, t1: null, t2: null, autoTried: false };
+const ADMIN_LISTEN_LABEL = { employees: "従業員名簿", leaveRequests: "休暇申請", orders: "発注", messages: "チャット", groupChats: "グループ" };
+function adminErrText(err) {
+  const c = (err && err.code) || "";
+  if (c === "permission-denied") return "読み取りが許可されませんでした（ログインのやり直しが必要かもしれません）";
+  if (c === "unavailable") return "インターネットにつながっていないようです";
+  if (c === "unauthenticated") return "ログインが切れています";
+  return (c ? c + " " : "") + ((err && err.message) || "");
+}
+function adminConnRecalc() {
+  const errNames = Object.keys(adminConn.errs);
+  let st = "ok", detail = "";
+  if (!adminSubscribed) st = "idle";
+  else if (adminConn.authLost) st = "authlost";
+  else if (errNames.length) { st = "error"; detail = errNames.map(k => (ADMIN_LISTEN_LABEL[k] || k) + "：" + adminConn.errs[k]).join(" ／ "); }
+  else if (!adminConn.gotServer) st = adminConn.slow ? "slow" : (adminConn.offline ? "offline" : "loading");
+  else if (adminConn.offline) st = "offline";
+  if (adminConn.state === st && adminConn.detail === detail) return;
+  adminConn.state = st; adminConn.detail = detail;
+  if (state.currentUser && state.currentUser.role === "admin") render();
+}
+function adminConnStart(keepTried) {
+  clearTimeout(adminConn.t1); clearTimeout(adminConn.t2);
+  Object.assign(adminConn, { started: true, gotServer: false, offline: false, slow: false, authLost: false, errs: {} });
+  if (!keepTried) adminConn.autoTried = false;
+  // 7秒たっても届かなければ「時間がかかっています」、20秒たっても届かなければ1回だけ自動でつなぎなおす
+  adminConn.t1 = setTimeout(() => { if (!adminConn.gotServer) { adminConn.slow = true; adminConnRecalc(); } }, 7000);
+  adminConn.t2 = setTimeout(() => { if (!adminConn.gotServer && !adminConn.autoTried) { adminConn.autoTried = true; reconnectAdmin(true); } }, 20000);
+}
+function adminAuthLost() { adminConn.authLost = true; adminConnRecalc(); }
+
+function renderAdminConnBanner() {
+  if (!firebaseReady) return "";
+  const st = adminConn.state;
+  const btn = (label, fn) => `<button type="button" style="margin:6px 8px 0 0; padding:8px 14px; border-radius:8px; border:1.5px solid #8a5a00; background:#fff; color:#8a5a00; font-weight:700;" onclick="${fn}">${label}</button>`;
+  let out = "";
+  if (st !== "ok" && st !== "idle" && st !== "loading") {
+    const t = {
+      slow: ["⏳ データの読み込みに時間がかかっています", "電波やインターネットの状態をご確認ください。自動でつなぎなおしています。"],
+      offline: ["📡 インターネットにつながっていません（または不安定です）", "いま見えている数字・一覧は、この端末に残っていた「前に読み込んだ内容」です。最新ではないかもしれません。"],
+      error: ["⚠️ データを読み込めませんでした", escapeHtml(adminConn.detail)],
+      authlost: ["🔑 ログインが切れてしまいました", "お手数ですが「ログインし直す」を押して、もう一度ログインしてください。"]
+    }[st];
+    out += `<div role="alert" style="margin:10px 0; padding:12px 14px; border:2px solid #e0a100; background:#fff8e1; border-radius:12px; color:#6b4a00;">
+      <div style="font-weight:700;">${t[0]}</div>
+      <div style="font-size:13px; margin-top:4px;">${t[1]}</div>
+      ${st === "authlost" ? "" : btn("つなぎなおす", "reconnectAdmin()")}${btn("ログインし直す", "logout()")}
+    </div>`;
+  }
+  if (keyGuardPending) {
+    out += `<div role="alert" style="margin:10px 0; padding:12px 14px; border:2px solid #e0a100; background:#fff8e1; border-radius:12px; color:#6b4a00;">
+      <div style="font-weight:700;">🛡 ログインの鍵を ${keyGuardPending} 件まとめて消す操作を、安全のため止めました</div>
+      <div style="font-size:13px; margin-top:4px;">従業員名簿が途中までしか読めていないときに起こることがあります。名簿が正しく出ていることを確かめて、本当に消してよいときだけ下のボタンを押してください。</div>
+      ${btn("名簿は正しいので、消す", "adminKeyForceDelete()")}
+    </div>`;
+  }
+  return out;
+}
+
+/* 1つの読み込み（購読）を、エラー時にも止まらないように見守る。
+   opts.critical … 従業員名簿用。つながり状態の判定に使う
+   opts.quiet    … エラーでも画面にはお知らせを出さず、裏でつなぎなおすだけ */
+const adminListeners = {};
+function okDocId(id) { return typeof id === "string" && id.length > 0 && !/['"\\<>`$&\s\u0000-\u001f]/.test(id); }
+function adminDocs(snap) {
+  return snap.docs.filter(d => { if (okDocId(d.id)) return true; console.warn("変わった文字を含むIDの書類を読み飛ばしました", d.id); return false; })
+    .map(d => ({ id: d.id, ...d.data() }));
+}
+/* 休暇申請の書類が、日付のない・形のおかしいものだと、画面全体が作れなくなって真っ白になるため、読み込むときに整える */
+function validLeave(r) { return typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date); }
+function cleanLeave(r) {
+  ["type", "reason", "employeeName", "area", "substitute", "status", "employeeId"].forEach(k => {
+    if (r[k] != null && typeof r[k] !== "string") r[k] = String(r[k]);
+  });
+  return r;
+}
+function adminListen(name, queryFn, onData, opts) {
+  opts = opts || {};
+  if (adminListeners[name]) adminListeners[name].stop();
+  let unsub = null, stopped = false, tries = 0, timer = null, first = true, lastFromCache = null;
+  const L = {
+    stop() { stopped = true; clearTimeout(timer); if (unsub) { try { unsub(); } catch (e) {} unsub = null; } },
+    start() {
+      if (stopped) return;
+      if (unsub) { try { unsub(); } catch (e) {} unsub = null; }
+      first = true; lastFromCache = null;
+      unsub = queryFn().onSnapshot({ includeMetadataChanges: true }, snap => {
+        tries = 0;
+        const fromCache = !!snap.metadata.fromCache;
+        const metaOnly = !first && snap.docChanges().length === 0;   // 中身は同じで、つながり具合だけ変わった
+        const flipped = fromCache !== lastFromCache;
+        first = false; lastFromCache = fromCache;
+        let changed = false;
+        if (adminConn.errs[name]) { delete adminConn.errs[name]; changed = true; }
+        if (opts.critical && flipped) {
+          if (!fromCache) { adminConn.gotServer = true; adminConn.offline = false; adminConn.slow = false; }
+          else if (adminConn.gotServer || navigator.onLine === false) adminConn.offline = true;
+          changed = true;
+        }
+        if (changed) adminConnRecalc();
+        if (flipped && !fromCache && opts.onServer) opts.onServer();
+        if (metaOnly) return;
+        onData(snap, fromCache);
+      }, err => {
+        console.error(name + "(admin)購読エラー", err);
+        if (stopped) return;
+        if (!opts.quiet) { adminConn.errs[name] = adminErrText(err); adminConnRecalc(); }
+        // エラーで止まった購読は自分では戻らないので、少し待ってつなぎなおす（許可されないエラーは2回まで）
+        if ((err && err.code) === "permission-denied" && tries >= 2) return;
+        tries++;
+        clearTimeout(timer);
+        timer = setTimeout(L.start, Math.min(30000, 2000 * Math.pow(2, tries - 1)));
+      });
+    }
+  };
+  adminListeners[name] = L;
+  adminUnsubs.push(() => L.stop());
+  L.start();
+  return L;
+}
+
+function startAdminSubscriptions() {
+  if (!firebaseReady || adminSubscribed) return;
+  subscribeAllLeaveRequests(); subscribeAllMessages(); subscribeAllGroups(); subscribeEnvelopeSettings();
+}
+/* 「つなぎなおす」：ログインが生きているか確かめて、通信をいったん切って入れなおし、読み込みをやり直す */
+let adminReconnecting = false;
+async function reconnectAdmin(auto) {
+  if (!firebaseReady || adminReconnecting || !state.currentUser || state.currentUser.role !== "admin") return;
+  adminReconnecting = true;
+  try {
+    const u = firebase.auth().currentUser;
+    if (!u || u.isAnonymous) { adminAuthLost(); return; }
+    try { await u.getIdToken(true); }
+    catch (e) {
+      if (e && e.code === "auth/network-request-failed") { adminConn.offline = true; }
+      else { adminAuthLost(); return; }
+    }
+    try { await db.disableNetwork(); await db.enableNetwork(); } catch (e) { console.warn("通信の入れなおしをスキップ", e && e.code); }
+    stopAdminSubscriptions();
+    adminConnStart(!!auto);
+    startAdminSubscriptions();
+    render();   // 古いお知らせを消して、「読み込み中」の表示にもどす
+  } finally {
+    adminReconnecting = false;
+  }
+}
+window.addEventListener("online", () => {
+  try { if (state.currentUser && state.currentUser.role === "admin" && adminSubscribed && adminConn.state !== "ok") reconnectAdmin(true); } catch (e) {}
+});
+
 function stopAdminSubscriptions() {
   adminUnsubs.forEach(u => { try { u(); } catch (e) {} });
   adminUnsubs = [];
   adminSubscribed = false;
   adminPayslipsSubscribed = false;
+  clearTimeout(adminConn.t1); clearTimeout(adminConn.t2);
+  Object.assign(adminConn, { state: "idle", detail: "", started: false, gotServer: false, offline: false, slow: false, authLost: false, errs: {} });
+  keyGuardPending = 0; keyGuardForce = false;
   if (typeof adminGroupMsgUnsub === "function") { try { adminGroupMsgUnsub(); } catch (e) {} adminGroupMsgUnsub = null; }
 }
 function ensureAdminPayslips() {
@@ -9013,43 +9230,43 @@ function ensureAdminPayslips() {
 function subscribeAllLeaveRequests() {
   if (adminSubscribed) return;
   adminSubscribed = true;
-  adminUnsubs.push(db.collection("leaveRequests").orderBy("createdAt", "desc").onSnapshot(snap => {
-    state.leaveRequests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  adminListen("leaveRequests", () => db.collection("leaveRequests").orderBy("createdAt", "desc"), snap => {
+    state.leaveRequests = adminDocs(snap).filter(r => { if (validLeave(r)) return true; console.warn("日付の形がおかしい休暇申請を読み飛ばしました", r.id); return false; }).map(cleanLeave);
     render();
-  }));
-  adminUnsubs.push(db.collection("employees").onSnapshot(snap => {
-    state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  });
+  adminListen("employees", () => db.collection("employees"), (snap, fromCache) => {
+    state.employees = adminDocs(snap);
     render();
-    scheduleLoginKeySync();   // ログインの鍵を、名簿に合わせて自動で作り直す
-  }));
-  adminUnsubs.push(db.collection("orders").orderBy("createdAt", "desc").onSnapshot(snap => {
-    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!fromCache) scheduleLoginKeySync();   // ログインの鍵を、名簿に合わせて自動で作り直す（サーバーから届いた名簿のときだけ）
+  }, { critical: true, onServer: () => scheduleLoginKeySync() });
+  adminListen("orders", () => db.collection("orders").orderBy("createdAt", "desc"), snap => {
+    state.orders = adminDocs(snap);
     render();
-  }));
+  });
   // 給与明細はここでは読まない（「給与明細」タブを開いたときに ensureAdminPayslips() で読む）
-  adminUnsubs.push(db.collection("loginLogs").onSnapshot(snap => {
+  adminListen("loginLogs", () => db.collection("loginLogs"), snap => {
     const map = {};
     snap.docs.forEach(d => { map[d.id] = (d.data() || {}).lastLoginAt; });
     state.loginLogs = map;
     render();
-  }, err => console.error("loginLogs(admin)購読エラー", err)));
+  }, { quiet: true });
   if (PUSH_VAPID_KEY) {
-    adminUnsubs.push(db.collection("pushTokens").onSnapshot(snap => {
+    adminListen("pushTokens", () => db.collection("pushTokens"), snap => {
       const map = {};
       snap.docs.forEach(d => { const eid = (d.data() || {}).employeeId; if (eid) map[eid] = (map[eid] || 0) + 1; });
       state.pushCounts = map;
       render();
-    }, err => console.error("pushTokens(admin)購読エラー", err)));
+    }, { quiet: true });
   }
-  adminUnsubs.push(db.collection("interviews").onSnapshot(snap => {
+  adminListen("interviews", () => db.collection("interviews"), snap => {
     state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, err => console.error("interviews(admin)購読エラー", err)));
+  }, { quiet: true });
 }
 
 function subscribeAllMessages() {
-  adminUnsubs.push(db.collection("messages").onSnapshot(snap => {
-    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  adminListen("messages", () => db.collection("messages"), snap => {
+    const rows = adminDocs(snap);
     rows.sort((a, b) => {
       const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
       const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
@@ -9057,13 +9274,13 @@ function subscribeAllMessages() {
     });
     state.messages = rows;
     render();
-  }, err => console.error("messages(admin)購読エラー", err)));
+  });
 }
 
 // 本社側は「グループが存在すること・メンバー数」だけ確認できる（groupMessagesは購読しない＝トーク内容は見えない）
 function subscribeAllGroups() {
-  adminUnsubs.push(db.collection("groupChats").onSnapshot(snap => {
-    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  adminListen("groupChats", () => db.collection("groupChats"), snap => {
+    const rows = adminDocs(snap);
     rows.sort((a, b) => {
       const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
       const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
@@ -9071,7 +9288,7 @@ function subscribeAllGroups() {
     });
     state.allGroups = rows;
     render();
-  }, err => console.error("groupChats(admin)購読エラー", err)));
+  });
 }
 
 async function adminDeleteGroup(groupId, name) {
@@ -9340,7 +9557,7 @@ function renderAdminGroupSection() {
           <p class="staff-title" style="font-size:16px; margin:0;">${escapeHtml(g.name || "グループ")}<span class="muted" style="font-size:12px; font-weight:400;">（本社確認・閲覧のみ）</span></p>
           <button class="link" onclick="closeAdminGroupChat()">← 一覧にもどる</button>
         </div>
-        <p class="muted" style="font-size:12px; margin:0 0 10px;">参加コード：${g.code || ""}　／　メンバー：${(g.members || []).length}人　／　本社からの書き込みはできません（内容の確認のみ）</p>
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">参加コード：${escapeHtml(g.code || "")}　／　メンバー：${(g.members || []).length}人　／　本社からの書き込みはできません（内容の確認のみ）</p>
         <div class="chat-scroll" id="adminGroupScroll" style="height:60vh;">
           ${msgs.length ? msgs.map(m => renderChatBubble(m, false)).join("") : `<p class="muted">まだメッセージはありません</p>`}
         </div>
@@ -9359,11 +9576,11 @@ function renderAdminGroupSection() {
           ${groups.map(g => `
             <tr>
               <td>${escapeHtml(g.name || "")}</td>
-              <td>${g.code || ""}</td>
+              <td>${escapeHtml(g.code || "")}</td>
               <td>${(g.members || []).length}人</td>
               <td class="muted" style="font-size:12px;">${g.createdAt && g.createdAt.seconds ? new Date(g.createdAt.seconds * 1000).toLocaleDateString("ja-JP") : ""}</td>
-              <td><button style="font-size:12px; padding:6px 10px;" onclick="openAdminGroupChat('${g.id}')">内容を見る</button></td>
-              <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" onclick="adminDeleteGroup('${g.id}', '${(g.name || "").replace(/'/g, "\\'")}')">削除</button></td>
+              <td><button style="font-size:12px; padding:6px 10px;" data-gid="${escapeHtml(g.id)}" onclick="openAdminGroupChat(this.dataset.gid)">内容を見る</button></td>
+              <td><button style="font-size:12px; padding:6px 10px; color:var(--danger); border-color:var(--danger);" data-gid="${escapeHtml(g.id)}" data-gname="${escapeHtml(g.name || "")}" onclick="adminDeleteGroup(this.dataset.gid, this.dataset.gname)">削除</button></td>
             </tr>
           `).join("") || `<tr><td colspan="6" class="muted">グループチャットはまだありません</td></tr>`}
         </tbody>

@@ -120,11 +120,23 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 .kv b { font-size:12px; color:var(--muted); font-weight:700; width:96px; flex-shrink:0; }
 .big { font-size:21px; font-weight:700; letter-spacing:.1em; word-break:break-all; }
 
-/* ---- 印刷（1か月で1枚の報告書） ---- */
+/* ---- 印刷（1か月で1枚の報告書） ----
+   「印刷」を押すと、まず画面いっぱいに印刷の見本（プレビュー）を出します。
+   そこで「印刷する」を押すと、印刷の画面が開きます（見本は自分で「とじる」まで消えません） */
 #printArea { display:none; }
+#printArea.show { display:block; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9999; background:#dfe5ea; overflow:auto; -webkit-overflow-scrolling:touch; }
+.pv-bar { position:sticky; top:0; z-index:2; display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:10px 12px; background:#fff; border-bottom:1px solid #b9c4cc; box-shadow:0 1px 4px rgba(0,0,0,.12); }
+.pv-bar .pv-msg { flex:1 1 100%; font-size:12px; color:#555; line-height:1.5; }
+.pv-body { padding:12px 0 48px; }
+.pv-body .sheet { background:#fff; box-shadow:0 1px 8px rgba(0,0,0,.28); zoom:var(--pz,1); margin:0 auto 14px; }
+.pv-fail { margin:12px; padding:12px; background:#fff8e1; border:2px solid #e0a100; border-radius:10px; font-size:13px; }
 @media print {
   #app { display:none !important; }
   #printArea { display:block !important; }
+  #printArea.show { position:static; top:auto; left:auto; right:auto; bottom:auto; overflow:visible; background:#fff; }
+  .pv-bar, .pv-fail { display:none !important; }
+  .pv-body { padding:0; }
+  .pv-body .sheet { box-shadow:none; zoom:1; }
   @page { size: A4 portrait; margin: 10mm 10mm; }
   body { background:#fff; }
 }
@@ -262,7 +274,7 @@ th { font-size:12px; color:var(--muted); font-weight:700; }
 ここに1行足すだけです（例：["emergencyContact", "緊急連絡先"]）。
 ・業務日誌の「区分」は本社が画面から直せます（下の LOG_COL の中に保存）。
 ========================================================= */
-const APP_VERSION = "リーダー用 2026-11-24";
+const APP_VERSION = "リーダー用 2026-11-27";
 
 /* ---------- 社長用（見るだけ） ----------
 社長用の入口（shacho.html）から ?view=shacho 付きで開いたときだけ、
@@ -385,6 +397,7 @@ const state = {
   logs: [],              // 選んだ月に読み込んだ日誌
   logLoaded: "",         // 読み込みが済んだ年月（空なら未読込）
   logLoading: false,
+  logLoadErr: "",        // 読み込みに失敗したときの理由（あるあいだは自動で読み直さない）
   logWho: "",            // 本社が見ている「書いた人」（空＝自分）
   logDate: ymdToday(),
   logCats: [],           // 入力中の区分
@@ -432,8 +445,18 @@ function startFirebase() {
 
 /* ---------- 小さな道具 ---------- */
 function esc(s) {
-  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
+/* 写真のURLとして安全なものだけを通す（data:画像 か https:// のみ）。それ以外は「写真なし」として扱う */
+function safeImgSrc(u) {
+  if (typeof u !== "string") return "";
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) return u;
+  if (/^https:\/\/[^\s"'<>\\`]+$/.test(u)) return u;
+  return "";
+}
+/* 書類のIDに、変わった文字（引用符・かっこなど）が入っているものは読み飛ばす（画面の部品に埋めこんでも安全にするため） */
+function validLeave(r) { return typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date); }
+function okDocId(id) { return typeof id === "string" && id.length > 0 && !/['"\\<>`$&\s\u0000-\u001f]/.test(id); }
 function parseDate(v) {
   if (!v) return null;
   const d = new Date(String(v).replace(/[年月]/g, "-").replace(/日/g, ""));
@@ -558,7 +581,7 @@ function logout() {
   state.user = null; state.employees = []; state.leaves = []; state.cplSites = []; state.cplSitesSig = undefined; state.messages = [];
   state.empId = null; state.chatEmpId = null; state.tab = "home";
   state.loading = false; state.notesDraft = null;
-  state.logs = []; state.logLoaded = ""; state.logWho = ""; state.logCatMaster = null;
+  state.logs = []; state.logLoaded = ""; state.logLoadErr = ""; state.logWho = ""; state.logCatMaster = null;
   state.logCats = []; state.logText = ""; state.logCatEdit = false;
   state.setupEmpId = null; state.setupSearch = ""; state.setupLoginId = ""; state.setupPw = "";
   state.setupDone = null; state.secrets = {}; state.secretsLoaded = false;
@@ -599,7 +622,7 @@ function subscribeShacho() {
     render();
     viewerUnsubs.push(db.collection("employees").where("viewerEnabled", "==", true).onSnapshot(snap => {
       state.employees = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }))
         .filter(e => e.status !== "resigned");
       state.loading = false;
       render();
@@ -609,22 +632,22 @@ function subscribeShacho() {
   let restStarted = false;
   viewerUnsubs.push(db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }))
       .filter(e => e.status !== "resigned");
     state.loading = false;
     render();
     if (restStarted) return;
     restStarted = true;
     viewerUnsubs.push(db.collection("leaveRequests").onSnapshot(s2 => {
-      state.leaves = s2.docs.map(d => ({ id: d.id, ...d.data() }));
+      state.leaves = s2.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() })).filter(validLeave);
       render();
     }, err => console.error("leaveRequests購読エラー", err)));
     viewerUnsubs.push(db.collection("interviews").onSnapshot(s3 => {
-      state.interviews = s3.docs.map(d => ({ id: d.id, ...d.data() }));
+      state.interviews = s3.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }));
       render();
     }, err => console.error("interviews購読エラー", err)));
     viewerUnsubs.push(db.collection("messages").onSnapshot(s4 => {
-      state.messages = s4.docs.map(d => ({ id: d.id, ...d.data() }));
+      state.messages = s4.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }));
       render();
     }, err => console.error("messages購読エラー", err)));
     subscribeSiteLeaves();
@@ -637,24 +660,32 @@ function subscribeAll() {
   if (isShacho()) return subscribeShacho();
   viewerUnsubs.push(db.collection("employees").onSnapshot(snap => {
     state.employees = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }))
       .filter(e => e.status !== "resigned"); // 退職者はこのページに出しません
     state.loading = false;
     render();
-  }, err => { state.loading = false; render(); alert("従業員データを読み込めませんでした: " + err.message); }));
+  }, err => {
+    state.loading = false; render();
+    console.error("employees購読エラー", err);
+    // 「箱だけ」のまま黙らないよう、理由を出す（同じ内容の表示を何度も出さないよう、1回だけ）
+    if (!state.empLoadWarned) {
+      state.empLoadWarned = true;
+      alert("従業員データを読み込めませんでした。\n電波のよいところで、ページを開き直してください。\n（" + ((err && err.code) || (err && err.message) || "") + "）");
+    }
+  }));
 
   viewerUnsubs.push(db.collection("leaveRequests").onSnapshot(snap => {
-    state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.leaves = snap.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() })).filter(validLeave);
     render();
   }, err => console.error("leaveRequests購読エラー", err)));
 
   viewerUnsubs.push(db.collection("messages").onSnapshot(snap => {
-    state.messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.messages = snap.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("messages購読エラー", err)));
 
   viewerUnsubs.push(db.collection("interviews").onSnapshot(snap => {
-    state.interviews = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.interviews = snap.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("interviews購読エラー", err)));
 
@@ -928,22 +959,27 @@ async function loadLogs(force) {
       if (state.logCatMaster.indexOf(TRIP_CAT) < 0) state.logCatMaster.splice(1, 0, TRIP_CAT);
     }
     const snap = await db.collection(LOG_COL).where("ym", "==", ym).get();
-    state.logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.logs = snap.docs.filter(d => okDocId(d.id)).map(d => ({ id: d.id, ...d.data() }));
     state.logLoaded = ym;
   } catch (e) {
+    // 失敗したら理由を画面に出して止まる（以前は、エラーの表示→読み直し→エラーの表示…と止まらなくなることがあった）
     state.logLoaded = "";
-    alert("業務日誌を読み込めませんでした: " + e.message);
+    state.logLoadErr = (e && e.code === "unavailable") ? "インターネットにつながっていないようです。" :
+      (e && e.code === "permission-denied") ? "読み取りが許可されませんでした。入口からもう一度開いてください。" :
+      ((e && e.message) || "原因不明のエラー");
   }
   state.logLoading = false; render();
 }
 function ensureLogsLoaded() {
   if (state.logLoading) return;
+  if (state.logLoadErr) return;
   if (state.logLoaded === state.logYm && state.logCatMaster) return;
   loadLogs();
 }
+function reloadLogs() { state.logLoadErr = ""; state.logLoaded = ""; render(); }
 function changeLogYm(ym) {
   if (!ym) return;
-  state.logYm = ym; state.logLoaded = ""; state.logs = [];
+  state.logYm = ym; state.logLoaded = ""; state.logs = []; state.logLoadErr = "";
   render();
 }
 
@@ -1037,6 +1073,11 @@ async function saveLogCats() {
 function renderLogTab() {
   ensureLogsLoaded();
   if (state.logLoading) return `<div class="card"><p class="muted" style="margin:0;">業務日誌を読み込んでいます…</p></div>`;
+  if (state.logLoadErr) return `<div class="card" style="border:2px solid #e0a100; background:#fff8e1;">
+  <p class="title" style="margin:0 0 6px;">業務日誌を読み込めませんでした</p>
+  <p class="muted" style="margin:0 0 12px; font-size:13px;">${esc(state.logLoadErr)}<br>電波のよいところで、下のボタンを押してください。</p>
+  <button class="small" onclick="reloadLogs()">もう一度読む</button>
+</div>`;
 
   const me = myAuthorId();
   const who = shownAuthorId();
@@ -1094,9 +1135,9 @@ function renderLogTab() {
     </div>` : ""}
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
-    <button class="small" onclick="printLogSheet('${esc(who)}')">🖨 ${mine ? "1か月を印刷" : "この人の1か月を印刷"}</button>
+    <button class="small" data-who="${esc(who)}" onclick="printLogSheet(this.dataset.who)">🖨 ${mine ? "1か月を印刷" : "この人の1か月を印刷"}</button>
     ${seeAll ? `<button class="small" style="background:var(--blue-dark);" onclick="printAllLogSheets()">🖨 全員分をまとめて印刷</button>` : ""}
-    <button class="ghost" onclick="state.logLoaded=''; render();">最新に読み直す</button>
+    <button class="ghost" onclick="reloadLogs()">最新に読み直す</button>
   </div>
   <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
     ${mine ? "表の行を押すと、その日の入力になります。" : esc(authorNameOf(who) || "この方") + " の日誌を見ています（書きかえはできません）。"}
@@ -1110,7 +1151,7 @@ ${mine ? `
   <input type="date" value="${state.logDate}" onchange="pickLogDay(this.value)" />
   <label>区分（いくつでも選べます）</label>
   <div class="catbox">
-    ${cats.map(c => `<button type="button" class="chip ${c === TRIP_CAT ? "trip" : ""} ${state.logCats.indexOf(c) >= 0 ? "on" : ""}" onclick="toggleLogCat('${esc(c).replace(/'/g, "&#39;")}')">${esc(c)}</button>`).join("")}
+    ${cats.map(c => `<button type="button" class="chip ${c === TRIP_CAT ? "trip" : ""} ${state.logCats.indexOf(c) >= 0 ? "on" : ""}" data-cat="${esc(c)}" onclick="toggleLogCat(this.dataset.cat)">${esc(c)}</button>`).join("")}
   </div>
   <label style="margin-top:14px;">内容（その日やったこと）</label>
   <textarea id="logText" placeholder="例）さわ病院 巡回・床の仕上がり確認／〇〇マンション 見積り／新人1名 同行指導" oninput="state.logText=this.value;">${esc(state.logText)}</textarea>
@@ -1185,17 +1226,58 @@ function buildLogSheet(authorId, ym) {
   <div class="sfoot"><b>今月の特記事項・所感</b></div>
 </div>`;
 }
-function doPrint(html) {
-  printEl.innerHTML = html;
-  const done = () => { printEl.innerHTML = ""; window.removeEventListener("afterprint", done); };
-  window.addEventListener("afterprint", done);
-  setTimeout(() => { if (printEl.innerHTML) printEl.innerHTML = ""; }, 60000);
-  window.print();
+/* 印刷のながれ
+   ①「印刷」ボタン → 画面に見本（プレビュー）を出す（ここでは印刷を始めない）
+   ②「🖨 印刷する」を押す → 印刷の画面が開く
+   【前のやり方でうまくいかなかった理由】
+   ・ボタンを押した瞬間に印刷の画面を開いていたため、ロゴなどの準備が間に合わず白紙になることがあった
+   ・印刷が終わった（と端末が勘違いした）瞬間に中身を消していたため、iPad・スマホで白紙になることがあった
+   ・60秒たつと中身が消えていたため、印刷の設定に時間がかかると白紙になった */
+let printTitleBackup = null, printFileTitle = "";
+function doPrint(html, fileTitle) {
+  printFileTitle = fileTitle || "業務日誌";
+  const wpx = 190 / 25.4 * 96;                                           // 用紙の中身(190mm)を画面のピクセルに直す
+  const avail = Math.max(260, (document.documentElement.clientWidth || window.innerWidth || 800) - 16);
+  printEl.style.setProperty("--pz", String(Math.min(1, avail / wpx)));  // 画面が狭いときは見本を縮めて見せる（印刷は実寸）
+  printEl.innerHTML = `
+<div class="pv-bar">
+  <button class="small" onclick="doPrintNow()">🖨 印刷する</button>
+  <button class="ghost" onclick="closePrintPreview()">とじる</button>
+  <div class="pv-msg">用紙は「A4・たて」です。印刷の画面で、倍率が「100%」か「実際のサイズ」になっていることをご確認ください（1か月が1枚におさまります）。「PDFに保存」もできます。</div>
+</div>
+<div class="pv-body">${html}</div>`;
+  printEl.className = "show";
+  printEl.scrollTop = 0;
+}
+function doPrintNow() {
+  try {
+    if (printTitleBackup === null) printTitleBackup = document.title;
+    document.title = printFileTitle;                                     // PDFに保存するときのファイル名になります
+  } catch (e) {}
+  try {
+    window.print();
+  } catch (e) {
+    const bar = printEl.querySelector(".pv-bar");
+    if (bar) bar.insertAdjacentHTML("afterend", `<div class="pv-fail">この画面からは印刷の画面を開けませんでした。ブラウザ（Safari・Chromeなど）の「共有」または「メニュー」から「印刷」を選んでください。</div>`);
+  }
+}
+function closePrintPreview() {
+  printEl.className = "";
+  printEl.innerHTML = "";
+  if (printTitleBackup !== null) { document.title = printTitleBackup; printTitleBackup = null; }
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape" && printEl && printEl.className === "show") closePrintPreview(); });
+function printTitleOf(authorId, ym) {
+  const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+  return "業務日誌_令和" + reiwa(y) + "年" + m + "月_" + (authorNameOf(authorId) || "");
 }
 function printLogSheet(authorId) {
-  doPrint(buildLogSheet(authorId || shownAuthorId(), state.logYm));
+  const id = authorId || shownAuthorId();
+  if (state.logLoaded !== state.logYm) return alert("日誌をまだ読み込めていません。「もう一度読む」を押して、読み込めてから印刷してください。");
+  doPrint(buildLogSheet(id, state.logYm), printTitleOf(id, state.logYm));
 }
 function printAllLogSheets() {
+  if (state.logLoaded !== state.logYm) return alert("日誌をまだ読み込めていません。「もう一度読む」を押して、読み込めてから印刷してください。");
   const ids = [];
   (state.logs || []).forEach(l => {
     const has = (l.text || "").trim() || (l.cats || []).length;
@@ -1203,7 +1285,8 @@ function printAllLogSheets() {
   });
   if (!ids.length) return alert("この月に書かれた日誌がまだありません");
   ids.sort((a, b) => (authorNameOf(a) || "").localeCompare(authorNameOf(b) || "", "ja"));
-  doPrint(ids.map(id => buildLogSheet(id, state.logYm)).join(""));
+  const y = Number(state.logYm.slice(0, 4)), m = Number(state.logYm.slice(5, 7));
+  doPrint(ids.map(id => buildLogSheet(id, state.logYm)).join(""), "業務日誌_令和" + reiwa(y) + "年" + m + "月_全員分");
 }
 
 /* ---------- 画面の土台 ---------- */
@@ -1406,6 +1489,7 @@ function renderLogin() {
     appEl.innerHTML = `<div class="center-screen"><div class="card login-card">
       <h1>アシスト（社長用）</h1>
       <p class="sub">${esc(state.shachoErr || "読み込み中です…")}</p>
+      ${state.shachoRetry ? `<button class="small" style="margin-bottom:10px;" onclick="shachoLogin()">もう一度つなぐ</button><br>` : ""}
       <a class="small" style="display:inline-block;text-decoration:none;" href="${SHACHO_HOME}">入口にもどる</a>
     </div></div>`;
     return;
@@ -2151,7 +2235,7 @@ function renderBubble(m) {
   <div>
     <div class="bubble">
       ${m.text ? esc(m.text) : ""}
-      ${m.photoURL ? `<img src="${m.photoURL}" onclick="window.open('${m.photoURL}','_blank')" />` : ""}
+      ${safeImgSrc(m.photoURL) ? `<img src="${esc(safeImgSrc(m.photoURL))}" onclick="window.open(this.src,'_blank')" />` : ""}
     </div>
     <div class="meta">${mine ? esc(m.senderName || "本社") + " " : ""}${fmtChatTime(m.createdAt)}</div>
   </div>
@@ -2407,27 +2491,52 @@ function renderSetupDone() {
 `;
 }
 
+/* 電波がわるくて起きたエラーかどうか（このときは、カードのQRを読み直さなくても、つなぎなおせば入れます） */
+function isNetError(e) {
+  const c = (e && e.code) || "";
+  return c === "auth/network-request-failed" || c === "unavailable" || c === "deadline-exceeded" || c === "auth/timeout" || (!c && !navigator.onLine);
+}
+let shachoBusy = false;
 async function shachoLogin() {
-  if (!shachoKey()) { state.shachoErr = "社長用カードのQRコードから開いてください。"; render(); return; }
-  state.loading = true; render();
+  if (shachoBusy) return;
+  if (!shachoKey()) { state.shachoErr = "社長用カードのQRコードから開いてください。"; state.shachoRetry = false; render(); return; }
+  shachoBusy = true;
+  state.loading = true; state.shachoErr = ""; state.shachoRetry = false; render();
+  let lastErr = null;
   try {
-    const cred = await viewerApp.auth().signInWithEmailAndPassword(SHACHO_EMAIL, shachoKey());
-    state.user = { name: "社長", isAdmin: false, isShacho: true, uid: cred.user.uid };
-    const t = new URLSearchParams(location.search).get("tab");
-    state.tab = ["emp", "leave", "chat", "log", "interview"].indexOf(t) >= 0 ? t : "emp";
-    /* 社長の登録の確認と、データの読み込みを同時に始めます（待ち時間を短くするため） */
-    const check = db.collection("presidents").doc(cred.user.uid).get();
-    subscribeAll();
-    const p = await check;
-    if (!p.exists) throw new Error("not-registered");
-    const nm = (p.data() || {}).name;
-    if (nm && nm !== state.user.name) { state.user.name = nm; render(); }
-  } catch (e) {
+    for (let i = 0; i < 3; i++) {
+      try {
+        const cred = await viewerApp.auth().signInWithEmailAndPassword(SHACHO_EMAIL, shachoKey());
+        state.user = { name: "社長", isAdmin: false, isShacho: true, uid: cred.user.uid };
+        const t = new URLSearchParams(location.search).get("tab");
+        state.tab = ["emp", "leave", "chat", "log", "interview"].indexOf(t) >= 0 ? t : "emp";
+        /* 社長の登録の確認と、データの読み込みを同時に始めます（待ち時間を短くするため） */
+        const check = db.collection("presidents").doc(cred.user.uid).get();
+        subscribeAll();
+        const p = await check;
+        if (!p.exists) throw new Error("not-registered");
+        const nm = (p.data() || {}).name;
+        if (nm && nm !== state.user.name) { state.user.name = nm; render(); }
+        return;
+      } catch (e) {
+        lastErr = e;
+        stopViewerSubscriptions();
+        if (!isNetError(e)) break;                                  // カードや登録のまちがいは、やり直しても同じ
+        await new Promise(r => setTimeout(r, 1500 * (i + 1)));      // 電波のせいかもしれないので、少し待ってやり直す
+      }
+    }
     state.user = null;
     await viewerApp.auth().signOut().catch(() => {});
     state.loading = false;
-    state.shachoErr = "社長用カードで入れませんでした。もういちど、カードのQRコードを読んでください。";
+    if (isNetError(lastErr)) {
+      state.shachoErr = "電波がよくないようです。電波のよいところで、下の「もう一度つなぐ」を押してください。";
+      state.shachoRetry = true;
+    } else {
+      state.shachoErr = "社長用カードで入れませんでした。もういちど、カードのQRコードを読んでください。";
+    }
     render();
+  } finally {
+    shachoBusy = false;
   }
 }
 
